@@ -1,0 +1,22 @@
+/** Unit conversion constants. Internal units are SI: m, kg, s, rad, N, Pa, K. */
+export const FT = 0.3048; // m per ft
+export const M_TO_FT = 1 / FT;
+export const KT = 0.514444; // m/s per knot
+export const MS_TO_KT = 1 / KT;
+export const NM = 1852; // m per nautical mile
+export const LBF = 4.44822; // N per lbf
+export const LB = 0.45359237; // kg per lb (mass)
+export const SLUGFT2 = 1.355818; // kg·m² per slug·ft²
+export const LB_PER_FT = 14.5939; // N/m per lb/ft (spring)
+export const LBS_PER_FT = 14.5939; // N·s/m per lb·s/ft (damper)
+export const HP = 745.7; // W per hp
+export const INHG = 3386.39; // Pa per inHg
+export const USGAL = 3.785411784; // L per US gal
+export const AVGAS_KG_PER_L = 0.72;
+export const AVGAS_KG_PER_GAL = USGAL * AVGAS_KG_PER_L; // ≈ 2.725 kg
+export const DEG = Math.PI / 180;
+export const RAD = 180 / Math.PI;
+export const FPM = FT / 60; // m/s per ft/min
+export const MS_TO_FPM = 1 / FPM;
+export const G0 = 9.80665;
+export const RPM_TO_RADS = (2 * Math.PI) / 60;
