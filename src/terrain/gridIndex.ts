@@ -9,6 +9,10 @@
  * Vertex layout (shared with tileMesh.ts): main grid vertex (i, j) → `j * (N+1) + i`,
  * i east (+x), j south (+z). Skirt vertices follow at `S = (N+1)²`: top edge (j = 0,
  * i = 0..N), bottom (j = N), left (i = 0, j = 0..N), right (i = N), each N+1 vertices.
+ *
+ * Index layout: grid (6·N² indices, Morton order), then the four skirt edges, each a run of
+ * N quads (6·N indices) in edge order: top, bottom, left, right. Keeping the edges separate
+ * lets a sub-square draw exactly the skirt segments on its own border.
  */
 
 const cache = new Map<number, Uint16Array | Uint32Array>();
@@ -41,6 +45,8 @@ export function mortonDecode(code: number, out: Int32Array | number[]): void {
 
 /** Number of vertices in a tile mesh with `quads` quads per side (grid + skirt). */
 export const tileVertexCount = (quads: number): number => (quads + 1) * (quads + 1) + 4 * (quads + 1);
+/** Number of vertices of the main grid only. */
+export const gridVertexCount = (quads: number): number => (quads + 1) * (quads + 1);
 /** Number of indices of the main grid (6 per quad). */
 export const gridIndexCount = (quads: number): number => 6 * quads * quads;
 /** Total index count including the skirt (4·N skirt quads). */
@@ -77,21 +83,25 @@ export function gridIndex(quads: number): Uint16Array | Uint32Array {
   const top = S, bottom = S + W, left = S + 2 * W, right = S + 3 * W;
   for (let i = 0; i < N; i++) {
     // top edge (north, j = 0): outward −z
-    let a = i, b = i + 1, as = top + i, bs = top + i + 1;
+    const a = i, b = i + 1, as = top + i, bs = top + i + 1;
     index[k++] = a; index[k++] = b; index[k++] = bs;
     index[k++] = a; index[k++] = bs; index[k++] = as;
+  }
+  for (let i = 0; i < N; i++) {
     // bottom edge (south, j = N): outward +z → reversed winding
-    a = N * W + i; b = a + 1; as = bottom + i; bs = bottom + i + 1;
+    const a = N * W + i, b = a + 1, as = bottom + i, bs = bottom + i + 1;
     index[k++] = a; index[k++] = bs; index[k++] = b;
     index[k++] = a; index[k++] = as; index[k++] = bs;
   }
   for (let j = 0; j < N; j++) {
     // left edge (west, i = 0): outward −x → reversed winding
-    let a = j * W, b = a + W, as = left + j, bs = left + j + 1;
+    const a = j * W, b = a + W, as = left + j, bs = left + j + 1;
     index[k++] = a; index[k++] = bs; index[k++] = b;
     index[k++] = a; index[k++] = as; index[k++] = bs;
+  }
+  for (let j = 0; j < N; j++) {
     // right edge (east, i = N): outward +x
-    a = j * W + N; b = a + W; as = right + j; bs = right + j + 1;
+    const a = j * W + N, b = a + W, as = right + j, bs = right + j + 1;
     index[k++] = a; index[k++] = b; index[k++] = bs;
     index[k++] = a; index[k++] = bs; index[k++] = as;
   }
@@ -101,6 +111,13 @@ export function gridIndex(quads: number): Uint16Array | Uint32Array {
 
 export interface IndexRange { start: number; count: number }
 
+/** Clamp a (depth, code) sub-square path to the grid's resolution (a single quad at most). */
+function clampDepth(quads: number, depth: number, code: number): { depth: number; code: number } {
+  const maxDepth = Math.log2(quads);
+  if (depth > maxDepth) return { depth: maxDepth, code: code >>> (2 * (depth - maxDepth)) };
+  return { depth, code };
+}
+
 /**
  * Index range (into `gridIndex(quads)`) of the grid sub-square at `depth` levels below the
  * tile whose Morton path is `code` (bit pairs, most significant pair = first subdivision;
@@ -109,39 +126,47 @@ export interface IndexRange { start: number; count: number }
  */
 export function quadrantGridRange(quads: number, depth: number, code: number): IndexRange {
   assertPow2(quads);
-  const maxDepth = Math.log2(quads);
-  if (depth > maxDepth) { code >>>= 2 * (depth - maxDepth); depth = maxDepth; }
-  const quadsPerSide = quads >>> depth;
+  const c = clampDepth(quads, depth, code);
+  const quadsPerSide = quads >>> c.depth;
   const quadCount = quadsPerSide * quadsPerSide;
-  return { start: code * quadCount * 6, count: quadCount * 6 };
+  return { start: c.code * quadCount * 6, count: quadCount * 6 };
 }
 
 /**
  * Skirt index ranges for the outer edges of the sub-square described by (depth, code):
- * segments of the tile's own skirt that lie on the sub-square's border. Interior edges
+ * the segments of the tile's own skirt that lie on the sub-square's border. Interior edges
  * (shared with sibling sub-squares) have no skirt. Returns 0–2 ranges (4 at depth 0).
  */
 export function quadrantSkirtRanges(quads: number, depth: number, code: number, out: IndexRange[] = []): IndexRange[] {
   assertPow2(quads);
   out.length = 0;
-  const maxDepth = Math.log2(quads);
-  if (depth > maxDepth) { code >>>= 2 * (depth - maxDepth); depth = maxDepth; }
+  const c = clampDepth(quads, depth, code);
   const N = quads;
-  const side = N >>> depth; // quads per side of the sub-square
+  const side = N >>> c.depth; // quads per side of the sub-square
   // Sub-square origin in quad units: decode the path from the most significant pair down.
   let i0 = 0, j0 = 0;
-  for (let d = 0; d < depth; d++) {
-    const pair = (code >>> (2 * (depth - 1 - d))) & 3;
+  for (let d = 0; d < c.depth; d++) {
+    const pair = (c.code >>> (2 * (c.depth - 1 - d))) & 3;
     const half = N >>> (d + 1);
     if (pair & 1) i0 += half;
     if (pair & 2) j0 += half;
   }
   const gridEnd = gridIndexCount(N);
-  // Skirt layout per edge interleaves top/bottom per i and left/right per j (12 indices per step).
-  const topBottomBase = gridEnd, leftRightBase = gridEnd + 12 * N;
-  if (j0 === 0) out.push({ start: topBottomBase + i0 * 12, count: side * 12 }); // top (+ interleaved bottom quads)
-  if (j0 + side === N) out.push({ start: topBottomBase + i0 * 12, count: side * 12 });
-  if (i0 === 0) out.push({ start: leftRightBase + j0 * 12, count: side * 12 });
-  if (i0 + side === N) out.push({ start: leftRightBase + j0 * 12, count: side * 12 });
+  const top = gridEnd, bottom = gridEnd + 6 * N, left = gridEnd + 12 * N, right = gridEnd + 18 * N;
+  if (j0 === 0) out.push({ start: top + i0 * 6, count: side * 6 });
+  if (j0 + side === N) out.push({ start: bottom + i0 * 6, count: side * 6 });
+  if (i0 === 0) out.push({ start: left + j0 * 6, count: side * 6 });
+  if (i0 + side === N) out.push({ start: right + j0 * 6, count: side * 6 });
   return out;
+}
+
+/**
+ * Morton path code of the descendant tile (zc, xc, yc) relative to its ancestor at zoom
+ * `za` (depth = zc − za): the bit pairs of the child's x/y below the ancestor, most
+ * significant first — the `code` argument of `quadrantGridRange`/`quadrantSkirtRanges`.
+ */
+export function descendantCode(za: number, zc: number, xc: number, yc: number): number {
+  const depth = zc - za;
+  const mask = (1 << depth) - 1;
+  return mortonEncode(xc & mask, yc & mask);
 }
