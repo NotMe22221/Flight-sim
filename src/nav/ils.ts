@@ -139,8 +139,10 @@ export function buildIlsGeometry(airportIcao: string, rw: RunwayRecord, endIndex
   if (!ils) return undefined;
   const hdg = end.headingDeg;
   const thr = landingThreshold(end);
-  const locAntenna = destinationPoint(opposite.threshold, hdg, LOC_ANTENNA_BEYOND_END_M, opposite.threshold.alt);
-  const dLoc = greatCircleDistance(locAntenna, thr);
+  // Anchor the antenna on the course line through the threshold (recorded headings are rounded
+  // to whole degrees, so the far-end coordinate can sit a few metres off that line).
+  const dLoc = greatCircleDistance(thr, opposite.threshold) + LOC_ANTENNA_BEYOND_END_M;
+  const locAntenna = destinationPoint(thr, hdg, dLoc, opposite.threshold.alt);
   const locFullScaleDeg = clamp(Math.atan(LOC_HALF_WIDTH_AT_THRESHOLD_M / Math.max(dLoc, 1)) * R2D, LOC_HALF_WIDTH_MIN_DEG, LOC_HALF_WIDTH_MAX_DEG);
   const gsReference = destinationPoint(thr, hdg, GS_ANTENNA_SETBACK_M, thr.alt);
   const gsAntenna = destinationPoint(gsReference, wrap360(hdg + 90), GS_ANTENNA_LATERAL_M, thr.alt);

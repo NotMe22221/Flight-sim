@@ -1,0 +1,166 @@
+/**
+ * Pure lighting / exposure / fog curves driven by sun elevation and weather. No Three.js here so
+ * every curve is unit-testable; `SkySystem` feeds the results into lights, fog and the renderer.
+ *
+ * Colour conventions: tuples are linear RGB in the renderer's working colour space (linear-sRGB).
+ * `acesFilmic` + `linearToSrgb` reproduce Three.js r187 `ACESFilmicToneMapping` + output encoding
+ * so a CPU-computed colour can match what a shader produces for the same radiance.
+ */
+import { clamp, lerp, smoothstep } from '../core/math';
+import type { CloudLayer, Vec3 } from '../core/types';
+
+/** Exposure (eye adaptation) targets, all exposed as `SkySystem` options. */
+export interface ExposureOptions {
+  /** bright day; the Three.js sky example uses 0.5 */ day: number;
+  /** civil twilight */ twilight: number;
+  /** deep night (moonless night is slightly higher) */ night: number;
+  /** extra relative exposure under a full overcast (darker scene → eye opens) */ overcastBoost: number;
+  /** adaptation time constant, s */ adaptTimeS: number;
+}
+
+export const DEFAULT_EXPOSURE: Readonly<ExposureOptions> = { day: 0.6, twilight: 1.0, night: 1.5, overcastBoost: 0.4, adaptTimeS: 1.5 };
+
+/** Relative luminance (Rec. 709 weights) of a linear RGB tuple. */
+export const luminance = (c: ArrayLike<number>): number => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+
+/** Total cloud cover 0..1 from independent layers: 1 − Π(1 − coverage). */
+export function cloudCoverFraction(layers: readonly CloudLayer[]): number {
+  let clear = 1;
+  for (const l of layers) clear *= 1 - clamp(l.coverage, 0, 1) * clamp(l.density, 0, 1);
+  return 1 - clear;
+}
+
+/**
+ * Deterministic auto-exposure target from sun elevation (deg) and cloud cover.
+ * Monotonically decreasing in elevation; bounded by [day, night·(1 + 0.15)] (moonless night).
+ */
+export function targetExposure(sunElDeg: number, cloudCover: number, moonFraction: number, o: ExposureOptions = DEFAULT_EXPOSURE): number {
+  const night = o.night * (1 + 0.15 * (1 - clamp(moonFraction, 0, 1)));
+  const tDawn = smoothstep(-6, 8, sunElDeg); // twilight → day
+  const tNight = smoothstep(-18, -6, sunElDeg); // night → twilight
+  let e = lerp(lerp(night, o.twilight, tNight), o.day, tDawn);
+  e *= 1 + o.overcastBoost * clamp(cloudCover, 0, 1) * tDawn;
+  return e;
+}
+
+/** First-order adaptation step: `exposure += (target − exposure)·(1 − exp(−dt/τ))`. */
+export const adaptExposure = (current: number, target: number, dt: number, tauS: number): number =>
+  current + (target - current) * (1 - Math.exp(-Math.max(dt, 0) / Math.max(tauS, 1e-3)));
+
+/**
+ * Sun DirectionalLight intensity. `transmittance` is the Preetham extinction toward the sun
+ * (its luminance falls from ≈0.87 at the zenith to ≈0.04 at the horizon, which reproduces the
+ * dimming of a low sun); `base` ≈ 3 gives ≈100 klx-equivalent under exposure 0.6 with ACES.
+ */
+export function sunLightIntensity(sunElDeg: number, transmittance: Vec3, cloudCover: number, base = 3): number {
+  const disc = smoothstep(-1.5, 3, sunElDeg); // disc rising over the horizon
+  const lum = clamp(luminance(transmittance), 0, 1);
+  return base * disc * lum * (1 - 0.85 * clamp(cloudCover, 0, 1));
+}
+
+/** Sun light colour: transmittance normalised so the brightest channel is 1 (hue only; magnitude lives in the intensity). */
+export function normalizeColor(c: Vec3, out: Vec3 = [0, 0, 0]): Vec3 {
+  const m = Math.max(c[0], c[1], c[2], 1e-6);
+  out[0] = c[0] / m; out[1] = c[1] / m; out[2] = c[2] / m;
+  return out;
+}
+
+/** Approximate correlated colour temperature (K) of a linear RGB colour via McCamy's formula. Informational (UI). */
+export function colorTemperatureK(c: Vec3): number {
+  // linear sRGB → XYZ (D65)
+  const X = 0.4124 * c[0] + 0.3576 * c[1] + 0.1805 * c[2];
+  const Y = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  const Z = 0.0193 * c[0] + 0.1192 * c[1] + 0.9505 * c[2];
+  const s = X + Y + Z || 1;
+  const x = X / s, y = Y / s;
+  const n = (x - 0.332) / (0.1858 - y);
+  return 449 * n ** 3 + 3525 * n ** 2 + 6823.3 * n + 5520.33;
+}
+
+/** HemisphereLight intensity: skylight without direct sun. Rises through twilight, slightly higher under cloud (diffuse). */
+export function hemisphereIntensity(sunElDeg: number, cloudCover: number): number {
+  return lerp(0.02, 0.9, smoothstep(-12, 10, sunElDeg)) * (1 + 0.3 * clamp(cloudCover, 0, 1));
+}
+
+/** AmbientLight floor so the night is never pitch black (starlight + airglow + moon fill). */
+export function ambientFloor(sunElDeg: number, moonFraction: number, moonElDeg: number): number {
+  const night = 1 - smoothstep(-12, 0, sunElDeg);
+  const moon = clamp(moonFraction, 0, 1) * smoothstep(-2, 10, moonElDeg);
+  return night * (0.012 + 0.03 * moon);
+}
+
+/** Moonlight DirectionalLight intensity ≈ 0.25 lx full moon vs 100 klx sun, boosted so it reads after night exposure. */
+export function moonLightIntensity(moonElDeg: number, illuminatedFraction: number, cloudCover: number, sunElDeg: number): number {
+  const up = smoothstep(-1, 5, moonElDeg);
+  const dark = 1 - smoothstep(-10, -2, sunElDeg); // irrelevant by day
+  return 0.08 * clamp(illuminatedFraction, 0, 1) * up * dark * (1 - 0.9 * clamp(cloudCover, 0, 1));
+}
+
+/** Star alpha 0..1: fades in from civil to nautical twilight, hidden by cloud. */
+export function starVisibility(sunElDeg: number, cloudCover: number): number {
+  return (1 - smoothstep(-12, -3, sunElDeg)) * (1 - clamp(cloudCover, 0, 1));
+}
+
+/** Preetham turbidity (2 clear … 10 hazy) from meteorological visibility (m) and the aerosol slider. */
+export function turbidityFromVisibility(visibilityM: number, aerosol: number): number {
+  const tVis = 2 + 8 * (1 - Math.min(Math.max(visibilityM, 1), 20_000) / 20_000);
+  return clamp(Math.max(tVis, 2 + 8 * clamp(aerosol, 0, 1)), 2, 10);
+}
+
+/** Mie coefficient for the sky dome: more forward-scattering haze as visibility drops. */
+export function mieFromVisibility(visibilityM: number, aerosol: number): number {
+  const haze = Math.max(1 - Math.min(Math.max(visibilityM, 1), 30_000) / 30_000, clamp(aerosol, 0, 1));
+  return lerp(0.003, 0.03, haze);
+}
+
+/** Koschmieder extinction coefficient β (m⁻¹) for a 2 % contrast threshold: β = 3.912 / V. */
+export const fogBetaFromVisibility = (visibilityM: number): number => 3.912 / Math.max(visibilityM, 10);
+
+/**
+ * `THREE.FogExp2` density that reproduces the same 2 % residual contrast at the visibility distance:
+ * exp(−d²V²) = 0.02 ⇒ d = 1.978 / V.
+ */
+export const fogExp2DensityFromVisibility = (visibilityM: number): number => 1.9780 / Math.max(visibilityM, 10);
+
+/** Haze scale height H (m): 400 in fog, 1200 for haze, up to 8000 for very clean air. */
+export function hazeScaleHeight(visibilityM: number): number {
+  if (visibilityM < 2000) return lerp(300, 400, visibilityM / 2000);
+  if (visibilityM < 20_000) return lerp(400, 1200, (visibilityM - 2000) / 18_000);
+  return lerp(1200, 8000, clamp((visibilityM - 20_000) / 60_000, 0, 1));
+}
+
+/** Three.js r187 ACESFilmicToneMapping (note the `exposure / 0.6` scaling and the AP1 matrices). Output is linear 0..1. */
+export function acesFilmic(c: Vec3, exposure: number, out: Vec3 = [0, 0, 0]): Vec3 {
+  const k = exposure / 0.6;
+  const r = c[0] * k, g = c[1] * k, b = c[2] * k;
+  // ACESInputMat (row-major application of the transposed GLSL columns)
+  const x = 0.59719 * r + 0.35458 * g + 0.04823 * b;
+  const y = 0.07600 * r + 0.90834 * g + 0.01566 * b;
+  const z = 0.02840 * r + 0.13383 * g + 0.83777 * b;
+  const fit = (v: number): number => (v * (v + 0.0245786) - 0.000090537) / (v * (0.983729 * v + 0.4329510) + 0.238081);
+  const fx = fit(x), fy = fit(y), fz = fit(z);
+  out[0] = clamp(1.60475 * fx - 0.53108 * fy - 0.07367 * fz, 0, 1);
+  out[1] = clamp(-0.10208 * fx + 1.10813 * fy - 0.00605 * fz, 0, 1);
+  out[2] = clamp(-0.00327 * fx - 0.07276 * fy + 1.07602 * fz, 0, 1);
+  return out;
+}
+
+/** Linear → sRGB transfer function (one channel). */
+export const linearToSrgb = (v: number): number => (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
+
+/**
+ * Colour to assign to `scene.fog.color`: Three.js applies `fog_fragment` AFTER tone mapping and
+ * output encoding, so the fog colour must already be tone mapped (with the current exposure) and
+ * sRGB-encoded to match the sky dome, which tone-maps the same radiance in its own shader.
+ */
+export function encodeDisplayColor(linear: Vec3, exposure: number, out: Vec3 = [0, 0, 0]): Vec3 {
+  acesFilmic(linear, exposure, out);
+  out[0] = linearToSrgb(out[0]); out[1] = linearToSrgb(out[1]); out[2] = linearToSrgb(out[2]);
+  return out;
+}
+
+/** Mix two tuples in place: out = a + (b − a)·t. */
+export function mixVec3(a: Vec3, b: Vec3, t: number, out: Vec3 = [0, 0, 0]): Vec3 {
+  out[0] = a[0] + (b[0] - a[0]) * t; out[1] = a[1] + (b[1] - a[1]) * t; out[2] = a[2] + (b[2] - a[2]) * t;
+  return out;
+}

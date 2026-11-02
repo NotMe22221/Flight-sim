@@ -30,12 +30,12 @@ export function electricalLoadA(inputs: ControlInputs, flapsMoving: boolean, avi
 
 /** 28 V bus with a 60 A alternator; without the alternator the battery carries the load. */
 export class ElectricalSystem {
-  voltsV = ELECTRICAL.batteryV;
+  voltsV: number = ELECTRICAL.batteryV;
   ampsA = 0;
   alternatorOnline = false;
   private readonly voltLag = new Lag(0.4, ELECTRICAL.batteryV);
   private readonly chargeLag = new Lag(120, 0);
-  private batteryV = ELECTRICAL.batteryV;
+  private batteryV: number = ELECTRICAL.batteryV;
 
   step(inputs: ControlInputs, engineRunning: boolean, rpm: number, flapsMoving: boolean, dt: number): void {
     const masterOn = inputs.magnetos !== 0 || engineRunning; // we have no master switch in ControlInputs; mags off ≈ cold & dark

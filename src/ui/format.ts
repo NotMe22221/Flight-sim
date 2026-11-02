@@ -141,12 +141,12 @@ export function fuelValue(kg: number, unit: FuelUnit): number {
     case 'gal': return kg / AVGAS_KG_PER_L / L_PER_GAL;
   }
 }
-/** '26.4 gal' / '100 L' / '72 kg' */
+/** '26.4 gal' / '100.0 L' / '72.0 kg'; ≥ 1,000 shown grouped without decimals */
 export function formatFuel(kg: number, unit: FuelUnit): string {
   if (!isFiniteNum(kg)) return '--';
   const v = fuelValue(kg, unit);
   const label = unit === 'l' ? 'L' : unit;
-  return `${v < 100 ? fixed(v, 1) : groupThousands(v)} ${label}`;
+  return `${Math.abs(v) < 1000 ? fixed(v, 1) : groupThousands(v)} ${label}`;
 }
 
 // ── Frequencies ─────────────────────────────────────────────────────────────────────────

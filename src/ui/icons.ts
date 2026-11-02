@@ -1,0 +1,67 @@
+/** Inline SVG icon strings (24×24 viewBox, stroke = currentColor). No external assets. */
+const wrap = (body: string, extra = '') =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${body}</svg>`;
+
+export const ICONS = {
+  plane: wrap('<path d="M2.5 13.5l7-1 3.5 7 2-1-1-7 6.5-2.5c1-.4 1.6-1.4 1.1-2.4-.5-1-1.6-1.2-2.5-.8L13 8.5 7 3l-2 1 3.5 5.5-5.5 2z"/>'),
+  map: wrap('<path d="M9 3l6 2 6-2v16l-6 2-6-2-6 2V5z"/><path d="M9 3v16M15 5v16"/>'),
+  globe: wrap('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>'),
+  cloud: wrap('<path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 11.5 3.5 3.5 0 0 0 7 18z"/>'),
+  cloudSun: wrap('<path d="M9 19h8a3.5 3.5 0 0 0 .4-7A5 5 0 0 0 8 12.6 3.2 3.2 0 0 0 9 19z"/><path d="M5 5l1.2 1.2M3 10h1.5M9 3.5V5M14 5l-1.2 1.2"/><path d="M7.5 9.5A3.5 3.5 0 0 1 13 7.5"/>'),
+  sun: wrap('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>'),
+  moon: wrap('<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>'),
+  cirrus: wrap('<path d="M3 9c4-3 8 2 12-1s5 0 6-1M3 15c4-3 8 2 12-1s5 0 6-1"/>'),
+  overcast: wrap('<path d="M3 10h18M3 14h18M3 18h12"/>'),
+  rain: wrap('<path d="M7 14h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 7.5 3.5 3.5 0 0 0 7 14z"/><path d="M8 17l-1 3M12 17l-1 3M16 17l-1 3"/>'),
+  snow: wrap('<path d="M7 13h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 6.5 3.5 3.5 0 0 0 7 13z"/><path d="M8 17v3M12 16v4M16 17v3M6.8 18.5h2.4M10.8 18h2.4M14.8 18.5h2.4"/>'),
+  storm: wrap('<path d="M7 13h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 6.5 3.5 3.5 0 0 0 7 13z"/><path d="M13 13l-2.5 4h3L11 21"/>'),
+  wind: wrap('<path d="M3 8h11a2.5 2.5 0 1 0-2.5-2.5M3 12h15a2.5 2.5 0 1 1-2.5 2.5M3 16h8a2 2 0 1 1-2 2"/>'),
+  settings: wrap('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
+  info: wrap('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'),
+  help: wrap('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01"/>'),
+  headset: wrap('<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="13" width="4" height="6" rx="1.5"/><rect x="17" y="13" width="4" height="6" rx="1.5"/><path d="M19 19v1a2 2 0 0 1-2 2h-3"/>'),
+  camera: wrap('<path d="M4 8h3l2-2.5h6L17 8h3a1.5 1.5 0 0 1 1.5 1.5V18a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 18V9.5A1.5 1.5 0 0 1 4 8z"/><circle cx="12" cy="13.5" r="3.5"/>'),
+  checklist: wrap('<path d="M9 6h12M9 12h12M9 18h12"/><path d="M3 6l1.2 1.2L6.5 4.8M3 12l1.2 1.2 2.3-2.4M3 18l1.2 1.2 2.3-2.4"/>'),
+  compass: wrap('<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>'),
+  list: wrap('<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>'),
+  pause: wrap('<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>'),
+  play: wrap('<path d="M7 4l12 8-12 8z"/>'),
+  search: wrap('<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>'),
+  close: wrap('<path d="M6 6l12 12M18 6L6 18"/>'),
+  back: wrap('<path d="M15 5l-7 7 7 7"/>'),
+  chevronDown: wrap('<path d="M6 9l6 6 6-6"/>'),
+  chevronRight: wrap('<path d="M9 6l6 6-6 6"/>'),
+  check: wrap('<path d="M5 12.5l4.5 4.5L19 7"/>'),
+  warning: wrap('<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>'),
+  drag: wrap('<circle cx="9" cy="6" r="1.3" fill="currentColor"/><circle cx="15" cy="6" r="1.3" fill="currentColor"/><circle cx="9" cy="12" r="1.3" fill="currentColor"/><circle cx="15" cy="12" r="1.3" fill="currentColor"/><circle cx="9" cy="18" r="1.3" fill="currentColor"/><circle cx="15" cy="18" r="1.3" fill="currentColor"/>'),
+  keyboard: wrap('<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M9 14h6M18 14h.01"/>'),
+  gamepad: wrap('<path d="M6 8h12a4 4 0 0 1 4 4v2a3 3 0 0 1-5.3 1.9L15.5 14h-7l-1.2 1.9A3 3 0 0 1 2 14v-2a4 4 0 0 1 4-4z"/><path d="M7 11h3M8.5 9.5v3M16 10.5h.01M18 12.5h.01"/>'),
+  mouse: wrap('<rect x="7" y="3" width="10" height="18" rx="5"/><path d="M12 7v3"/>'),
+  fuel: wrap('<path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h14M15 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0v-7l-2.5-2.5"/><rect x="8" y="6" width="4" height="4" rx=".5"/>'),
+  weight: wrap('<path d="M6 8h12l2.5 12H3.5z"/><circle cx="12" cy="5" r="2.5"/>'),
+  clock: wrap('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+  fast: wrap('<path d="M4 5l8 7-8 7zM13 5l8 7-8 7z"/>'),
+  target: wrap('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'),
+  flag: wrap('<path d="M5 21V4h12l-2 4 2 4H5"/>'),
+  restart: wrap('<path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v5h5"/>'),
+  home: wrap('<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>'),
+  live: wrap('<circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M7.5 7.5a6.5 6.5 0 0 0 0 9M16.5 7.5a6.5 6.5 0 0 1 0 9M4.5 4.5a10.5 10.5 0 0 0 0 15M19.5 4.5a10.5 10.5 0 0 1 0 15"/>'),
+  sliders: wrap('<path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>'),
+  volume: wrap('<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>'),
+  monitor: wrap('<rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M9 21h6M12 17v4"/>'),
+  arrowUp: wrap('<path d="M12 19V5M5 12l7-7 7 7"/>'),
+  layers: wrap('<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5M3 17l9 5 9-5"/>'),
+  north: wrap('<path d="M12 3l5 16-5-3-5 3z"/>'),
+  trophy: wrap('<path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8M9 18h6"/>'),
+  book: wrap('<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v16H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20"/>'),
+  thermo: wrap('<path d="M10 4a2 2 0 0 1 4 0v9.5a4 4 0 1 1-4 0z"/><path d="M12 9v6"/>'),
+  eye: wrap('<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+};
+
+export type IconName = keyof typeof ICONS;
+
+/** Weather preset id → icon name. */
+export const WEATHER_ICON: Record<string, IconName> = {
+  clear: 'sun', few: 'cloudSun', scattered: 'cloudSun', broken: 'cloud', 'high-level': 'cirrus', overcast: 'overcast',
+  rain: 'rain', snow: 'snow', storm: 'storm', live: 'live', custom: 'sliders',
+};

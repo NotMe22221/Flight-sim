@@ -1,0 +1,163 @@
+/**
+ * CPU port of the Preetham sky model exactly as implemented by the Three.js `Sky` addon
+ * (examples/jsm/objects/Sky.js, r187). Produces the same linear, pre-tone-mapping radiance the
+ * sky dome shader outputs, so fog, hemisphere light, cloud lighting and the sun colour can be
+ * derived from the very same formula and the horizon seam between terrain fog and sky is invisible.
+ *
+ * No Three.js imports: plain `Vec3` tuples so this file is unit-testable in Node.
+ */
+import type { Vec3 } from '../core/types';
+
+/** Uniforms of the Three.js `Sky` material that this port mirrors. */
+export interface PreethamParams {
+  /** 1 (very clear) … 10 (hazy) */ turbidity: number;
+  /** 0–4; higher = bluer/darker zenith, redder sunsets */ rayleigh: number;
+  /** 0–0.1 haze amount */ mieCoefficient: number;
+  /** Mie forward lobe 0.7–0.9 */ mieDirectionalG: number;
+}
+
+export const DEFAULT_PREETHAM: Readonly<PreethamParams> = { turbidity: 2.5, rayleigh: 1, mieCoefficient: 0.005, mieDirectionalG: 0.8 };
+
+// Constants copied verbatim from Sky.js so the CPU and GPU evaluations agree.
+const TOTAL_RAYLEIGH: Vec3 = [5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5];
+const MIE_CONST: Vec3 = [1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14];
+const CUTOFF_ANGLE = 1.6110731556870734; // pi / 1.95
+const STEEPNESS = 1.5;
+const EE = 1000;
+const RAYLEIGH_ZENITH_LENGTH = 8.4e3;
+const MIE_ZENITH_LENGTH = 1.25e3;
+const THREE_OVER_SIXTEENPI = 0.05968310365946075;
+const ONE_OVER_FOURPI = 0.07957747154594767;
+/** The shader adds this floor so the night sky is never pure black. */
+const NIGHT_FLOOR: Vec3 = [0, 0.0003, 0.00075];
+/** Sky.js multiplies the physical radiance by this fixed "exposure" before tone mapping. */
+export const SKY_RADIANCE_SCALE = 0.04;
+
+const R2D = 180 / Math.PI;
+
+/** Sky.js `sunIntensity`: solar irradiance factor with the earth-shadow hack. */
+export function sunIntensityE(zenithAngleCos: number): number {
+  const c = Math.min(1, Math.max(-1, zenithAngleCos));
+  return EE * Math.max(0, 1 - Math.exp(-((CUTOFF_ANGLE - Math.acos(c)) / STEEPNESS)));
+}
+
+/** Sky.js `totalMie(T) * mieCoefficient`. */
+export function totalMie(turbidity: number, mieCoefficient: number, out: Vec3 = [0, 0, 0]): Vec3 {
+  const c = 0.2 * turbidity * 10e-18;
+  const k = 0.434 * c * mieCoefficient;
+  out[0] = MIE_CONST[0] * k; out[1] = MIE_CONST[1] * k; out[2] = MIE_CONST[2] * k;
+  return out;
+}
+
+/** Optical length scale factor for a view direction (Sky.js: `inverse`). `dirY` is the unit direction's up component. */
+export function opticalInverse(dirY: number): number {
+  const zenithAngle = Math.acos(Math.max(0, Math.min(1, dirY)));
+  return 1 / (Math.cos(zenithAngle) + 0.15 * Math.pow(93.885 - zenithAngle * R2D, -1.253));
+}
+
+function hgPhase(cosTheta: number, g: number): number {
+  const g2 = g * g;
+  return ONE_OVER_FOURPI * ((1 - g2) / Math.pow(1 - 2 * g * cosTheta + g2, 1.5));
+}
+
+/**
+ * Evaluates the Three.js Preetham sky on the CPU. Call `setSun` once per frame, then `radiance`
+ * for as many directions as needed (≈ 60 flops each). All outputs are linear RGB in the same
+ * scale as the shader (`(Lin + L0) * 0.04 + floor`), i.e. BEFORE tone mapping.
+ */
+export class PreethamSky {
+  readonly betaR: Vec3 = [0, 0, 0];
+  readonly betaM: Vec3 = [0, 0, 0];
+  readonly sunDir: Vec3 = [0, 1, 0];
+  sunE = 0;
+  private g = 0.8;
+  private readonly tmp: Vec3 = [0, 0, 0];
+
+  /** `sunDir` must be a unit vector in the render frame (x East, y Up, z South). */
+  setSun(sunDir: Vec3, params: PreethamParams): void {
+    const l = Math.hypot(sunDir[0], sunDir[1], sunDir[2]) || 1;
+    this.sunDir[0] = sunDir[0] / l; this.sunDir[1] = sunDir[1] / l; this.sunDir[2] = sunDir[2] / l;
+    this.sunE = sunIntensityE(this.sunDir[1]);
+    // vSunfade = 1 − clamp(1 − exp(sunPosition.y / 450000), 0, 1); with a unit sun vector this is ≈ 1.
+    const sunfade = 1 - Math.min(1, Math.max(0, 1 - Math.exp(sunDir[1] / 450000)));
+    const rayleighCoefficient = params.rayleigh - (1 - sunfade);
+    this.betaR[0] = TOTAL_RAYLEIGH[0] * rayleighCoefficient;
+    this.betaR[1] = TOTAL_RAYLEIGH[1] * rayleighCoefficient;
+    this.betaR[2] = TOTAL_RAYLEIGH[2] * rayleighCoefficient;
+    totalMie(params.turbidity, params.mieCoefficient, this.betaM);
+    this.g = params.mieDirectionalG;
+  }
+
+  /** Extinction factor `Fex` along a unit direction (transmittance of the whole atmosphere). */
+  transmittance(dir: Vec3, out: Vec3 = [0, 0, 0]): Vec3 {
+    const inv = opticalInverse(dir[1]);
+    const sR = RAYLEIGH_ZENITH_LENGTH * inv, sM = MIE_ZENITH_LENGTH * inv;
+    out[0] = Math.exp(-(this.betaR[0] * sR + this.betaM[0] * sM));
+    out[1] = Math.exp(-(this.betaR[1] * sR + this.betaM[1] * sM));
+    out[2] = Math.exp(-(this.betaR[2] * sR + this.betaM[2] * sM));
+    return out;
+  }
+
+  /** Transmittance toward the sun — the colour of direct sunlight at the surface. */
+  sunTransmittance(out: Vec3 = [0, 0, 0]): Vec3 {
+    return this.transmittance(this.sunDir, out);
+  }
+
+  /** Sky radiance (no sun disc) in unit view direction `dir`, linear RGB, pre-tone-mapping. */
+  radiance(dir: Vec3, out: Vec3 = [0, 0, 0]): Vec3 {
+    const Fex = this.transmittance(dir, this.tmp);
+    const sd = this.sunDir;
+    const cosTheta = dir[0] * sd[0] + dir[1] * sd[1] + dir[2] * sd[2];
+    const c = cosTheta * 0.5 + 0.5;
+    const rPhase = THREE_OVER_SIXTEENPI * (1 + c * c);
+    const mPhase = hgPhase(cosTheta, this.g);
+    const sunE = this.sunE;
+    const horizonMix = Math.min(1, Math.max(0, Math.pow(1 - sd[1], 5)));
+    for (let i = 0; i < 3; i++) {
+      const bR = this.betaR[i], bM = this.betaM[i];
+      const ratio = (bR * rPhase + bM * mPhase) / (bR + bM);
+      let Lin = Math.pow(Math.max(0, sunE * ratio * (1 - Fex[i])), 1.5);
+      const dusk = Math.sqrt(Math.max(0, sunE * ratio * Fex[i]));
+      Lin *= 1 + (dusk - 1) * horizonMix; // mix(1, dusk, horizonMix)
+      const L0 = 0.1 * Fex[i];
+      out[i] = (Lin + L0) * SKY_RADIANCE_SCALE + NIGHT_FLOOR[i];
+    }
+    return out;
+  }
+
+  /**
+   * Radiance averaged over `n` azimuths at elevation `elDeg` (default +1°): the single colour used
+   * for `scene.fog` so standard materials fade into the same tint as the sky dome at the horizon.
+   */
+  horizonAverage(out: Vec3 = [0, 0, 0], n = 8, elDeg = 1): Vec3 {
+    const el = elDeg / R2D;
+    const ce = Math.cos(el), se = Math.sin(el);
+    const dir: Vec3 = [0, se, 0];
+    out[0] = out[1] = out[2] = 0;
+    for (let i = 0; i < n; i++) {
+      const az = (i / n) * 2 * Math.PI;
+      dir[0] = ce * Math.sin(az); dir[2] = -ce * Math.cos(az);
+      const r = this.radiance(dir, this.tmp2);
+      out[0] += r[0]; out[1] += r[1]; out[2] += r[2];
+    }
+    out[0] /= n; out[1] /= n; out[2] /= n;
+    return out;
+  }
+  private readonly tmp2: Vec3 = [0, 0, 0];
+
+  /** Radiance at the horizon in the sun's azimuth (the warm Mie glow custom fog shaders can add sun-ward). */
+  horizonTowardSun(out: Vec3 = [0, 0, 0], elDeg = 1): Vec3 {
+    const el = elDeg / R2D;
+    const hx = this.sunDir[0], hz = this.sunDir[2];
+    const hl = Math.hypot(hx, hz) || 1;
+    const dir: Vec3 = [(hx / hl) * Math.cos(el), Math.sin(el), (hz / hl) * Math.cos(el)];
+    return this.radiance(dir, out);
+  }
+
+  /** Radiance straight up. */
+  zenith(out: Vec3 = [0, 0, 0]): Vec3 {
+    this.tmp3[0] = 0; this.tmp3[1] = 1; this.tmp3[2] = 0;
+    return this.radiance(this.tmp3, out);
+  }
+  private readonly tmp3: Vec3 = [0, 0, 0];
+}

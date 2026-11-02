@@ -56,7 +56,7 @@ export function weatherPresetTemplate(id: WeatherPresetId): WeatherState {
       w.humidity = 0.95; w.visibilityM = 5 * NM; w.aerosol = 0.4; w.qnhPa = 100_800; w.temperatureC = 12; w.turbulence = 3; break;
     case 'snow': w.clouds = [cloud(1500, 7000, 0.95, 'stratus', 0.9)]; w.winds[0] = wind(0, 20, 8, 12); w.precipitationRate = 2; w.precipitationType = 'snow';
       w.humidity = 0.9; w.visibilityM = 3 * NM; w.aerosol = 0.35; w.qnhPa = 101_000; w.temperatureC = -3; w.turbulence = 2; break;
-    case 'storm': w.clouds = [cloud(1500, 30_000, 0.8, 'cumulus', 1), cloud(800, 1500, 0.4, 'stratus', 0.6)]; w.winds = [wind(0, 240, 18, 33), wind(6000, 250, 35, 45), wind(20_000, 260, 60)];
+    case 'storm': w.clouds = [cloud(800, 1500, 0.4, 'stratus', 0.6), cloud(1500, 30_000, 0.8, 'cumulus', 1)]; w.winds = [wind(0, 240, 18, 33), wind(6000, 250, 35, 45), wind(20_000, 260, 60)];
       w.precipitationRate = 10; w.precipitationType = 'rain'; w.thunderstorm = true; w.humidity = 1; w.visibilityM = 2 * NM; w.aerosol = 0.5;
       w.qnhPa = 99_800; w.temperatureC = 18; w.turbulence = 5; break;
   }
