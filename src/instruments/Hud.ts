@@ -55,6 +55,14 @@ export class Hud {
   private acc = Infinity;
   private time = 0;
   private lastSig = -1;
+  /**
+   * Longest time a visible, unchanged HUD goes without a repaint, s. Change detection alone could
+   * leave a canvas showing content the browser restored after a long task (seen in Chromium after
+   * a multi-second synchronous aircraft switch: the flight strips reappeared over the cockpit view
+   * with no draw call) or after a hash collision; this bounds either to one second.
+   */
+  maxIdleS = 1;
+  private lastDrawT = -Infinity;
   private redrawn = false;
   private disposed = false;
   /** autopilot disconnect flash: last seen disconnectT, flash end time, 1 red / 2 amber */
@@ -110,8 +118,9 @@ export class Hud {
     if (this.acc + 5e-4 < period) return;
     this.acc = Number.isFinite(this.acc) ? Math.min(this.acc - period, period) : 0;
     const sig = this.signature(s);
-    if (sig === this.lastSig) return;
+    if (sig === this.lastSig && !(this.visible && this.time - this.lastDrawT >= this.maxIdleS)) return;
     this.lastSig = sig;
+    this.lastDrawT = this.time;
     this.draw(s);
     this.redrawn = true;
   }

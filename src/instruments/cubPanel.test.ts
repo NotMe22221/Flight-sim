@@ -241,3 +241,24 @@ describe('Super Cub instrument power follows its 14 V system', () => {
     expect(cub.readings.fuelGal[1]).toBeLessThan(9.5);
   });
 });
+
+describe('HUD idle repaint', () => {
+  it('a visible HUD repaints at least once a second even when nothing changed (stale canvas content)', async () => {
+    const { Hud } = await import('./Hud');
+    const f = new MockCanvasFactory();
+    const hud = new Hud({ createCanvas: (w, h) => f.create(w, h) });
+    const s = makeSampleSnapshot();
+    s.camera.mode = 'cockpit';
+    hud.update(s, 0.05);
+    expect(hud.drawn).toBe(true);
+    let draws = 0;
+    for (let i = 0; i < 40; i++) { hud.update(s, 0.05); if (hud.drawn) draws++; } // 2 s unchanged
+    expect(draws).toBeGreaterThanOrEqual(1);
+    expect(draws).toBeLessThanOrEqual(2);
+    hud.setVisible(false);
+    hud.update(s, 0.05);
+    draws = 0;
+    for (let i = 0; i < 40; i++) { hud.update(s, 0.05); if (hud.drawn) draws++; }
+    expect(draws).toBe(0); // hidden: cleared once, then nothing
+  });
+});
