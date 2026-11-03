@@ -49,16 +49,16 @@ export function drawComRow(ctx: Ctx2D, y: number, label: string, com: ComState, 
   text(ctx, label, x + RADIO.comW - 6, y, cond.get(14), G.white, 'right');
 }
 
-/** NAV1/NAV2 box at the top left. */
-export function drawNavBox(ctx: Ctx2D, nav1: NavRadioState, nav2: NavRadioState, cdiSource: CdiSource): void {
+/** NAV1/NAV2 box at the top left; the cyan tuning box frames the standby the NAV knob tunes. */
+export function drawNavBox(ctx: Ctx2D, nav1: NavRadioState, nav2: NavRadioState, cdiSource: CdiSource, focus: 1 | 2 = 1): void {
   box(ctx, RADIO.navX, 0, RADIO.navW, RADIO.h, G.barBg);
-  drawNavRow(ctx, RADIO.row1, 'NAV1', nav1, cdiSource === 'NAV1', true);
-  drawNavRow(ctx, RADIO.row2, 'NAV2', nav2, cdiSource === 'NAV2', false);
+  drawNavRow(ctx, RADIO.row1, 'NAV1', nav1, cdiSource === 'NAV1', focus === 1);
+  drawNavRow(ctx, RADIO.row2, 'NAV2', nav2, cdiSource === 'NAV2', focus === 2);
 }
 
-/** COM1/COM2 box at the top right (COM1 is the transmit radio and has the tuning focus). */
-export function drawComBox(ctx: Ctx2D, com1: ComState, com2: ComState): void {
+/** COM1/COM2 box at the top right (COM1 transmits; the tuning box follows the COM knob's 1-2 push). */
+export function drawComBox(ctx: Ctx2D, com1: ComState, com2: ComState, focus: 1 | 2 = 1): void {
   box(ctx, RADIO.comX, 0, RADIO.comW, RADIO.h, G.barBg);
-  drawComRow(ctx, RADIO.row1, 'COM1', com1, true, true);
-  drawComRow(ctx, RADIO.row2, 'COM2', com2, false, false);
+  drawComRow(ctx, RADIO.row1, 'COM1', com1, true, focus === 1);
+  drawComRow(ctx, RADIO.row2, 'COM2', com2, false, focus === 2);
 }

@@ -87,7 +87,9 @@ export class TileObject {
       if (!d) return null;
       const layer = new DrapeLayer(d);
       this.layers.push(layer);
-      const mesh = new THREE.Mesh(geometryFrom(d.mesh, layer.attr, this.sphere), mat);
+      const geo = geometryFrom(d.mesh, layer.attr, this.sphere);
+      geo.setAttribute('aBias', layer.bias);
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.matrixAutoUpdate = false;
       mesh.name = name;
       mesh.renderOrder = order;

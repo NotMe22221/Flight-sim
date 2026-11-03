@@ -228,7 +228,7 @@ describe('SkySystem (stub renderer)', () => {
     const u = (sky.clouds.group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>).material.uniforms;
     expect(u.uFogBeta.value).toBe(L.fogDensity);
     expect(u.uFogInvH.value).toBe(L.fogHeightFalloff);
-    expect((u.uHorizonColor.value as THREE.Color).equals(L.fogColor)).toBe(true);
+    expect((u.uHorizonColor.value as THREE.Color).equals(L.skyFogColor)).toBe(true);
     // night: no fade-in from the day exposure on the very first frame
     expect(L.exposure).toBeGreaterThan(1.2);
     expect(sky.renderer.toneMappingExposure).toBe(L.exposure);

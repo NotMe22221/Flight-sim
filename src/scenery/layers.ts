@@ -119,9 +119,14 @@ export class BuildingLayer extends GroundLayer {
   groundOf(b: number): number { return this.ground[b]; }
 }
 
+/** Lifts at or below this (m) mark pavement next to a runway: no depth bias there. */
+export const NO_BIAS_LIFT_M = 0.1;
+
 /** Per-vertex draped surface: y = ground + lift. */
 export class DrapeLayer extends GroundLayer {
   readonly attr: THREE.BufferAttribute;
+  /** per-vertex depth-bias weight (1, or 0 next to runways) */
+  readonly bias: THREE.BufferAttribute;
   private readonly pos: Float32Array;
   private readonly lift: Float32Array;
   private readonly g: Float32Array;
@@ -132,6 +137,9 @@ export class DrapeLayer extends GroundLayer {
     this.lift = d.lift;
     this.g = new Float32Array(this.n).fill(NaN);
     this.attr = new THREE.BufferAttribute(this.pos, 3);
+    const b = new Uint8Array(this.n);
+    for (let i = 0; i < this.n; i++) b[i] = this.lift[i] > NO_BIAS_LIFT_M ? 255 : 0;
+    this.bias = new THREE.BufferAttribute(b, 1, true);
   }
 
   protected sampleItem(i: number, s: GroundSampler, pl: TilePlacement): boolean {

@@ -189,3 +189,11 @@ export function humanizeAction(action: string): string {
     .replace(/\balt\b/g, 'ALT').replace(/\bvs\b/g, 'VS').replace(/\bflc\b/g, 'FLC').replace(/\blvl\b/g, 'LVL').replace(/\bias\b/g, 'IAS')
     .replace(/\bobs\b/g, 'OBS').replace(/\batc\b/g, 'ATC').replace(/\bcom\b/g, 'COM').replace(/\bhud\b/g, 'HUD').replace(/\bstd\b/g, 'STD');
 }
+
+/**
+ * True on touch-first devices (no hover, coarse pointer). Text fields are not auto-focused there:
+ * focusing one pops up the on-screen keyboard over half of the screen.
+ */
+export function isCoarsePointer(): boolean {
+  try { return typeof matchMedia === 'function' && matchMedia('(hover: none) and (pointer: coarse)').matches; } catch { return false; }
+}

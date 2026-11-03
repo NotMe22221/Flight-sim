@@ -105,9 +105,30 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
   actually flying (a challenge sets its own); the pause menu's "Restart flight" respawns at the
   same position (runway, parking or challenge final).
 
+Keyboard ownership in flight: a slider, dropdown, switch or button used with the pointer in the
+toolbar or a panel gives the focus back right away (`releasesFocusAfter` in `routing.ts`), because
+the input module ignores every key aimed at an INPUT/SELECT and a focused button re-fires on
+Space/Enter. Hidden menu screens are `inert` + `visibility: hidden`, so Tab in flight reaches the
+toolbar (which then shows itself) and never an invisible menu. A touch-and-go is reported as a toast:
+the modal landing report (which takes the keyboard) is kept for full-stop landings. Leaving
+Settings › Controls while a rebind waits for a key cancels it (`host.cancelRebind`, or the
+documented Esc when the host lacks it), so the next key in flight is not silently bound.
+
+Headings: the Nav log shows magnetic bearings (variation from the aircraft's true and magnetic
+headings); the World Map shows runway headings magnetic when the host implements
+`magneticVariationDeg`, otherwise marked true ('298°T'). The World Map uses Web Mercator (conformal:
+runways cross at their real angles). Weather summaries and the custom editor follow the unit
+settings (inHg/hPa, °C/°F, nm/km, ft/m, kt/km/h/mph).
+
+Phones (≤ 720 px wide): one scrolling column per screen, World Map order search → map → airport →
+conditions with the departure summary and FLY pinned at the bottom; icon-only toolbar opened from a
+tab at the top edge on touch screens; pinch-zoom on the World Map; text fields are not auto-focused
+on touch screens (no on-screen keyboard popping up).
+
 Per-frame cost: `Txt`/`Cls` write the DOM only on change; closed panels cost nothing; ATC
-station lookup 1 Hz; VFR map ≤ 10 Hz; checklist auto-check 4 Hz; no allocations in the menu
-update path. The World Map draws on demand via `requestAnimationFrame`, never per sim frame.
+station lookup 1 Hz; VFR map ≤ 10 Hz (its size is read only when it draws); checklist auto-check
+4 Hz; weather summary 2 Hz; the info strip formats a value only when its displayed (quantised)
+value changes; no allocations in the menu update path. The World Map draws on demand via `requestAnimationFrame`, never per sim frame.
 
 ## Adding a screen
 
@@ -141,6 +162,8 @@ DOM classes and the CSS-importing barrel) in Node to prove nothing touches the D
 - Graphics › Shadows and Terrain detail are only as effective as the host's `setGraphics`
   (the current SimUiHost applies quality, render scale, FOV, imagery and clouds).
 - Runway idents are shown as the nav data spells them ('1R/19L' for OurAirports' KSFO data).
+- Without `host.cancelRebind` a pending rebind is ended by a synthesized Esc (works with the
+  bundled input module, which cancels a capture on Esc).
 - In flight the Weather panel's time-of-day buttons show the planned selection; a challenge's own
   time of day (e.g. dusk) is not reflected there (its weather preset is).
 - Settings › Controls and the help sheet list SimActions only: keyboard flight-control axes

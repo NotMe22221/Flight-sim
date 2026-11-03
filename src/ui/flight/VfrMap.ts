@@ -38,7 +38,16 @@ export class VfrMap {
       button('', () => this.setRange(this.rangeIdx + 1), { icon: 'minus', cls: 'btn-icon btn-sm', title: 'Zoom out (longer range)', aria: { label: 'Zoom out' } }),
       this.orientBtn, this.infoTxt.el);
     if (host.addWaypoint) {
-      this.directBtn = button('Direct to', () => { if (this.selected) { host.addWaypoint!({ id: this.selected.icao, position: this.selected.position, type: 'airport' }); this.infoTxt.set(`Direct to ${this.selected.icao} added to plan`); } }, { cls: 'btn-sm', icon: 'target', disabled: true });
+      // Direct-to replaces the route with a single leg from the present position (as a GPS does); a
+      // host without clearPlan can only append, so the button says so
+      const direct = !!host.clearPlan;
+      this.directBtn = button(direct ? 'Direct to' : 'Add to plan', () => {
+        const ap = this.selected;
+        if (!ap) return;
+        if (direct) host.clearPlan!();
+        host.addWaypoint!({ id: ap.icao, position: ap.position, type: 'airport' });
+        this.infoTxt.set(direct ? `Direct to ${ap.icao}` : `${ap.icao} added to the flight plan`);
+      }, { cls: 'btn-sm', icon: 'target', disabled: true, title: direct ? 'Fly direct to the selected airport (replaces the flight plan)' : 'Append the selected airport to the flight plan' });
       controls.appendChild(this.directBtn);
     }
     this.el = h('div', { class: 'vfrmap' }, this.wrap, controls);

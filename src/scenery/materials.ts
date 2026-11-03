@@ -8,6 +8,55 @@
 import * as THREE from 'three';
 import { makeFacadeImages, makePavementImage, makePlainImage, makePoolImage, makeRoofImage, makeSpriteImage, toTexture } from './textures';
 
+/**
+ * Image-based lighting share. The sky's PMREM environment is several times brighter than its
+ * sun DirectionalLight, so at full strength every surface turns sky-blue; a small share keeps
+ * a hint of sky reflection while the sun and hemisphere light do the shading (as for terrain).
+ */
+export const ENV_INTENSITY = 0.06;
+/** Relative depth bias of draped surfaces (fraction of the view distance) so they win over the terrain mesh. */
+export const DRAPE_DEPTH_BIAS = 0.0025;
+
+/** Saturation kept in the sky ambient (hemisphere) light of scenery materials (see `patchMaterial`). */
+export const AMBIENT_SATURATION = 0.35;
+
+export interface MaterialPatch {
+  /** relative depth bias uniform; the geometry carries an `aBias` weight attribute */
+  depthBias?: { value: number };
+  /** saturation kept in the ambient irradiance uniform (0 grey … 1 unchanged) */
+  ambientSat?: { value: number };
+}
+
+/**
+ * Small, chunk-preserving shader patches (three's own chunks stay in place, logdepthbuf
+ * included, so the logarithmic and the reversed depth buffer both work):
+ *  - depth bias: after `project_vertex`, pull the vertex toward the camera by
+ *    `bias × aBias` of its view distance (screen position unchanged, only depth), so draped
+ *    pavement wins over the terrain mesh it follows; `aBias` is 0 next to runways so pavement
+ *    there stays under the runway slabs;
+ *  - ambient saturation: after `lights_fragment_begin`, pull the ambient + hemisphere
+ *    irradiance toward its luminance. The sky's hemisphere light is the normalised zenith colour,
+ *    saturated blue, which otherwise tints every roof and apron (the terrain shader uses a
+ *    neutral-ish ambient); direct sun light is untouched.
+ */
+export function patchMaterial(m: THREE.Material, p: MaterialPatch, key: string): void {
+  m.onBeforeCompile = (shader) => {
+    if (p.depthBias) {
+      shader.uniforms.sceneryDepthBias = p.depthBias;
+      shader.vertexShader = shader.vertexShader
+        .replace('void main() {', 'uniform float sceneryDepthBias;\nattribute float aBias;\nvoid main() {')
+        .replace('#include <project_vertex>', '#include <project_vertex>\n\tmvPosition.xyz *= 1.0 - sceneryDepthBias * aBias;\n\tgl_Position = projectionMatrix * mvPosition;');
+    }
+    if (p.ambientSat && shader.fragmentShader.includes('#include <lights_fragment_begin>')) {
+      shader.uniforms.sceneryAmbientSat = p.ambientSat;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('void main() {', 'uniform float sceneryAmbientSat;\nvoid main() {')
+        .replace('#include <lights_fragment_begin>', '#include <lights_fragment_begin>\n\tirradiance = mix( vec3( dot( irradiance, vec3( 0.2126, 0.7152, 0.0722 ) ) ), irradiance, sceneryAmbientSat );');
+    }
+  };
+  m.customProgramCacheKey = () => key;
+}
+
 export class SceneryMaterials {
   readonly walls: THREE.MeshStandardMaterial;
   readonly plain: THREE.MeshStandardMaterial;
@@ -20,7 +69,11 @@ export class SceneryMaterials {
   readonly pools: THREE.MeshBasicMaterial;
   readonly textures: THREE.Texture[] = [];
   /** minimum light point size in pixels (shared uniform) */
-  readonly minPointPx = { value: 2.2 };
+  readonly minPointPx = { value: 2.5 };
+  /** relative depth bias of draped surfaces (shared uniform) */
+  readonly depthBias = { value: DRAPE_DEPTH_BIAS };
+  /** saturation kept in the sky ambient light (shared uniform) */
+  readonly ambientSat = { value: AMBIENT_SATURATION };
   private night = -1;
 
   constructor(anisotropy = 4) {
@@ -37,25 +90,32 @@ export class SceneryMaterials {
 
     this.walls = new THREE.MeshStandardMaterial({
       name: 'scenery-walls', map: facadeMap, roughnessMap: facadeRough, emissiveMap: facadeEmissive, emissive: 0xffffff, emissiveIntensity: 0,
-      vertexColors: true, roughness: 1, metalness: 0.05, envMapIntensity: 0.35,
+      vertexColors: true, roughness: 1, metalness: 0.05, envMapIntensity: ENV_INTENSITY * 1.5,
     });
-    this.plain = new THREE.MeshStandardMaterial({ name: 'scenery-plain', map: plainMap, vertexColors: true, roughness: 0.85, metalness: 0.1, envMapIntensity: 0.35 });
-    this.roofs = new THREE.MeshStandardMaterial({ name: 'scenery-roofs', map: roofMap, vertexColors: true, roughness: 0.95, metalness: 0, envMapIntensity: 0.25 });
+    this.plain = new THREE.MeshStandardMaterial({ name: 'scenery-plain', map: plainMap, vertexColors: true, roughness: 0.85, metalness: 0.1, envMapIntensity: ENV_INTENSITY });
+    this.roofs = new THREE.MeshStandardMaterial({ name: 'scenery-roofs', map: roofMap, vertexColors: true, roughness: 0.95, metalness: 0, envMapIntensity: ENV_INTENSITY });
     this.surfaces = new THREE.MeshStandardMaterial({
-      name: 'scenery-pavement', map: paveMap, vertexColors: true, roughness: 0.92, metalness: 0, envMapIntensity: 0.22,
+      name: 'scenery-pavement', map: paveMap, vertexColors: true, roughness: 0.92, metalness: 0, envMapIntensity: ENV_INTENSITY,
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     });
     this.markings = new THREE.MeshStandardMaterial({
-      name: 'scenery-markings', vertexColors: true, roughness: 0.7, metalness: 0, envMapIntensity: 0.3,
+      name: 'scenery-markings', vertexColors: true, roughness: 0.7, metalness: 0, envMapIntensity: ENV_INTENSITY,
       polygonOffset: true, polygonOffsetFactor: -1.5, polygonOffsetUnits: -1.5,
     });
+    patchMaterial(this.walls, { ambientSat: this.ambientSat }, 'scenery-walls-1');
+    patchMaterial(this.plain, { ambientSat: this.ambientSat }, 'scenery-plain-1');
+    patchMaterial(this.roofs, { ambientSat: this.ambientSat }, 'scenery-roofs-1');
+    patchMaterial(this.surfaces, { depthBias: this.depthBias, ambientSat: this.ambientSat }, 'scenery-surfaces-1');
+    patchMaterial(this.markings, { depthBias: this.depthBias, ambientSat: this.ambientSat }, 'scenery-markings-1');
     this.trees = new THREE.MeshLambertMaterial({ name: 'scenery-trees', vertexColors: true });
-    this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 10);
+    patchMaterial(this.trees, { ambientSat: this.ambientSat }, 'scenery-trees-1');
+    this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 12);
     this.airportLights = this.pointsMaterial('scenery-airport-lights', sprite, 5.5);
     this.pools = new THREE.MeshBasicMaterial({
-      name: 'scenery-light-pools', map: pool, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false,
+      name: 'scenery-light-pools', map: pool, color: 0xffe2b8, transparent: true, opacity: 0, depthWrite: false,
       blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, toneMapped: true,
     });
+    patchMaterial(this.pools, { depthBias: this.depthBias }, 'scenery-pools-1');
   }
 
   private pointsMaterial(name: string, sprite: THREE.Texture, size: number): THREE.PointsMaterial {

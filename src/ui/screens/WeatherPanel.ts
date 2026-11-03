@@ -8,7 +8,7 @@ import type { ScreenContext } from './Screen';
 import { Txt, button, clear, h, icon, segmented, select, slider, type SegmentedHandle } from '../dom';
 import { WEATHER_ICON } from '../icons';
 import { FT, NM, MAX_CLOUD_LAYERS, MAX_WIND_LAYERS, TURBULENCE_LABELS, WEATHER_PRESETS, cloneWeather, validateCustomWeather, weatherPresetTemplate, weatherSummary } from '../weatherPresets';
-import { formatPressure, formatTemperature, formatTimeLocal, formatTimeScale, formatTimeUtc, formatUtcOffset, timezoneOffsetFromLon } from '../format';
+import { KT_PER_MS, formatPressure, formatTemperature, formatTimeLocal, formatTimeScale, formatTimeUtc, formatUtcOffset, speedUnit, speedValue, timezoneOffsetFromLon } from '../format';
 import { SUN_PHASE_LABEL, startOfUtcDay, sunElevationDeg, sunPhase, type TimePreset } from '../solar';
 
 type Mode = WeatherPresetId | 'live' | 'custom';
@@ -22,6 +22,8 @@ export class WeatherPanel {
   private editor: HTMLElement;
   private editorWrap: HTMLElement;
   private draft: WeatherState;
+  /** the selection's custom weather the draft was copied from */
+  private draftFrom: WeatherState | null = null;
   private errors: HTMLElement;
   private status: Txt;
   private timeSeg: SegmentedHandle<TimeMode>;
@@ -103,7 +105,9 @@ export class WeatherPanel {
     this.lastLivePreset = null; // the next in-flight update re-checks the simulator's weather
     this.markPreset(m);
     this.editorWrap.style.display = m === 'custom' ? '' : 'none';
-    if (m === 'custom') { const w = this.ctx.selection.sel.weather; if (w.mode === 'custom') { this.draft = cloneWeather(w.custom); this.renderEditor(); } }
+    // re-seed the editor only when the applied custom weather itself changed: an unrelated change
+    // (time of day, departure) must not throw away edits that were not applied yet
+    if (m === 'custom') { const w = this.ctx.selection.sel.weather; if (w.mode === 'custom' && w.custom !== this.draftFrom) { this.draftFrom = w.custom; this.draft = cloneWeather(w.custom); this.renderEditor(); } }
     const tm = this.timeModeFromSelection();
     this.timeSeg.set(tm);
     this.timeSlider.style.display = tm === 'custom' ? '' : 'none';
@@ -113,6 +117,9 @@ export class WeatherPanel {
   private pick(id: Mode): void {
     if (id === 'live') {
       this.ctx.selection.set({ weather: { mode: 'live' } });
+      // before a flight the host would fetch for the aircraft's old position, not the departure:
+      // the live fetch waits for the spawn (FlightLauncher), as on the World Map
+      if (!this.ctx.inFlight()) { this.status.set(`Live weather for ${this.ctx.selection.sel.spawn.airport.icao} loads when you fly`); this.ctx.host.setTime(this.ctx.selection.resolvedTimeUtcMs()); return; }
       this.status.set('Fetching live weather…');
       this.ctx.host.requestLiveWeather().then((ok) => {
         this.status.set(ok ? 'Live weather active' : 'Live weather unavailable — using Clear skies');
@@ -178,6 +185,10 @@ export class WeatherPanel {
     clear(this.editor);
     const u = this.ctx.settings().units;
     const d = this.draft;
+    // the editor speaks the user's units (layer altitudes ft/m, wind kt/km/h/mph, visibility nm/km)
+    const altK = u.altitude === 'ft' ? FT : 1, altU = u.altitude, altStep = u.altitude === 'ft' ? 100 : 50;
+    const spdK = speedValue(1 / KT_PER_MS, u), spdU = speedUnit(u);
+    const visK = u.distance === 'km' ? 1000 : NM, visMax = u.distance === 'km' ? 100 : 60;
     const numField = (label: string, value: number, onChange: (v: number) => void, step = 1, min?: number, max?: number) => {
       const inp = h('input', { class: 'input input-sm', type: 'number', value: Math.round(value * 100) / 100, step, min, max, onChange: (e) => { const v = parseFloat((e.target as HTMLInputElement).value); if (Number.isFinite(v)) onChange(v); } });
       return h('label', { class: 'field' }, h('span', { class: 'field-k', text: label }), inp);
@@ -186,8 +197,8 @@ export class WeatherPanel {
     const clouds = h('div', { class: 'layer-editor' });
     d.clouds.forEach((c, i) => {
       clouds.appendChild(h('div', { class: 'layer-row' }, h('span', { class: 'layer-index', text: `C${i + 1}` }),
-        numField('Base ft', c.baseM / FT, (v) => { c.baseM = v * FT; }, 100, 0),
-        numField('Top ft', c.topM / FT, (v) => { c.topM = v * FT; }, 100, 0),
+        numField(`Base ${altU}`, c.baseM / altK, (v) => { c.baseM = v * altK; }, altStep, 0),
+        numField(`Top ${altU}`, c.topM / altK, (v) => { c.topM = v * altK; }, altStep, 0),
         numField('Cover %', c.coverage * 100, (v) => { c.coverage = v / 100; }, 5, 0, 100),
         h('label', { class: 'field' }, h('span', { class: 'field-k', text: 'Type' }), select<CloudLayer['type']>([{ value: 'cumulus', label: 'Cumulus' }, { value: 'stratus', label: 'Stratus' }, { value: 'cirrus', label: 'Cirrus' }], c.type, (v) => { c.type = v; }, 'select-sm')),
         button('', () => { d.clouds.splice(i, 1); this.renderEditor(); }, { icon: 'close', cls: 'btn-ghost btn-icon btn-sm', title: 'Remove layer' })));
@@ -197,15 +208,15 @@ export class WeatherPanel {
     const winds = h('div', { class: 'layer-editor' });
     d.winds.forEach((w, i) => {
       winds.appendChild(h('div', { class: 'layer-row' }, h('span', { class: 'layer-index', text: `W${i + 1}` }),
-        numField('Alt ft', w.altM / FT, (v) => { w.altM = v * FT; }, 500, 0),
+        numField(`Alt ${altU}`, w.altM / altK, (v) => { w.altM = v * altK; }, altStep * 5, 0),
         numField('From °', w.directionDeg, (v) => { w.directionDeg = v; }, 10, 0, 360),
-        numField('Speed kt', w.speedKt, (v) => { w.speedKt = v; }, 1, 0, 200),
-        numField('Gust kt', w.gustKt, (v) => { w.gustKt = v; }, 1, 0, 250),
+        numField(`Speed ${spdU}`, w.speedKt * spdK, (v) => { w.speedKt = v / spdK; }, 1, 0, Math.round(200 * spdK)),
+        numField(`Gust ${spdU}`, w.gustKt * spdK, (v) => { w.gustKt = v / spdK; }, 1, 0, Math.round(250 * spdK)),
         button('', () => { d.winds.splice(i, 1); this.renderEditor(); }, { icon: 'close', cls: 'btn-ghost btn-icon btn-sm', title: 'Remove layer' })));
     });
     if (d.winds.length < MAX_WIND_LAYERS) winds.appendChild(button('Add wind layer', () => { const alt = d.winds.length ? d.winds[d.winds.length - 1].altM + 1500 : 0; const l: WindLayer = { altM: alt, directionDeg: 270, speedKt: 10, gustKt: 0 }; d.winds.push(l); this.renderEditor(); }, { cls: 'btn-sm', icon: 'wind' }));
     // scalars
-    const vis = slider({ min: 0.1, max: 60, step: 0.1, value: Math.min(60, d.visibilityM / NM), label: 'Visibility', format: (v) => `${v.toFixed(1)} nm`, onInput: (v) => { d.visibilityM = v * NM; } });
+    const vis = slider({ min: 0.1, max: visMax, step: 0.1, value: Math.min(visMax, Math.round(d.visibilityM / visK * 10) / 10), label: 'Visibility', format: (v) => `${v.toFixed(1)} ${u.distance}`, onInput: (v) => { d.visibilityM = v * visK; } });
     const precip = slider({ min: 0, max: 20, step: 0.5, value: d.precipitationRate, label: 'Precipitation', format: (v) => `${v} mm/h`, onInput: (v) => { d.precipitationRate = v; if (v > 0 && d.precipitationType === 'none') d.precipitationType = d.temperatureC <= 0 ? 'snow' : 'rain'; } });
     const precipType = select<WeatherState['precipitationType']>([{ value: 'none', label: 'None' }, { value: 'rain', label: 'Rain' }, { value: 'snow', label: 'Snow' }], d.precipitationType, (v) => { d.precipitationType = v; }, 'select-sm');
     const qnhInHg = u.pressure === 'inHg';

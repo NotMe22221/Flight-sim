@@ -82,11 +82,37 @@ export function hemisphereIntensity(sunElDeg: number, cloudCover: number): numbe
   return lerp(0.02, 0.9, smoothstep(-12, 10, sunElDeg)) * (1 + 0.3 * clamp(cloudCover, 0, 1));
 }
 
-/** AmbientLight floor so the night is never pitch black (starlight + airglow + moon fill). */
+/**
+ * AmbientLight floor so the night is never pitch black (starlight + airglow + city glow + moon fill), for
+ * the `NIGHT_AMBIENT_COLOR` hue (luminance ≈ 0.53): ≈ 0.12 luminance moonless, ≈ 0.24 under a full moon —
+ * after ACES's toe that leaves a grass field at ≈ 11/255 and ≈ 25/255 (dark, never black).
+ */
 export function ambientFloor(sunElDeg: number, moonFraction: number, moonElDeg: number): number {
   const night = 1 - smoothstep(-12, 0, sunElDeg);
   const moon = clamp(moonFraction, 0, 1) * smoothstep(-2, 10, moonElDeg);
-  return night * (0.012 + 0.03 * moon);
+  return night * (0.22 + 0.22 * moon);
+}
+
+/** Linear hue of the night ambient floor (night-adapted blue). */
+export const NIGHT_AMBIENT_COLOR: Readonly<Vec3> = [0.42, 0.52, 1.0];
+
+/** Illuminance (three light units) of a sunlit up-facing surface at midday; the day exposure applies there. */
+export const DAY_ILLUMINANCE = 1.8;
+
+/** Illuminance proxy of an up-facing surface: direct sun · sin(el) + ambient irradiance luminance. */
+export function surfaceIlluminance(sunIntensity: number, sunElDeg: number, ambientLuminance: number): number {
+  return Math.max(sunIntensity, 0) * Math.max(Math.sin(sunElDeg * (Math.PI / 180)), 0) + Math.max(ambientLuminance, 0);
+}
+
+/**
+ * Exposure target from the scene illuminance (partial eye adaptation): day · (E_day / E)^power, bounded by
+ * [day, night·(1 + 0.15·(1 − moon))]. Dawn/dusk (sun ≈ 1–3°, mostly skylight) land near the night bound so
+ * the ground stays readable; an overcast noon opens up ≈ 1.7×; the deterministic curve has no read-back.
+ */
+export function exposureForIlluminance(illuminance: number, moonFraction: number, o: ExposureOptions = DEFAULT_EXPOSURE, power = 0.5): number {
+  const night = Math.max(o.night * (1 + 0.15 * (1 - clamp(moonFraction, 0, 1))), o.day);
+  const e = o.day * Math.pow(DAY_ILLUMINANCE / Math.max(illuminance, 1e-4), power);
+  return clamp(e, o.day, night);
 }
 
 /** Moonlight DirectionalLight intensity ≈ 0.25 lx full moon vs 100 klx sun, boosted so it reads after night exposure. */

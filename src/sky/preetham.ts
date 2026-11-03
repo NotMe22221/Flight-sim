@@ -35,6 +35,30 @@ export const SKY_RADIANCE_SCALE = 0.04;
 
 const R2D = 180 / Math.PI;
 
+/**
+ * Soft saturation of the in-scattered light (Lin, before the 0.04 scale): Lin · 1 / (1 + lum(Lin) / K).
+ * Sky.js's single-scattering horizon is ≈ 16 × the zenith at noon (real clear skies: 2–4 ×), which turned
+ * the lower 15° of the dome and every fog/reflection derived from it white; the knee brings the noon
+ * horizon to ≈ 3.5 × the zenith, keeps the hue (luminance-based) and leaves the dim zenith and twilight
+ * skies almost untouched. `patchSkyDome` applies the same line to the dome shader.
+ */
+export const INSCATTER_KNEE = 25;
+
+/** Night glow falls off as exp(−sin(elevation) / this) above the horizon (≈ 10° e-folding). */
+export const NIGHT_GLOW_SCALE_HEIGHT = 0.18;
+
+/**
+ * GLSL for the dome: `texColor += skyNightGlow( direction );` with uniforms `nightGlowHorizon` and
+ * `nightGlowZenith` (vec3, linear) — the twin of `PreethamSky.setNightGlow`.
+ */
+export const NIGHT_GLOW_GLSL = /* glsl */ `
+uniform vec3 nightGlowHorizon;
+uniform vec3 nightGlowZenith;
+vec3 skyNightGlow( vec3 dir ) {
+  return nightGlowHorizon * exp( - max( dir.y, 0.0 ) / ${NIGHT_GLOW_SCALE_HEIGHT.toFixed(3)} ) + nightGlowZenith;
+}
+`;
+
 /** Sky.js `sunIntensity`: solar irradiance factor with the earth-shadow hack. */
 export function sunIntensityE(zenithAngleCos: number): number {
   const c = Math.min(1, Math.max(-1, zenithAngleCos));
@@ -70,8 +94,18 @@ export class PreethamSky {
   readonly betaM: Vec3 = [0, 0, 0];
   readonly sunDir: Vec3 = [0, 1, 0];
   sunE = 0;
+  /** night-sky glow at the horizon (airglow + light pollution), linear, added by `patchSkyNightGlow` too */
+  readonly nightHorizon: Vec3 = [0, 0, 0];
+  /** night-sky glow at the zenith, linear */
+  readonly nightZenith: Vec3 = [0, 0, 0];
   private g = 0.8;
   private readonly tmp: Vec3 = [0, 0, 0];
+  private readonly tmpLin: Vec3 = [0, 0, 0];
+
+  /** Night glow added to every direction (see `NIGHT_GLOW_SCALE_HEIGHT`); zeros = the plain Sky.js model. */
+  setNightGlow(horizon: Vec3, zenith: Vec3): void {
+    for (let i = 0; i < 3; i++) { this.nightHorizon[i] = Math.max(horizon[i], 0); this.nightZenith[i] = Math.max(zenith[i], 0); }
+  }
 
   /** `sunDir` must be a unit vector in the render frame (x East, y Up, z South). */
   setSun(sunDir: Vec3, params: PreethamParams): void {
@@ -113,14 +147,20 @@ export class PreethamSky {
     const mPhase = hgPhase(cosTheta, this.g);
     const sunE = this.sunE;
     const horizonMix = Math.min(1, Math.max(0, Math.pow(1 - sd[1], 5)));
+    const glow = Math.exp(-Math.max(dir[1], 0) / NIGHT_GLOW_SCALE_HEIGHT);
+    const lin = this.tmpLin;
     for (let i = 0; i < 3; i++) {
       const bR = this.betaR[i], bM = this.betaM[i];
       const ratio = (bR * rPhase + bM * mPhase) / (bR + bM);
       let Lin = Math.pow(Math.max(0, sunE * ratio * (1 - Fex[i])), 1.5);
       const dusk = Math.sqrt(Math.max(0, sunE * ratio * Fex[i]));
       Lin *= 1 + (dusk - 1) * horizonMix; // mix(1, dusk, horizonMix)
+      lin[i] = Lin;
+    }
+    const knee = 1 / (1 + (0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]) / INSCATTER_KNEE);
+    for (let i = 0; i < 3; i++) {
       const L0 = 0.1 * Fex[i];
-      out[i] = (Lin + L0) * SKY_RADIANCE_SCALE + NIGHT_FLOOR[i];
+      out[i] = (lin[i] * knee + L0) * SKY_RADIANCE_SCALE + NIGHT_FLOOR[i] + this.nightHorizon[i] * glow + this.nightZenith[i];
     }
     return out;
   }

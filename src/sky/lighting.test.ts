@@ -68,7 +68,7 @@ describe('solar-driven lighting curves', () => {
     expect(hemisphereIntensity(-20, 0)).toBeCloseTo(0.02, 6);
     expect(hemisphereIntensity(60, 1)).toBeGreaterThan(hemisphereIntensity(60, 0));
     expect(ambientFloor(45, 1, 45)).toBe(0);
-    expect(ambientFloor(-30, 0, -10)).toBeCloseTo(0.012, 6);
+    expect(ambientFloor(-30, 0, -10)).toBeCloseTo(0.22, 6);
     expect(ambientFloor(-30, 1, 45)).toBeGreaterThan(ambientFloor(-30, 0, 45));
     expect(moonLightIntensity(45, 1, 0, -30)).toBeGreaterThan(0);
     expect(moonLightIntensity(45, 1, 0, 30)).toBe(0); // daytime

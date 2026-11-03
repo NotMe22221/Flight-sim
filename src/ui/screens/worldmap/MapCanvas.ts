@@ -47,6 +47,9 @@ export class MapCanvas {
   private scaleTxt: Txt;
   private scaleBarEl: HTMLElement;
   private drag: { id: number; x: number; y: number; moved: boolean; view: MapView } | null = null;
+  /** active pointers (touch) and the pinch gesture in progress */
+  private touches = new Map<number, { x: number; y: number }>();
+  private pinch: { d0: number; mx: number; my: number; view: MapView } | null = null;
   private ro: ResizeObserver | null = null;
   private regionsRequested = new Set<string>();
   private readonly onWindowResize = () => this.syncSize();
@@ -81,6 +84,8 @@ export class MapCanvas {
       window.removeEventListener('resize', this.onWindowResize);
       this.cancelTimers();
       this.drag = null;
+      this.pinch = null;
+      this.touches.clear();
     }
   }
 
@@ -206,12 +211,17 @@ export class MapCanvas {
     c.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       const p = this.local(e);
-      this.drag = { id: e.pointerId, x: p.x, y: p.y, moved: false, view: this.view };
+      this.touches.set(e.pointerId, p);
       try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+      if (this.touches.size === 2) { this.startPinch(); return; }
+      if (this.touches.size > 2) return;
+      this.drag = { id: e.pointerId, x: p.x, y: p.y, moved: false, view: this.view };
       c.focus({ preventScroll: true });
     });
     c.addEventListener('pointermove', (e) => {
       const p = this.local(e);
+      if (this.touches.has(e.pointerId)) this.touches.set(e.pointerId, p);
+      if (this.pinch) { this.updatePinch(); return; }
       const d = this.drag;
       if (d && d.id === e.pointerId) {
         if (!d.moved && Math.hypot(p.x - d.x, p.y - d.y) > DRAG_THRESHOLD_PX) { d.moved = true; c.classList.add('dragging'); }
@@ -221,6 +231,13 @@ export class MapCanvas {
       this.updateHover(p.x, p.y);
     });
     const end = (e: PointerEvent) => {
+      this.touches.delete(e.pointerId);
+      if (this.pinch) {
+        // the gesture ends when the second finger lifts; the remaining finger neither drags nor picks
+        if (this.touches.size < 2) this.pinch = null;
+        try { c.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+        return;
+      }
       const d = this.drag;
       if (!d || d.id !== e.pointerId) return;
       this.drag = null;
@@ -243,6 +260,25 @@ export class MapCanvas {
       this.zoomBy(Math.exp(-Math.max(-600, Math.min(600, dy)) * 0.0018), p.x, p.y);
     }, { passive: false });
     c.addEventListener('keydown', (e) => this.onKey(e));
+  }
+
+  /** Two fingers on the map: pinch to zoom about their midpoint, move them to pan. */
+  private startPinch(): void {
+    const [a, b] = Array.from(this.touches.values());
+    this.drag = null;
+    this.canvas.classList.remove('dragging');
+    this.pinch = { d0: Math.max(10, Math.hypot(b.x - a.x, b.y - a.y)), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, view: this.view };
+  }
+
+  private updatePinch(): void {
+    const pz = this.pinch;
+    if (!pz || this.touches.size < 2) return;
+    const [a, b] = Array.from(this.touches.values());
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    const moved = pan(pz.view, mx - pz.mx, my - pz.my);
+    const target = Math.min(MAX_MAP_PX_PER_DEG, Math.max(this.minZoom(), pz.view.pxPerDeg * (Math.hypot(b.x - a.x, b.y - a.y) / pz.d0)));
+    this.view = zoomAt(moved, mx, my, target / moved.pxPerDeg);
+    this.changed();
   }
 
   private updateHover(x: number, y: number): void {

@@ -1,6 +1,6 @@
 /** Splash: title, cycling tips, progress from 'terrain:progress', click to start (audio unlock). */
 import { Screen } from './Screen';
-import { h, icon } from '../dom';
+import { h, icon, isCoarsePointer } from '../dom';
 import { LOADING_TIPS, randomTip } from '../data/tips';
 
 export type LoadingMode = 'boot' | 'flight';
@@ -27,7 +27,7 @@ export class LoadingScreen extends Screen {
     this.text = h('div', { class: 'progress-text', text: 'Loading…' });
     this.tip = h('p', { class: 'loading-tip', text: this.currentTip });
     this.sub = h('div', { class: 'loading-sub', text: 'Browser flight simulator' });
-    this.cta = h('div', { class: 'click-to-start hidden' }, icon('play'), ' Click or press any key to start');
+    this.cta = h('div', { class: 'click-to-start hidden' }, icon('play'), isCoarsePointer() ? ' Tap to start' : ' Click or press any key to start');
     this.el.append(
       h('div', { class: 'row', style: 'gap:14px;align-items:center' }, icon('plane'), h('h1', { class: 'loading-title', text: 'Flight Sim' })),
       this.sub,

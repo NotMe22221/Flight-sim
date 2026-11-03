@@ -47,8 +47,26 @@ describe('project / unproject', () => {
   it('north is up and east is right', () => {
     const n = project(view, view.centerLon, view.centerLat + 1);
     const e = project(view, view.centerLon + 1, view.centerLat);
-    expect(n.y).toBeCloseTo(300 - 200, 9);
+    expect(n.y).toBeLessThan(300);
+    expect(n.x).toBeCloseTo(512, 9);
     expect(e.x).toBeCloseTo(512 + 200, 9);
+    expect(e.y).toBeCloseTo(300, 9);
+  });
+  it('is conformal: a kilometre north and a kilometre east are the same length on screen (KSFO, 60°N)', () => {
+    for (const lat of [37.62, 60, -45]) {
+      const v = createView(10, lat, 20_000, 1000, 800);
+      const dLat = 1000 / 111_320, dLon = 1000 / (111_320 * Math.cos(lat * Math.PI / 180));
+      const c = project(v, 10, lat), n = project(v, 10, lat + dLat), e = project(v, 10 + dLon, lat);
+      expect((c.y - n.y) / (e.x - c.x)).toBeCloseTo(1, 3);
+    }
+  });
+  it('keeps runways that cross at 90° crossing at 90° on the map', () => {
+    const lat = 37.62, v = createView(-122.37, lat, 3000, 1000, 800);
+    const k = 1 / (111_320 * Math.cos(lat * Math.PI / 180));
+    const at = (bearing: number, m: number) => project(v, -122.37 + Math.sin(bearing * Math.PI / 180) * m * k, lat + Math.cos(bearing * Math.PI / 180) * m / 111_320);
+    const c = project(v, -122.37, lat), a = at(298, 3000), b = at(28, 2600);
+    const ang = Math.atan2(a.y - c.y, a.x - c.x) - Math.atan2(b.y - c.y, b.x - c.x);
+    expect(Math.abs(Math.cos(ang))).toBeLessThan(0.01);
   });
   it('handles the antimeridian', () => {
     const v = createView(179.5, 0, 100, 800, 600);
@@ -79,14 +97,15 @@ describe('pan / clampView', () => {
   it('dragging right moves the centre west', () => {
     const p = pan(view, 200, 0);
     expect(p.centerLon).toBeCloseTo(view.centerLon - 1, 9);
-    const q = pan(view, 0, -100);
-    expect(q.centerLat).toBeCloseTo(view.centerLat - 0.5, 9);
+    const q = pan(view, 0, -100); // drag up: the content follows the pointer, the centre moves south
+    expect(q.centerLat).toBeLessThan(view.centerLat);
+    expect(project(q, view.centerLon, view.centerLat).y).toBeCloseTo(300 - 100, 6);
   });
   it('never lets the visible range exceed ±85° latitude', () => {
     const v = clampView({ centerLon: 0, centerLat: 89, pxPerDeg: 10, width: 800, height: 600 });
     const b = visibleBounds(v);
     expect(b.maxLat).toBeLessThanOrEqual(MAX_LAT + 1e-9);
-    expect(v.centerLat).toBeCloseTo(MAX_LAT - 30, 9);
+    expect(project(v, 0, MAX_LAT).y).toBeCloseTo(0, 6); // the top edge sits exactly on 85°N
     const s = clampView({ centerLon: 0, centerLat: -89, pxPerDeg: 10, width: 800, height: 600 });
     expect(visibleBounds(s).minLat).toBeGreaterThanOrEqual(-MAX_LAT - 1e-9);
   });

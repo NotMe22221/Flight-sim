@@ -1,7 +1,10 @@
 /**
- * Pure equirectangular (plate carrée) projection for the World Map canvas: a view is a
- * centre lon/lat plus a uniform scale in pixels per degree. Pan/zoom helpers keep the
- * latitude range clamped to ±MAX_LAT so the map never scrolls off the poles.
+ * Pure Web-Mercator projection for the World Map canvas (the projection of MSFS's world map and of
+ * web maps). It is conformal: runways cross at their real angles and airport diagrams keep their
+ * shape at any latitude (a plate carrée stretches east-west by 1/cos(lat): +25 % at KSFO, ×2 at 60°).
+ * A view is a centre lon/lat plus a scale in pixels per degree of longitude; vertically the map uses
+ * the Mercator ordinate in "equatorial degrees" (≈ latitude near the equator). Pan/zoom helpers keep
+ * the latitude range clamped to ±MAX_LAT so the map never scrolls off the poles.
  */
 
 export interface MapView {
@@ -36,6 +39,15 @@ export function wrapLon(lon: number): number {
 /** Latitude clamped to the projectable range. */
 export function clampLat(lat: number): number { return clamp(lat, -MAX_LAT, MAX_LAT); }
 
+const D2R = Math.PI / 180;
+const R2D = 180 / Math.PI;
+/** Mercator ordinate of a latitude (clamped to ±MAX_LAT), in equatorial degrees. */
+export function mercatorY(lat: number): number { return Math.log(Math.tan(Math.PI / 4 + (clampLat(lat) * D2R) / 2)) * R2D; }
+/** Latitude of a Mercator ordinate (equatorial degrees). */
+export function mercatorLat(y: number): number { return (2 * Math.atan(Math.exp(y * D2R)) - Math.PI / 2) * R2D; }
+/** Ordinate of the ±MAX_LAT edge. */
+const MAX_Y = mercatorY(MAX_LAT);
+
 /** Shortest signed longitude difference a − b in (−180, 180]. */
 export function lonDelta(a: number, b: number): number {
   const d = wrapLon(a - b);
@@ -53,50 +65,52 @@ export function createView(centerLon: number, centerLat: number, pxPerDeg: numbe
 export function project(view: MapView, lon: number, lat: number): Px {
   return {
     x: view.width / 2 + lonDelta(lon, view.centerLon) * view.pxPerDeg,
-    y: view.height / 2 - (lat - view.centerLat) * view.pxPerDeg,
+    y: view.height / 2 - (mercatorY(lat) - mercatorY(view.centerLat)) * view.pxPerDeg,
   };
 }
 
-/** canvas pixel → lon/lat (lon wrapped, lat unclamped so round trips stay exact inside the view). */
+/** canvas pixel → lon/lat (lon wrapped). */
 export function unproject(view: MapView, x: number, y: number): LonLat {
   return {
     lon: wrapLon(view.centerLon + (x - view.width / 2) / view.pxPerDeg),
-    lat: view.centerLat - (y - view.height / 2) / view.pxPerDeg,
+    lat: mercatorLat(mercatorY(view.centerLat) - (y - view.height / 2) / view.pxPerDeg),
   };
 }
 
 /** Keeps the scale and latitude range legal; the centre is moved rather than the edges cut. */
 export function clampView(view: MapView): MapView {
   const pxPerDeg = clamp(view.pxPerDeg, MIN_PX_PER_DEG, MAX_PX_PER_DEG);
-  const halfHeightDeg = view.height / 2 / pxPerDeg;
-  const maxCenterLat = Math.max(0, MAX_LAT - halfHeightDeg);
+  const halfHeight = view.height / 2 / pxPerDeg;
+  const maxCenterY = Math.max(0, MAX_Y - halfHeight);
+  const cy = clamp(mercatorY(view.centerLat), -maxCenterY, maxCenterY);
   return {
     centerLon: wrapLon(view.centerLon),
-    centerLat: clamp(view.centerLat, -maxCenterLat, maxCenterLat),
+    centerLat: mercatorLat(cy),
     pxPerDeg,
     width: view.width,
     height: view.height,
   };
 }
 
-/** Pans by a pixel delta (drag: moving the pointer right moves the centre west). */
+/** Pans by a pixel delta (drag: moving the pointer right moves the centre west, down moves it north). */
 export function pan(view: MapView, dxPx: number, dyPx: number): MapView {
   return clampView({
     ...view,
     centerLon: view.centerLon - dxPx / view.pxPerDeg,
-    centerLat: view.centerLat + dyPx / view.pxPerDeg,
+    centerLat: mercatorLat(mercatorY(view.centerLat) + dyPx / view.pxPerDeg),
   });
 }
 
 /** Zooms by `factor` about the canvas point (x, y); the lon/lat under the cursor stays put (unless clamping intervenes). */
 export function zoomAt(view: MapView, x: number, y: number, factor: number): MapView {
-  const anchor = unproject(view, x, y);
+  const anchorLon = view.centerLon + (x - view.width / 2) / view.pxPerDeg;
+  const anchorY = mercatorY(view.centerLat) - (y - view.height / 2) / view.pxPerDeg;
   const pxPerDeg = clamp(view.pxPerDeg * factor, MIN_PX_PER_DEG, MAX_PX_PER_DEG);
   return clampView({
     ...view,
     pxPerDeg,
-    centerLon: anchor.lon - (x - view.width / 2) / pxPerDeg,
-    centerLat: anchor.lat + (y - view.height / 2) / pxPerDeg,
+    centerLon: anchorLon - (x - view.width / 2) / pxPerDeg,
+    centerLat: mercatorLat(anchorY + (y - view.height / 2) / pxPerDeg),
   });
 }
 
@@ -107,27 +121,29 @@ export function resize(view: MapView, width: number, height: number): MapView {
 export function visibleBounds(view: MapView): Bounds {
   const halfW = view.width / 2 / view.pxPerDeg;
   const halfH = view.height / 2 / view.pxPerDeg;
+  const cy = mercatorY(view.centerLat);
   return {
     minLon: view.centerLon - halfW,
     maxLon: view.centerLon + halfW,
-    minLat: clamp(view.centerLat - halfH, -90, 90),
-    maxLat: clamp(view.centerLat + halfH, -90, 90),
+    minLat: mercatorLat(cy - halfH),
+    maxLat: mercatorLat(cy + halfH),
   };
 }
 
 /** View that shows the whole bounds with `padding` px around. */
 export function fitBounds(b: Bounds, width: number, height: number, padding = 24): MapView {
   const lonSpan = Math.max(1e-6, Math.abs(lonDelta(b.maxLon, b.minLon)) || Math.abs(b.maxLon - b.minLon));
-  const latSpan = Math.max(1e-6, b.maxLat - b.minLat);
-  const pxPerDeg = Math.min((width - 2 * padding) / lonSpan, (height - 2 * padding) / latSpan);
+  const y0 = mercatorY(b.minLat), y1 = mercatorY(b.maxLat);
+  const ySpan = Math.max(1e-6, y1 - y0);
+  const pxPerDeg = Math.min((width - 2 * padding) / lonSpan, (height - 2 * padding) / ySpan);
   return clampView({
     centerLon: b.minLon + lonDelta(b.maxLon, b.minLon) / 2,
-    centerLat: (b.minLat + b.maxLat) / 2,
+    centerLat: mercatorLat((y0 + y1) / 2),
     pxPerDeg, width, height,
   });
 }
 
-/** Ground metres per pixel at a latitude (for scale bars). */
+/** Ground metres per pixel at a latitude (for scale bars); Mercator is isotropic, so east and north alike. */
 export function metersPerPixel(view: MapView, lat: number): number {
   return (M_PER_DEG_LAT * Math.max(0.05, Math.cos(lat * Math.PI / 180))) / view.pxPerDeg;
 }

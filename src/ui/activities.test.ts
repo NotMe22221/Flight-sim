@@ -25,7 +25,7 @@ describe('challenge list', () => {
     expect(b.approach).toContain(`${c.speedKt} kt`);
     const calm = challengeConditions({ ...c, wind: undefined });
     expect(calm.wind).toBe('Preset winds');
-    const still = challengeConditions({ ...c, wind: { fromDeg: 0, speedKt: 0 } });
+    const still = challengeConditions({ ...c, wind: { fromDeg: 0, speedKt: 0, gustKt: 0 } });
     expect(still.wind).toBe('Calm'); // not 'CALM kt'
   });
   it('labels the challenge time from the sun-relative name and/or the nominal hour', () => {

@@ -72,13 +72,13 @@ export function bug(ctx: Ctx2D, x: number, y: number, size: number, side: 'left'
   ctx.fillStyle = color; ctx.fill();
 }
 
-/** Softkey bar with 12 labels (empty strings leave a blank key). */
-export function softkeys(ctx: Ctx2D, y: number, h: number, width: number, labels: readonly string[], highlighted = -1): void {
+/** Softkey bar with 12 labels (empty strings leave a blank key); `mask` bit i highlights key i too. */
+export function softkeys(ctx: Ctx2D, y: number, h: number, width: number, labels: readonly string[], highlighted = -1, mask = 0): void {
   const n = labels.length, w = width / n;
   ctx.fillStyle = G.bezel; ctx.fillRect(0, y, width, h);
   for (let i = 0; i < n; i++) {
-    const x = i * w + 2;
-    ctx.fillStyle = i === highlighted ? '#3a3a3a' : G.softkeyBg; ctx.fillRect(x, y + 2, w - 4, h - 4);
-    if (labels[i]) text(ctx, labels[i], x + (w - 4) / 2, y + h / 2, condBold.get(14), i === highlighted ? G.cyan : G.white, 'center');
+    const x = i * w + 2, hot = i === highlighted || (mask & (1 << i)) !== 0;
+    ctx.fillStyle = hot ? '#3a3a3a' : G.softkeyBg; ctx.fillRect(x, y + 2, w - 4, h - 4);
+    if (labels[i]) text(ctx, labels[i], x + (w - 4) / 2, y + h / 2, condBold.get(labels[i].length > 7 ? 13 : 14), hot ? G.cyan : G.white, 'center');
   }
 }

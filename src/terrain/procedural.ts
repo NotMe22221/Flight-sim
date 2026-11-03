@@ -36,9 +36,23 @@ export const DEFAULT_PROCEDURAL_PARAMS: ProceduralParams = { seed: 1337, plateau
 export const PROCEDURAL_MIN_H = -50;
 export const PROCEDURAL_MAX_H = 3000;
 
-/** sRGB biome palette (bytes). */
-const COL_DEEP = [10, 38, 78], COL_SHALLOW = [34, 92, 122], COL_SAND = [194, 178, 128], COL_GRASS = [92, 128, 62],
-  COL_FOREST = [44, 78, 38], COL_ROCK = [118, 110, 102], COL_SNOW = [238, 241, 245];
+/**
+ * sRGB land-cover palette (bytes), in the tones of true-colour satellite imagery (Sentinel-2-like:
+ * vegetation darker and less saturated than paint greens).
+ */
+const COL_DEEP = [12, 30, 46], COL_SHALLOW = [38, 74, 78], COL_WET_SAND = [138, 128, 100], COL_SAND = [204, 190, 150],
+  COL_LUSH = [70, 98, 48], COL_GRASS = [96, 114, 62], COL_DRY = [158, 144, 96], COL_FOREST = [42, 62, 36], COL_CONIFER = [34, 50, 33],
+  COL_SCRUB = [106, 101, 72], COL_ALPINE = [120, 117, 92], COL_ROCK = [124, 117, 108], COL_DARK_ROCK = [90, 86, 82], COL_SNOW = [236, 240, 246];
+/** Field patchwork tones (crops, pasture, fallow, stubble). */
+const FIELD_TONES = [[86, 108, 54], [118, 126, 70], [146, 132, 86], [72, 92, 46], [132, 112, 82], [104, 118, 60], [168, 152, 102], [94, 100, 66]];
+
+/** Integer hash of a lattice cell → 0…1 (deterministic, platform independent). */
+function cellHash(ix: number, iy: number, seed: number): number {
+  let h = (Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iy | 0, 0x165667b1) ^ Math.imul(seed | 0, 0x9e3779b1)) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
 
 export class ProceduralTerrain {
   readonly params: ProceduralParams;
@@ -46,6 +60,8 @@ export class ProceduralTerrain {
   private readonly nMountain: SimplexNoise2D;
   private readonly nHills: SimplexNoise2D;
   private readonly nHumidity: SimplexNoise2D;
+  /** land-cover patches (dry/lush, forest edges, snow line, field warp) */
+  private readonly nCover: SimplexNoise2D;
 
   constructor(params: ProceduralParams = DEFAULT_PROCEDURAL_PARAMS) {
     this.params = params;
@@ -54,6 +70,7 @@ export class ProceduralTerrain {
     this.nMountain = new SimplexNoise2D((s ^ 0x9e3779b9) >>> 0);
     this.nHills = new SimplexNoise2D((s + 0x7f4a7c15) >>> 0);
     this.nHumidity = new SimplexNoise2D((s ^ 0x85ebca6b) >>> 0);
+    this.nCover = new SimplexNoise2D((s + 0x632be5ab) >>> 0);
   }
 
   /** Height (m) at a geodetic position. Deterministic; same (lon, lat) → same height. */
@@ -111,8 +128,12 @@ export class ProceduralTerrain {
   }
 
   /**
-   * Biome-coloured RGBA tile (`width`×`width`, row 0 = north) from a height grid of the same
-   * size: water by depth, sand, grass, forest (humidity), rock by slope, snow by altitude.
+   * Land-cover RGBA tile (`width`×`width`, row 0 = north) from a height grid of the same size: water by
+   * depth, wet sand and beaches at the shore, lowland fields (a warped patchwork of crop/pasture/fallow
+   * tones), grass that drifts between lush and dry, forest by humidity (conifers higher up), scrub on dry
+   * slopes, alpine meadow, rock by slope and altitude, snow above a noisy snow line. Every input is a
+   * function of the ground position (sinusoidal metres) and the heights, so neighbouring tiles and zooms
+   * agree; detail finer than the tile's pixels fades to its average instead of aliasing.
    */
   imageryTile(heights: Float32Array, width: number, z: number, x: number, y: number, out?: Uint8ClampedArray): Uint8ClampedArray {
     const n = width * width;
@@ -121,8 +142,14 @@ export class ProceduralTerrain {
     const mpp = metersPerPixel(latC, z, width);
     const inv2 = 1 / (2 * mpp);
     const W = width;
+    const nc = this.nCover;
+    // fade of detail by pixel size: fields (≈ 250 m) and 40 m mottling
+    const wFields = 1 - smoothstep(40, 140, mpp);
+    const wMottle = 1 - smoothstep(8, 30, mpp);
+    const col = [0, 0, 0];
     for (let j = 0; j < W; j++) {
       const lat = tileToLonLat(x, y + (j + 0.5) / W, z).lat;
+      const latR = lat * D2R, cosLat = Math.cos(latR), north = EARTH_RADIUS * latR;
       const jm = j > 0 ? j - 1 : 0, jp = j < W - 1 ? j + 1 : W - 1;
       for (let i = 0; i < W; i++) {
         const k = j * W + i;
@@ -132,29 +159,47 @@ export class ProceduralTerrain {
         const gy = (heights[jp * W + i] - heights[jm * W + i]) * inv2;
         const slopeDeg = Math.atan(Math.hypot(gx, gy)) / D2R;
         const lon = tileToLonLat(x + (i + 0.5) / W, y, z).lon;
+        const east = EARTH_RADIUS * lon * D2R * cosLat;
         const o = k * 4;
         if (h <= 0) {
-          const t = Math.exp(h / 12); // 1 at the shore → 0 in deep water
-          rgba[o] = COL_DEEP[0] + (COL_SHALLOW[0] - COL_DEEP[0]) * t;
-          rgba[o + 1] = COL_DEEP[1] + (COL_SHALLOW[1] - COL_DEEP[1]) * t;
-          rgba[o + 2] = COL_DEEP[2] + (COL_SHALLOW[2] - COL_DEEP[2]) * t;
+          const t = Math.exp(h / 10); // 1 at the shore → 0 in deep water
+          for (let c = 0; c < 3; c++) rgba[o + c] = COL_DEEP[c] + (COL_SHALLOW[c] - COL_DEEP[c]) * t;
           rgba[o + 3] = 255;
           continue;
         }
         const humidity = this.humidity(lon, lat);
-        let wSnow = smoothstep(2300, 2600, h) * (1 - smoothstep(45, 60, slopeDeg));
-        let wRock = smoothstep(30, 45, slopeDeg) * (1 - wSnow);
-        let wSand = (1 - smoothstep(2, 6, h)) * (1 - wRock);
-        let wForest = smoothstep(300, 500, h) * (1 - smoothstep(1600, 1800, h)) * smoothstep(0.3, 0.5, humidity) * (1 - wRock - wSnow);
-        let wGrass = clamp(1 - wSnow - wRock - wSand - wForest, 0, 1);
-        const sum = wSnow + wRock + wSand + wForest + wGrass || 1;
-        wSnow /= sum; wRock /= sum; wSand /= sum; wForest /= sum; wGrass /= sum;
-        // small deterministic texture variation (±6 %) from the hills noise
-        const v = 1 + 0.06 * this.nHills.noise(i * 0.37 + x * 97.1, j * 0.37 + y * 53.7);
+        const patch = nc.fbm(east / 1800 + 3.1, north / 1800 - 7.7, 3); // −1…1, km-scale patches
+        const dry = clamp(0.36 + 0.6 * nc.fbm(east / 7000 - 13.3, north / 7000 + 2.9, 2) - 0.6 * (humidity - 0.5), 0, 1);
+        const snowLine = 2550 + 220 * nc.noise(east / 4000 + 1.7, north / 4000 - 4.2);
+        // weights (normalised below)
+        const wSnow = smoothstep(snowLine - 120, snowLine + 120, h) * (1 - smoothstep(40, 55, slopeDeg));
+        const wRock = clamp(smoothstep(28, 42, slopeDeg) + 0.7 * smoothstep(2100, 2600, h), 0, 1) * (1 - wSnow);
+        const shore = (1 - smoothstep(1.2, 4, h)) * (1 - smoothstep(6, 12, slopeDeg));
+        const wSand = shore * (1 - wRock);
+        const forestBand = (1 - smoothstep(1800, 2200, h)) * smoothstep(0.42, 0.6, humidity + 0.22 * patch + 0.1 * smoothstep(6, 20, slopeDeg));
+        const wForest = forestBand * (1 - wRock - wSnow) * (1 - wSand);
+        const alpine = smoothstep(1700, 2100, h) * (1 - wRock - wSnow - wForest);
+        const lowFlat = (1 - smoothstep(450, 800, h)) * (1 - smoothstep(4, 9, slopeDeg));
+        const wField = Math.max(lowFlat * (1 - wForest - wSand - wRock) * (0.45 + 0.45 * (patch + 1) * 0.5), 0) * wFields;
+        const wScrub = Math.max(smoothstep(8, 22, slopeDeg) * dry * (1 - wForest - wRock - wSnow - wSand) * (1 - smoothstep(1800, 2200, h)), 0);
+        const wGrass = clamp(1 - wSnow - wRock - wSand - wForest - alpine - wField - wScrub, 0, 1);
+        const sum = wSnow + wRock + wSand + wForest + alpine + wField + wScrub + wGrass || 1;
+        // field tone from a warped lattice (≈ 260 × 190 m parcels)
+        const wx = east + 90 * nc.noise(east / 700, north / 700), wy = north + 90 * nc.noise(east / 700 + 9.3, north / 700 - 4.1);
+        const fieldTone = FIELD_TONES[Math.floor(cellHash(Math.floor(wx / 260), Math.floor(wy / 190), this.params.seed) * FIELD_TONES.length) % FIELD_TONES.length];
+        const conifer = smoothstep(700, 1300, h);
+        const wet = 1 - smoothstep(0.4, 1.8, h);
+        const rockTone = 0.5 + 0.5 * nc.noise(east / 300 - 2.2, north / 300 + 6.1);
         for (let c = 0; c < 3; c++) {
-          const col = COL_SNOW[c] * wSnow + COL_ROCK[c] * wRock + COL_SAND[c] * wSand + COL_FOREST[c] * wForest + COL_GRASS[c] * wGrass;
-          rgba[o + c] = col * v;
+          const grass = COL_LUSH[c] + (COL_DRY[c] - COL_LUSH[c]) * dry + (COL_GRASS[c] - COL_LUSH[c]) * (1 - Math.abs(dry - 0.5) * 2) * 0.5;
+          const forest = COL_FOREST[c] + (COL_CONIFER[c] - COL_FOREST[c]) * conifer;
+          const sand = COL_SAND[c] + (COL_WET_SAND[c] - COL_SAND[c]) * wet;
+          const rock = COL_DARK_ROCK[c] + (COL_ROCK[c] - COL_DARK_ROCK[c]) * rockTone;
+          col[c] = (COL_SNOW[c] * wSnow + rock * wRock + sand * wSand + forest * wForest + COL_ALPINE[c] * alpine + fieldTone[c] * wField + COL_SCRUB[c] * wScrub + grass * wGrass) / sum;
         }
+        // mottling (±7 %) at ≈ 40 m, a function of the ground position only
+        const v = 1 + 0.07 * wMottle * nc.noise(east / 40 + 0.5, north / 40 - 0.5) + 0.04 * patch;
+        for (let c = 0; c < 3; c++) rgba[o + c] = col[c] * v;
         rgba[o + 3] = 255;
       }
     }

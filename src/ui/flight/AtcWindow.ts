@@ -24,7 +24,8 @@ export class AtcWindow {
     this.options = h('div', { class: 'atc-options' }, h('div', { class: 'empty', text: 'No options available' }));
     this.el = h('div', { class: 'atc' },
       h('div', { class: 'atc-freq' }, icon('headset'), this.freq.el, this.station.el, h('span', { class: 'spacer' }),
-        button('', () => this.clearLog(), { icon: 'close', cls: 'btn-ghost btn-icon btn-sm', title: 'Clear transcript' })),
+        // a text button: a second "×" right under the panel's close button read as "close"
+        button('Clear', () => this.clearLog(), { cls: 'btn-ghost btn-sm', title: 'Clear transcript' })),
       this.log,
       h('div', { class: 'section-label', text: 'Options (keys 1–9, 0)' }),
       this.options);

@@ -22,7 +22,8 @@ import { subSquareRanges } from './gridIndex';
 import { GroundQueries } from './groundQueries';
 import { HeightField } from './heightfield';
 import { imageryUvTransform } from './imagery';
-import { createTerrainSharedUniforms, textureFromBitmap, textureFromRgba, type TerrainSharedUniforms } from './materials';
+import { DETAIL_PERIOD_M, createTerrainSharedUniforms, textureFromBitmap, textureFromRgba, type TerrainSharedUniforms } from './materials';
+import type { SkySharedUniforms } from '../sky/skyUniforms';
 import { DEFAULT_PROCEDURAL_PARAMS, type ProceduralParams } from './procedural';
 import type { ErrorResponse, TileResponse } from './protocol';
 import { DEFAULT_IMAGERY_CHAIN, awsTerrarium, collectAttribution, proceduralElevation, proceduralImagery, type ElevationProvider, type ImageryProvider } from './providers';
@@ -41,6 +42,11 @@ export type DepthMode = 'reversed' | 'logarithmic';
 export interface TerrainSystemOptions {
   /** texture anisotropy (pass `renderer.capabilities.getMaxAnisotropy()`; default 4) */
   maxAnisotropy?: number;
+  /**
+   * the sky's shared uniforms (ambient irradiance, sky colours, cloud shadows) referenced by every tile
+   * material; default the process-wide `SKY_UNIFORMS` that `SkySystem` publishes into
+   */
+  skyUniforms?: SkySharedUniforms;
   /** imagery chain: EOX → GIBS → procedural ('satellite', default) or procedural colours only */
   imagery?: ImageryMode;
   /** CDLOD level-0 range, m (3500 desktop ≈ 2 px SSE at 1080p; 1800 low-end) */
@@ -125,7 +131,7 @@ export class TerrainSystem {
   private readonly quadtree: Quadtree;
   private readonly planner = new DrawPlanner();
   private readonly loader: TileLoader;
-  private readonly shared: TerrainSharedUniforms = createTerrainSharedUniforms();
+  private readonly shared: TerrainSharedUniforms;
   private readonly indices = new SharedIndices();
   private readonly textures = new TextureCache();
   private readonly records = new Map<number, TileRecord>();
@@ -167,6 +173,7 @@ export class TerrainSystem {
   private readonly camArr = new Float64Array(3);
   private readonly rangeScratch = new Int32Array(10);
   private readonly uvScratch = [0, 0, 1];
+  private readonly nedScratch: Vec3 = [0, 0, 0];
   private readonly readyFn = (z: number, x: number, y: number): boolean => {
     const r = this.records.get(tileId(z, x, y));
     return r !== undefined && r.gpu !== null;
@@ -174,6 +181,7 @@ export class TerrainSystem {
 
   constructor(frame: LocalFrame, options: TerrainSystemOptions = {}) {
     this.frame = frame;
+    this.shared = createTerrainSharedUniforms(options.skyUniforms);
     this.maxZoom = options.maxZoom ?? 15;
     this.minZoom = options.minZoom ?? 7;
     if (!(this.minZoom >= 0 && this.minZoom <= this.maxZoom && this.maxZoom <= 22)) {
@@ -503,7 +511,7 @@ export class TerrainSystem {
     } else if (img?.kind === 'rgba') {
       texture = textureFromRgba(img.data, img.width, this.anisotropy);
     }
-    const gpu = createTileGpu(rec.key, r.mesh, r.water, this.indices, this.shared, texture, textureKey, uv);
+    const gpu = createTileGpu(rec.key, r.mesh, r.water, this.indices, this.shared, texture, textureKey, uv, img?.kind === 'rgba');
     const build = this.frameFor(r.frame);
     placeTile(gpu.mesh, r.mesh.centerEcef, this.frame, this.rotationFor(build));
     this.group.add(gpu.mesh);
@@ -689,6 +697,11 @@ export class TerrainSystem {
    */
   setFrame(newFrame: LocalFrame): void {
     if (this.disposed) return;
+    // keep the procedural detail noise attached to the ground: the new origin in the old frame's render axes
+    const ned = this.frame.ecefToNED(newFrame.origin, this.nedScratch);
+    const off = this.shared.uDetailOffset.value;
+    const P = DETAIL_PERIOD_M;
+    off.set((((off.x + ned[1]) % P) + P) % P, (((off.y - ned[0]) % P) + P) % P);
     this.frame = newFrame;
     this.quadtree.setFrame(newFrame);
     this.rotations.clear();

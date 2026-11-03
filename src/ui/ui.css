@@ -225,7 +225,7 @@
 .fs-ui .runway-btn { min-height: 30px; padding: 4px 10px; font-family: var(--mono); font-weight: 600; }
 .fs-ui .wm-center { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
 .fs-ui .wm-map { position: relative; flex: 1; min-height: 0; border: 1px solid var(--ui-border); border-radius: var(--radius); overflow: hidden; background: #0c1a2b; }
-.fs-ui .wm-map canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+.fs-ui .wm-map canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 .fs-ui .wm-map canvas.dragging { cursor: grabbing; }
 .fs-ui .wm-map-overlay { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 6px; align-items: center; }
 .fs-ui .wm-zoom { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
@@ -353,12 +353,12 @@
   max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: hidden;
 }
 .fs-ui .floating-panel.visible { display: flex; }
-.fs-ui .fp-header { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--ui-border); cursor: move; user-select: none; background: rgba(255,255,255,0.03); }
+.fs-ui .fp-header { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--ui-border); cursor: move; user-select: none; background: rgba(255,255,255,0.03); touch-action: none; }
 .fs-ui .fp-title { flex: 1; font-size: 0.78em; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fs-ui .fp-header .icon { color: var(--accent); }
 .fs-ui .fp-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .fs-ui .fp-body.tight { padding: 0; }
-.fs-ui .fp-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--ui-border-strong) 50%, var(--ui-border-strong) 60%, transparent 60%, transparent 75%, var(--ui-border-strong) 75%, var(--ui-border-strong) 85%, transparent 85%); }
+.fs-ui .fp-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 50%, var(--ui-border-strong) 50%, var(--ui-border-strong) 60%, transparent 60%, transparent 75%, var(--ui-border-strong) 75%, var(--ui-border-strong) 85%, transparent 85%); }
 
 .fs-ui .toasts { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
 .fs-ui .toast { padding: 8px 16px; border-radius: 999px; font-size: 0.92em; max-width: min(640px, 80vw); display: flex; align-items: center; gap: 8px; opacity: 0; transform: translateY(8px); transition: opacity 180ms ease, transform 180ms ease; pointer-events: auto; }
@@ -484,3 +484,84 @@
 @media (prefers-reduced-motion: reduce) {
   .fs-ui * { transition: none !important; animation: none !important; }
 }
+
+/* toolbar tab for touch screens (no hover to reveal the toolbar) */
+.fs-ui .toolbar-handle {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%); display: none; align-items: center; justify-content: center;
+  width: 56px; height: 22px; padding: 0; border: 1px solid var(--ui-border); border-top: 0; border-radius: 0 0 12px 12px;
+  background: var(--ui-bg); color: var(--fg-dim); cursor: pointer; transition: opacity var(--t);
+}
+.fs-ui .toolbar.visible ~ .toolbar-handle { opacity: 0; pointer-events: none; }
+@media (hover: none), (pointer: coarse) { .fs-ui .toolbar-handle { display: flex; } }
+
+/* ─── phones (portrait, ≤ 720 px wide): one column, the screen body scrolls ─── */
+@media (max-width: 720px) {
+  .fs-ui .screen-header { padding: 10px 12px 6px; gap: 8px; }
+  .fs-ui .screen-title { font-size: 1.1em; letter-spacing: 0.12em; }
+  .fs-ui .screen-subtitle { display: none; }
+  .fs-ui .screen-body { flex-direction: column; padding: 4px 12px 12px; gap: 10px; overflow-y: auto; overflow-x: hidden; }
+  .fs-ui .screen-footer { padding: 8px 12px 12px; }
+  .fs-ui .btn-big { font-size: 1.05em; min-height: 46px; padding: 10px 24px; }
+
+  /* main menu */
+  .fs-ui .main-menu .screen-body { justify-content: flex-start; }
+  .fs-ui .main-left { width: auto; padding-left: 0; justify-content: flex-start; flex: none; }
+  .fs-ui .brand { margin: 6px 0 8px; font-size: 1.5em; }
+  .fs-ui .menu-btn { padding: 9px 14px; }
+  .fs-ui .main-right { flex: none; justify-content: stretch; padding-right: 0; }
+  .fs-ui .summary-card { width: 100%; padding: 12px 14px; gap: 4px; }
+  .fs-ui .version-tag { position: static; padding: 0 12px 10px; }
+
+  /* world map: search, map, airport card, conditions; departure summary + FLY stay at the bottom */
+  .fs-ui .wm-sidebar, .fs-ui .wm-center { display: contents; }
+  .fs-ui .wm-sidebar > :first-child { order: 1; flex: none; }
+  .fs-ui .wm-map { order: 2; flex: none; height: 44vh; min-height: 260px; }
+  .fs-ui .wm-sidebar .airport-card { order: 3; flex: none; }
+  .fs-ui .wm-right { order: 4; width: auto; min-width: 0; flex: none; }
+  .fs-ui .wm-conditions { overflow: visible; flex: none; }
+  .fs-ui .wm-bottom {
+    order: 5; position: sticky; bottom: -12px; z-index: 2; margin: 0 -12px -12px; padding: 8px 12px 12px;
+    background: linear-gradient(180deg, rgba(8, 14, 24, 0.6), rgba(8, 14, 24, 0.96) 30%); gap: 10px;
+  }
+  .fs-ui .wm-bottom .btn-big { padding: 10px 18px; }
+  .fs-ui .departure-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 10px; padding: 6px 10px; }
+  .fs-ui .airport-list { max-height: 28vh; }
+  .fs-ui .airport-card .scroll { overflow: visible; }
+
+  /* aircraft, weather, activities, credits */
+  .fs-ui .aircraft-grid { flex: none; overflow: visible; }
+  .fs-ui .aircraft-side, .fs-ui .wx-left, .fs-ui .act-detail { width: auto; min-width: 0; }
+  .fs-ui .wx-right { overflow: visible; }
+  .fs-ui .weather > .screen-body { overflow-y: auto; }
+  .fs-ui .layer-row { grid-template-columns: auto repeat(2, minmax(0, 1fr)) auto; }
+  .fs-ui .act-left { flex: none; }
+  .fs-ui .act-list { grid-template-columns: 1fr; flex: none; }
+  .fs-ui .act-detail { overflow: visible; }
+
+  /* settings: the tab bar scrolls sideways, the content scrolls inside the body */
+  .fs-ui .settings .screen-body { overflow: hidden; }
+  .fs-ui .settings .tabs { overflow-x: auto; scrollbar-width: none; flex: none; }
+  .fs-ui .settings .tab { flex: none; padding: 10px 10px; }
+  .fs-ui .settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .fs-ui .binding-key { min-width: 0; }
+
+  /* in flight: icon-only toolbar that fits the width; overlays sized to the screen */
+  .fs-ui .toolbar { padding: 4px 6px; max-width: 100vw; }
+  .fs-ui .toolbar-btn { width: 40px; padding: 6px 2px; }
+  .fs-ui .toolbar-btn > span:not(.icon) { display: none; }
+  .fs-ui .toolbar-sep { margin: 4px 2px; }
+  .fs-ui .camera-menu { left: 0; transform: none; }
+  .fs-ui .hud-strip { max-width: calc(100vw - 16px); overflow: hidden; }
+  .fs-ui .hud-cell { min-width: 0; padding: 2px 5px; }
+  .fs-ui .pause-menu { padding: 18px 16px; }
+  .fs-ui .help-overlay { padding: 14px 14px; height: min(720px, 92vh); }
+  .fs-ui .landing-report { padding: 16px 14px; }
+  .fs-ui .lr-row { grid-template-columns: 96px 1fr auto; font-size: 0.85em; }
+  .fs-ui .lr-weight { display: none; }
+  /* clear of the REPLAY button (bottom-right) and transparent to the touch flight controls beneath */
+  .fs-ui .status-bar { max-width: calc(100vw - 112px); flex-wrap: wrap; row-gap: 2px; border-radius: 12px; pointer-events: none; }
+  .fs-ui .atc-subtitle { max-width: calc(100vw - 32px); }
+}
+
+/* map overlay buttons sit on airport labels: opaque, not the translucent default */
+.fs-ui .wm-zoom .btn { background: var(--ui-bg-strong); border-color: var(--ui-border-strong); }

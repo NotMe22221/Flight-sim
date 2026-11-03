@@ -14,9 +14,10 @@
  * Tier B (volumetric ray-marching) can replace this class behind the same public surface.
  */
 import * as THREE from 'three';
-import { clamp } from '../core/math';
+import { clamp, smoothstep as smoothstepT } from '../core/math';
 import type { CloudLayer, WindLayer } from '../core/types';
 import { CLOUD_NOISE_GLSL, cloudDensityAt, cloudLayerDensityAt, cloudTypeParams } from './cloudMath';
+import { MAX_SHADOW_LAYERS, type SkySharedUniforms } from './skyUniforms';
 import { HEIGHT_FOG_GLSL, type SkyLighting } from './types';
 import { windAt } from './wind';
 
@@ -195,8 +196,13 @@ export class CloudLayers {
       (u.uDrift.value as THREE.Vector2).set(this.drifts[i * 2], this.drifts[i * 2 + 1]);
       (u.uSunDir.value as THREE.Vector3).copy(L.sunDirThree);
       (u.uSunRadiance.value as THREE.Color).copy(L.sunRadiance);
-      (u.uSkyAmbient.value as THREE.Color).copy(L.skyColorZenith).lerp(L.skyColorHorizon, 0.5);
-      (u.uHorizonColor.value as THREE.Color).copy(L.fogColor);
+      // skylight on the layer: the clear-sky blue turns neutral as the sky closes over (a deck lit by a
+      // deck), so an overcast base reads grey instead of blue-white
+      const amb = (u.uSkyAmbient.value as THREE.Color).copy(L.skyColorZenith).lerp(L.skyColorHorizon, 0.5);
+      const grey = 0.2126 * amb.r + 0.7152 * amb.g + 0.0722 * amb.b;
+      const k = 0.85 * smoothstepT(0.3, 1, L.cloudCover);
+      amb.setRGB(amb.r + (grey - amb.r) * k, amb.g + (grey - amb.g) * k, amb.b + (grey - amb.b) * k);
+      (u.uHorizonColor.value as THREE.Color).copy(L.skyFogColor);
       u.uFogBeta.value = L.fogDensity; u.uFogInvH.value = L.fogHeightFalloff; u.uGroundY.value = L.groundY;
       // plane altitude: base when below, top when above, camera altitude while inside
       const yMsl = clamp(camMsl, layer.baseM, layer.topM);
@@ -216,9 +222,27 @@ export class CloudLayers {
   setFog(L: SkyLighting): void {
     for (const p of this.planes) {
       if (!p.mesh.visible) continue;
-      (p.u.uHorizonColor.value as THREE.Color).copy(L.fogColor);
+      (p.u.uHorizonColor.value as THREE.Color).copy(L.skyFogColor);
       p.u.uFogBeta.value = L.fogDensity; p.u.uFogInvH.value = L.fogHeightFalloff; p.u.uGroundY.value = L.groundY;
     }
+  }
+
+  /**
+   * Publish the layers for cloud shadows on the ground (`SKY_UNIFORMS_GLSL.skyCloudShadow`): the same noise
+   * field (coverage, feature size, drift) as the planes, sampled at each layer's middle along the sun ray.
+   * Call after `update` (uses this frame's layers and drifts). `altitudeOffsetM` = the frame's alt0.
+   */
+  writeShadowUniforms(u: SkySharedUniforms, altitudeOffsetM = this.altitudeOffsetM): void {
+    let n = 0;
+    for (let i = 0; i < this.layers.length && n < MAX_SHADOW_LAYERS; i++) {
+      const layer = this.layers[i];
+      if (!(layer.coverage > 0.005 && layer.density > 0.005 && layer.topM > layer.baseM)) continue;
+      const tp = cloudTypeParams(layer.type);
+      u.uCloudShadowA.value[n].set(clamp(layer.coverage, 0, 1), 1 / tp.featureSizeM, 0, (layer.topM - layer.baseM) * Math.max(layer.density, 0) * tp.sigmaT);
+      u.uCloudShadowB.value[n].set(0.5 * (layer.baseM + layer.topM) - altitudeOffsetM, this.drifts[i * 2] ?? 0, this.drifts[i * 2 + 1] ?? 0, 0);
+      n++;
+    }
+    u.uCloudShadowCount.value = n;
   }
 
   /** Cloud density 0..1 at a render-frame point (same field as the shader, max over layers). */

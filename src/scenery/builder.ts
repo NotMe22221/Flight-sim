@@ -14,11 +14,17 @@ import type { TileBuildResult } from './protocol';
 import { hash01, sceneryTileKey, tileSeed } from './tileMath';
 import { OccupancyGrid, scatterTrees } from './vegetation';
 
-/** Lift of draped airport surfaces above the terrain (m), and near runways (below the runway slab at +0.12). */
+/**
+ * Lift of draped airport surfaces above the terrain (m): aprons < taxiway areas < taxiway
+ * ribbons so overlaps never z-fight; next to runways everything drops below the runway slab
+ * (AirportsLayer draws it 0.12 m up) and markings stop.
+ */
 export const SURFACE_LIFT_M = 0.2;
+export const TAXIWAY_AREA_LIFT_M = 0.22;
+export const RIBBON_LIFT_M = 0.24;
 export const NEAR_RUNWAY_LIFT_M = 0.03;
 export const MARKING_LIFT_M = 0.05;
-export const POOL_LIFT_M = 0.32;
+export const POOL_LIFT_M = 0.4;
 /** Assumed runway half width when OSM gives no width (m), and the lowering margin around it. */
 export const DEFAULT_RUNWAY_HALF_WIDTH_M = 30;
 export const RUNWAY_MARGIN_M = 12;
@@ -96,21 +102,24 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
   if (parkingOnly) { result.buildMs = nowMs() - t0; return result; }
 
   // ── airport surfaces ──
-  const lift = (px: number, pz: number): number => (nearRunway(px, pz) ? NEAR_RUNWAY_LIFT_M : SURFACE_LIFT_M);
+  const liftFn = (h: number, nearH: number) => (px: number, pz: number): number => (nearRunway(px, pz) ? nearH : h);
+  const apronLift = liftFn(SURFACE_LIFT_M, NEAR_RUNWAY_LIFT_M);
+  const areaLift = liftFn(TAXIWAY_AREA_LIFT_M, NEAR_RUNWAY_LIFT_M + 0.01);
+  const ribbonLift = liftFn(RIBBON_LIFT_M, NEAR_RUNWAY_LIFT_M + 0.02);
   const surfaces = new DrapeBuilder(10, 4096);
   const concrete = (k: number): DrapeStyle => {
-    const v = 0.48 + 0.05 * hash01(seed, k);
-    return { r: lin8(v), g: lin8(v), b: lin8(v * 0.97), lift, drop: null, dropMode: 'all' };
+    const v = 0.62 + 0.06 * hash01(seed, k);
+    return { r: lin8(v), g: lin8(v), b: lin8(v * 0.97), lift: apronLift, drop: null, dropMode: 'all' };
   };
-  const asphalt: DrapeStyle = { r: lin8(0.3), g: lin8(0.3), b: lin8(0.315), lift, drop: null, dropMode: 'all' };
+  const asphalt = (lift: (x: number, z: number) => number): DrapeStyle => ({ r: lin8(0.36), g: lin8(0.36), b: lin8(0.37), lift, drop: null, dropMode: 'all' });
   f.aprons.forEach((p, i) => drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, concrete(i)));
-  for (const p of f.helipads) drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, concrete(97));
-  for (const p of f.taxiwayPolys) drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, asphalt);
-  for (const t of taxiLines) drapeRibbon(surfaces, t.line, t.width / 2, s.ribbonStepM, asphalt);
+  for (const p of f.helipads) drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, { ...concrete(97), lift: areaLift });
+  for (const p of f.taxiwayPolys) drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, asphalt(areaLift));
+  for (const t of taxiLines) drapeRibbon(surfaces, t.line, t.width / 2, s.ribbonStepM, asphalt(ribbonLift));
   result.surfaces = surfaces.finish();
 
   const markings = new DrapeBuilder(10, 1024);
-  const yellow: DrapeStyle = { r: lin8(0.86), g: lin8(0.66), b: lin8(0.12), lift: (px, pz) => lift(px, pz) + MARKING_LIFT_M, drop: nearRunway, dropMode: 'any' };
+  const yellow: DrapeStyle = { r: lin8(0.86), g: lin8(0.66), b: lin8(0.12), lift: (px, pz) => ribbonLift(px, pz) + MARKING_LIFT_M, drop: nearRunway, dropMode: 'any' };
   for (const t of taxiLines) drapeRibbon(markings, t.line, 0.25, s.ribbonStepM, yellow);
   result.markings = markings.finish();
 

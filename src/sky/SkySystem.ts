@@ -16,15 +16,17 @@ import { clamp, lerp, smoothstep } from '../core/math';
 import type { SimSnapshot, SunState, Vec3, WeatherState } from '../core/types';
 import { dirFromAzEl, moonPosition, sunPosition } from '../geo/solar';
 import { CloudLayers, type CloudLayersOptions } from './clouds';
+import { installBuiltinHeightFog, setBuiltinHeightFog } from './builtinFog';
 import {
-  DEFAULT_EXPOSURE, type ExposureOptions, MIN_FOG_INV_H, adaptExposure, ambientFloor, cloudCoverFraction, encodeDisplayColor, fogBetaFromVisibility,
-  hazeScaleHeight, hemisphereIntensity, mieFromVisibility, mixVec3, moonLightIntensity, normalizeColor, starVisibility, sunLightIntensity,
-  targetExposure, turbidityFromVisibility,
+  DEFAULT_EXPOSURE, type ExposureOptions, MIN_FOG_INV_H, NIGHT_AMBIENT_COLOR, adaptExposure, ambientFloor, capBySky, cloudCoverFraction,
+  encodeDisplayColor, exposureForIlluminance, fogBetaFromVisibility, hazeColor, hazeScaleHeight, hemisphereIntensity, mieFromVisibility, mixVec3,
+  moonLightIntensity, normalizeColor, starVisibility, sunLightIntensity, surfaceIlluminance, turbidityFromVisibility,
 } from './lighting';
 import { MoonDisc } from './moon';
 import { Precipitation, type PrecipitationOptions } from './precipitation';
-import { DEFAULT_PREETHAM, type PreethamParams, PreethamSky, SKY_RADIANCE_SCALE } from './preetham';
+import { DEFAULT_PREETHAM, INSCATTER_KNEE, NIGHT_GLOW_GLSL, type PreethamParams, PreethamSky, SKY_RADIANCE_SCALE } from './preetham';
 import { defaultWeather } from './presets';
+import { SKY_UNIFORMS, type SkySharedUniforms } from './skyUniforms';
 import { StarField } from './stars';
 import { type SkyLighting, createSkyLighting } from './types';
 import { windAt } from './wind';
@@ -57,6 +59,13 @@ export interface SkySystemOptions {
   inCloudBeta?: number;
   clouds?: CloudLayersOptions;
   precipitation?: PrecipitationOptions;
+  /**
+   * uniforms published every frame for terrain/ocean shaders (ambient irradiance, sky colours, cloud
+   * shadows); default the process-wide `SKY_UNIFORMS` that `TerrainSystem` reads, `null` to publish nothing
+   */
+  sharedUniforms?: SkySharedUniforms | null;
+  /** give three's built-in materials the terrain's height fog (patches the fog shader chunks; default true) */
+  builtinHeightFog?: boolean;
 }
 
 /**
@@ -67,6 +76,12 @@ export type SkySnapshot = Pick<SimSnapshot, 'time' | 'aircraft' | 'weather'> & P
 
 const SUN_DISTANCE_M = 600;
 const MOON_LIGHT_COLOR = 0xb8c4ff;
+/** share of the horizon hue in the skylight colour (the rest is the zenith hue) */
+const SKYLIGHT_HORIZON_SHARE = 0.5;
+const WHITE: Vec3 = [1, 1, 1];
+/** night-sky radiance at the horizon (warm light-pollution glow) and at the zenith (airglow), linear dome scale */
+const NIGHT_GLOW_HORIZON: Vec3 = [0.028, 0.022, 0.018];
+const NIGHT_GLOW_ZENITH: Vec3 = [0.004, 0.0055, 0.011];
 
 export class SkySystem {
   readonly scene: THREE.Scene;
@@ -90,7 +105,9 @@ export class SkySystem {
   readonly preetham = new PreethamSky();
 
   private weather: WeatherState;
-  private readonly opts: Required<Pick<SkySystemOptions, 'shadows' | 'shadowRadiusM' | 'environmentMap' | 'envRebakeDeg' | 'envRebakeMinS' | 'sunIntensity' | 'inCloudBeta'>>;
+  private readonly opts: Required<Pick<SkySystemOptions, 'shadows' | 'shadowRadiusM' | 'environmentMap' | 'envRebakeDeg' | 'envRebakeMinS' | 'sunIntensity' | 'inCloudBeta' | 'builtinHeightFog'>>;
+  /** uniforms published for other shaders (null: none) */
+  readonly sharedUniforms: SkySharedUniforms | null;
   private readonly params: PreethamParams;
   private exposure: number;
   /** false until the first update (and after `resetAdaptation`): exposure snaps instead of adapting */
@@ -124,6 +141,10 @@ export class SkySystem {
   private readonly horizon: Vec3 = [0, 0, 0];
   private readonly horizonSun: Vec3 = [0, 0, 0];
   private readonly cloudGrey: Vec3 = [0, 0, 0];
+  private readonly haze: Vec3 = [0, 0, 0];
+  private readonly horizon90: Vec3 = [0, 0, 0];
+  private readonly hazeSun: Vec3 = [0, 0, 0];
+  private readonly glowEncoded = new THREE.Color();
   private readonly windNED: Vec3 = [0, 0, 0];
   private readonly windThree = new THREE.Vector3();
   private readonly aircraftPos = new THREE.Vector3();
@@ -140,7 +161,10 @@ export class SkySystem {
       envRebakeMinS: options.envRebakeMinS ?? 0.5,
       sunIntensity: options.sunIntensity ?? 3,
       inCloudBeta: options.inCloudBeta ?? 0.03,
+      builtinHeightFog: options.builtinHeightFog ?? true,
     };
+    this.sharedUniforms = options.sharedUniforms === undefined ? SKY_UNIFORMS : options.sharedUniforms;
+    if (this.opts.builtinHeightFog) installBuiltinHeightFog();
     this.exposureOptions = { ...DEFAULT_EXPOSURE, ...options.exposure };
     this.exposure = this.exposureOptions.day;
     this.params = { ...DEFAULT_PREETHAM, rayleigh: options.rayleigh ?? 1, mieDirectionalG: options.mieDirectionalG ?? 0.8 };
@@ -156,6 +180,7 @@ export class SkySystem {
     this.sky.renderOrder = 1; // after opaque terrain so covered pixels are rejected by the depth test
     this.sky.frustumCulled = false;
     patchSkyDepth(this.sky.material);
+    patchSkyDome(this.sky.material);
     const u = this.sky.material.uniforms;
     u.turbidity.value = this.params.turbidity;
     u.rayleigh.value = this.params.rayleigh;
@@ -293,10 +318,20 @@ export class SkySystem {
     this.params.turbidity = turbidity;
     this.params.mieCoefficient = mie;
     this.preetham.setSun(this.sunDir, this.params);
+    // night sky: airglow + light pollution near the horizon (fades in through nautical twilight, a little
+    // brighter under moonlight); the dome shader adds the same glow
+    const night = 1 - smoothstep(-14, -3, el);
+    const moonUp = clamp(mp.illuminatedFraction, 0, 1) * smoothstep(-2, 10, mp.elevation);
+    const kh = night * (1 + 1.5 * moonUp), kz = night * (1 + 3 * moonUp);
+    this.tmpA[0] = NIGHT_GLOW_HORIZON[0] * kh; this.tmpA[1] = NIGHT_GLOW_HORIZON[1] * kh; this.tmpA[2] = NIGHT_GLOW_HORIZON[2] * kh;
+    this.tmpB[0] = NIGHT_GLOW_ZENITH[0] * kz; this.tmpB[1] = NIGHT_GLOW_ZENITH[1] * kz; this.tmpB[2] = NIGHT_GLOW_ZENITH[2] * kz;
+    this.preetham.setNightGlow(this.tmpA, this.tmpB);
     const u = this.sky.material.uniforms;
     u.turbidity.value = turbidity;
     u.mieCoefficient.value = mie;
     (u.sunPosition.value as THREE.Vector3).set(this.sunDir[0], this.sunDir[1], this.sunDir[2]);
+    (u.nightGlowHorizon?.value as THREE.Vector3 | undefined)?.set(this.tmpA[0], this.tmpA[1], this.tmpA[2]);
+    (u.nightGlowZenith?.value as THREE.Vector3 | undefined)?.set(this.tmpB[0], this.tmpB[1], this.tmpB[2]);
     this.sky.position.copy(camPos);
 
     // ── CPU sky samples ──
@@ -304,6 +339,12 @@ export class SkySystem {
     this.preetham.horizonAverage(this.horizon);
     this.preetham.horizonTowardSun(this.horizonSun);
     this.preetham.sunTransmittance(this.transmittance);
+    // the sky at the horizon 90° from the sun's azimuth: what the perpendicular haze is seen against
+    const shl = Math.hypot(this.sunDir[0], this.sunDir[2]);
+    const px = shl > 1e-6 ? -this.sunDir[2] / shl : 1, pz = shl > 1e-6 ? this.sunDir[0] / shl : 0;
+    const c1 = Math.cos(D2R), s1 = Math.sin(D2R);
+    this.tmpC[0] = px * c1; this.tmpC[1] = s1; this.tmpC[2] = pz * c1;
+    this.preetham.radiance(this.tmpC, this.horizon90);
     L.skyColorZenith.setRGB(this.zenith[0], this.zenith[1], this.zenith[2]);
     L.skyColorHorizon.setRGB(this.horizon[0], this.horizon[1], this.horizon[2]);
     L.sunGlowColor.setRGB(this.horizonSun[0], this.horizonSun[1], this.horizonSun[2]);
@@ -321,48 +362,7 @@ export class SkySystem {
     const inCloud = this.clouds.densityAtCamera;
     L.inCloud = inCloud;
 
-    // ── fog / aerial perspective: β(h) = β0·exp(−h/H), h above the ground under the aircraft ──
-    const camAgl = Math.max(camPos.y - L.groundY, 0);
-    let H = hazeScaleHeight(w.visibilityM);
-    // a ground fog layer: the reported visibility applies at the surface and the extinction decays over
-    // the layer depth, so it thins out above the top yet still hides the ground when seen from above
-    if (w.fogTopM > 0) H = Math.min(H, Math.max(w.fogTopM, 30));
-    const betaSurface = fogBetaFromVisibility(w.visibilityM);
-    // inside cloud the fog becomes homogeneous (falloff → 0) and β at the camera blends toward the
-    // in-cloud extinction, so terrain/cloud shaders fog out exactly like the built-in FogExp2 below
-    const invH = Math.max((1 - inCloud) / H, MIN_FOG_INV_H);
-    const betaCamera = lerp(betaSurface * Math.exp(-camAgl / H), this.opts.inCloudBeta, inCloud);
-    L.fogHeightFalloff = invH;
-    L.fogDensity = inCloud > 0 ? betaCamera * Math.exp(Math.min(camAgl * invH, 80)) : betaSurface;
-    // fog colour: horizon sky, blended toward a cloud grey (ambient) inside cloud
-    mixVec3(this.zenith, this.horizon, 0.5, this.cloudGrey);
-    this.cloudGrey[0] = this.cloudGrey[0] * 0.9 + L.sunRadiance.r * 0.08;
-    this.cloudGrey[1] = this.cloudGrey[1] * 0.9 + L.sunRadiance.g * 0.08;
-    this.cloudGrey[2] = this.cloudGrey[2] * 0.9 + L.sunRadiance.b * 0.08;
-    mixVec3(this.horizon, this.cloudGrey, inCloud, this.tmpA);
-    L.fogColor.setRGB(this.tmpA[0], this.tmpA[1], this.tmpA[2]);
-    this.clouds.setFog(L);
-
-    // ── exposure ──
-    const target = targetExposure(el, cloudCover, mp.illuminatedFraction, this.exposureOptions);
-    this.exposure = this.adapted ? adaptExposure(this.exposure, target, dt, this.exposureOptions.adaptTimeS) : target;
-    this.adapted = true;
-    this.renderer.toneMappingExposure = this.exposure;
-    L.exposure = this.exposure;
-
-    // built-in fog: density at (half) the camera height so standard materials get a plausible haze;
-    // colour must be tone mapped + encoded because Three applies fog after tone mapping and output
-    // encoding. Three r187 converts `fog.color` from the working space to the output colour space
-    // when uploading the uniform, so hand it the display value AS sRGB (converted back to linear on
-    // set) — copying the encoded triple raw would sRGB-encode it twice (washed-out fog).
-    const betaCam = betaSurface * Math.exp(-0.5 * camAgl / H) * (1 - inCloud) + this.opts.inCloudBeta * inCloud;
-    L.fogExp2Density = (1.978 / 3.912) * betaCam;
-    this.fog.density = L.fogExp2Density;
-    encodeDisplayColor(this.tmpA, this.exposure, this.tmpB);
-    L.fogColorEncoded.setRGB(this.tmpB[0], this.tmpB[1], this.tmpB[2], THREE.LinearSRGBColorSpace);
-    this.fog.color.setRGB(this.tmpB[0], this.tmpB[1], this.tmpB[2], THREE.SRGBColorSpace);
-
-    // ── lights ──
+    // ── lights (before the haze, which they light) ──
     normalizeColor(this.transmittance, this.tmpC);
     L.sunColor.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
     L.sunIntensity = sunLightIntensity(el, this.transmittance, cloudCover, this.opts.sunIntensity) * (1 - 0.9 * inCloud);
@@ -378,19 +378,100 @@ export class SkySystem {
       this.lastShadowFar = shadowFar;
     }
 
-    normalizeColor(this.zenith, this.tmpC);
+    // skylight: the whole dome lights the ground (zenith blue and the brighter, whiter horizon),
+    // turning neutral grey under a cloud deck
+    normalizeColor(this.zenith, this.tmpA);
+    normalizeColor(this.horizon, this.tmpB);
+    mixVec3(this.tmpA, this.tmpB, SKYLIGHT_HORIZON_SHARE, this.tmpC);
+    mixVec3(this.tmpC, WHITE, 0.8 * cloudCover, this.tmpC);
+    normalizeColor(this.tmpC, this.tmpC);
     this.hemiLight.color.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
-    normalizeColor(this.horizon, this.tmpC);
-    this.hemiLight.groundColor.setRGB(this.tmpC[0] * 0.35, this.tmpC[1] * 0.35, this.tmpC[2] * 0.35);
+    this.hemiLight.groundColor.setRGB(this.tmpB[0] * 0.35, this.tmpB[1] * 0.35, this.tmpB[2] * 0.35);
     this.hemiLight.intensity = hemisphereIntensity(el, cloudCover);
+    this.ambientLight.color.setRGB(NIGHT_AMBIENT_COLOR[0], NIGHT_AMBIENT_COLOR[1], NIGHT_AMBIENT_COLOR[2]);
     this.ambientLight.intensity = ambientFloor(el, mp.illuminatedFraction, mp.elevation);
     L.ambientIntensity = this.hemiLight.intensity + this.ambientLight.intensity;
+    const hi = this.hemiLight.intensity, ai = this.ambientLight.intensity;
+    L.ambientIrradiance.setRGB(
+      this.tmpC[0] * hi + NIGHT_AMBIENT_COLOR[0] * ai, this.tmpC[1] * hi + NIGHT_AMBIENT_COLOR[1] * ai, this.tmpC[2] * hi + NIGHT_AMBIENT_COLOR[2] * ai);
 
     L.moonIntensity = moonLightIntensity(mp.elevation, mp.illuminatedFraction, cloudCover, el);
     this.moonLight.intensity = L.moonIntensity;
     this.moonLight.visible = L.moonIntensity > 1e-5;
     this.moonLight.position.copy(this.aircraftPos).addScaledVector(L.moonDirThree, SUN_DISTANCE_M);
     this.moonLight.target.position.copy(this.aircraftPos);
+
+    // ── fog / aerial perspective: β(h) = β0·exp(−h/H), h above the ground under the aircraft ──
+    const camAgl = Math.max(camPos.y - L.groundY, 0);
+    let H = hazeScaleHeight(w.visibilityM);
+    // a ground fog layer: the reported visibility applies at the surface and the extinction decays over
+    // the layer depth, so it thins out above the top yet still hides the ground when seen from above
+    if (w.fogTopM > 0) H = Math.min(H, Math.max(w.fogTopM, 30));
+    const betaSurface = fogBetaFromVisibility(w.visibilityM);
+    // inside cloud the fog becomes homogeneous (falloff → 0) and β at the camera blends toward the
+    // in-cloud extinction, so terrain/cloud shaders fog out exactly like the built-in materials below
+    const invH = Math.max((1 - inCloud) / H, MIN_FOG_INV_H);
+    const betaCamera = lerp(betaSurface * Math.exp(-camAgl / H), this.opts.inCloudBeta, inCloud);
+    L.fogHeightFalloff = invH;
+    L.fogDensity = inCloud > 0 ? betaCamera * Math.exp(Math.min(camAgl * invH, 80)) : betaSurface;
+    // haze colour: sun, sky and ground light scattered by the haze, lit like the terrain and kept below
+    // the sky radiance behind it (so the horizon line shows); inside cloud it blends toward cloud grey
+    this.tmpA[0] = L.sunColor.r; this.tmpA[1] = L.sunColor.g; this.tmpA[2] = L.sunColor.b;
+    this.tmpB[0] = L.ambientIrradiance.r; this.tmpB[1] = L.ambientIrradiance.g; this.tmpB[2] = L.ambientIrradiance.b;
+    capBySky(hazeColor(0, this.tmpA, L.sunIntensity, el, this.tmpB, w.visibilityM, this.haze), this.horizon90);
+    capBySky(hazeColor(1, this.tmpA, L.sunIntensity, el, this.tmpB, w.visibilityM, this.hazeSun), this.horizonSun);
+    mixVec3(this.zenith, this.horizon, 0.5, this.cloudGrey);
+    this.cloudGrey[0] = this.cloudGrey[0] * 0.9 + L.sunRadiance.r * 0.08;
+    this.cloudGrey[1] = this.cloudGrey[1] * 0.9 + L.sunRadiance.g * 0.08;
+    this.cloudGrey[2] = this.cloudGrey[2] * 0.9 + L.sunRadiance.b * 0.08;
+    mixVec3(this.haze, this.cloudGrey, inCloud, this.tmpC);
+    L.fogColor.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
+    mixVec3(this.hazeSun, this.cloudGrey, inCloud, this.tmpC);
+    L.sunGlowColor.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
+    // clouds fade into the sky behind them; below a closing deck that is the haze under it
+    mixVec3(this.horizon, this.haze, smoothstep(0.5, 1, cloudCover), this.tmpC);
+    mixVec3(this.tmpC, this.cloudGrey, inCloud, this.tmpC);
+    L.skyFogColor.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
+    this.clouds.setFog(L);
+
+    // ── exposure: partial eye adaptation to the light on the ground ──
+    const ambLum = 0.2126 * L.ambientIrradiance.r + 0.7152 * L.ambientIrradiance.g + 0.0722 * L.ambientIrradiance.b;
+    const target = exposureForIlluminance(surfaceIlluminance(L.sunIntensity, el, ambLum), mp.illuminatedFraction, this.exposureOptions);
+    this.exposure = this.adapted ? adaptExposure(this.exposure, target, dt, this.exposureOptions.adaptTimeS) : target;
+    this.adapted = true;
+    this.renderer.toneMappingExposure = this.exposure;
+    L.exposure = this.exposure;
+
+    // built-in fog: three applies `fog_fragment` AFTER tone mapping and output encoding, so its colours are
+    // display values. Three r187 converts `fog.color` from the working space to the output colour space
+    // when uploading the uniform, so hand it the display value AS sRGB (converted back to linear on set) —
+    // copying the encoded triple raw would sRGB-encode it twice (washed-out fog). With the height-fog patch
+    // (builtinFog.ts) every built-in material uses the terrain's β0/falloff/ground and the sun-ward lobe;
+    // `density` (≈ the haze at half the camera height) is three's plain FogExp2 fallback.
+    const betaCam = betaSurface * Math.exp(-0.5 * camAgl / H) * (1 - inCloud) + this.opts.inCloudBeta * inCloud;
+    L.fogExp2Density = (1.978 / 3.912) * betaCam;
+    this.fog.density = L.fogExp2Density;
+    this.tmpA[0] = L.fogColor.r; this.tmpA[1] = L.fogColor.g; this.tmpA[2] = L.fogColor.b;
+    encodeDisplayColor(this.tmpA, this.exposure, this.tmpB);
+    L.fogColorEncoded.setRGB(this.tmpB[0], this.tmpB[1], this.tmpB[2], THREE.LinearSRGBColorSpace);
+    this.fog.color.setRGB(this.tmpB[0], this.tmpB[1], this.tmpB[2], THREE.SRGBColorSpace);
+    this.tmpA[0] = L.sunGlowColor.r; this.tmpA[1] = L.sunGlowColor.g; this.tmpA[2] = L.sunGlowColor.b;
+    encodeDisplayColor(this.tmpA, this.exposure, this.tmpB);
+    this.glowEncoded.setRGB(this.tmpB[0], this.tmpB[1], this.tmpB[2], THREE.LinearSRGBColorSpace);
+    if (this.opts.builtinHeightFog) setBuiltinHeightFog(L.fogDensity, L.fogHeightFalloff, L.groundY, L.sunDirThree, this.glowEncoded, true);
+
+    // ── uniforms shared with the terrain/ocean shaders ──
+    const su = this.sharedUniforms;
+    if (su) {
+      su.uSkyLinked.value = 1;
+      su.uSkyIrradiance.value.copy(L.ambientIrradiance);
+      su.uSkyZenith.value.copy(L.skyColorZenith);
+      su.uSkyHorizon.value.copy(L.skyColorHorizon);
+      su.uSkyExposure.value = this.exposure;
+      this.clouds.writeShadowUniforms(su, alt0);
+      su.uCloudShadowStrength.value = smoothstep(0, 4, el) * (1 - inCloud);
+      su.uCloudShadowNorm.value = 1 / Math.max(1 - 0.85 * clamp(cloudCover, 0, 1), 0.15);
+    }
 
     // ── stars & moon ──
     L.starVisibility = starVisibility(el, cloudCover) * (1 - inCloud);
@@ -468,6 +549,31 @@ export class SkySystem {
     this.precipitation.dispose();
     if (this.scene.fog === this.fog) this.scene.fog = null;
   }
+}
+
+/**
+ * Look patches for the r187 `Sky` dome, mirrored by `PreethamSky` (its CPU twin): the in-scatter knee
+ * (`INSCATTER_KNEE`, tames the white horizon band) and the night-sky glow (`NIGHT_GLOW_GLSL`; uniforms
+ * `nightGlowHorizon` / `nightGlowZenith`, vec3 linear, added before tone mapping). Idempotent; a step
+ * whose anchor is not found is skipped (the dome then renders as plain Sky.js for that part).
+ */
+export function patchSkyDome(material: THREE.ShaderMaterial): void {
+  let fs = material.fragmentShader;
+  if (fs.includes('// sky dome look patch')) return;
+  fs = `// sky dome look patch\n${fs}`;
+  const linLine = /Lin \*= mix\( vec3\( 1\.0 \),[^\n]*\n/;
+  if (linLine.test(fs)) {
+    fs = fs.replace(linLine, (m) => `${m}\t\t\tLin *= 1.0 / ( 1.0 + dot( Lin, vec3( 0.2126, 0.7152, 0.0722 ) ) / ${INSCATTER_KNEE.toFixed(1)} );\n`);
+  }
+  if (fs.includes('gl_FragColor = vec4( texColor, 1.0 );') && fs.includes('void main()')) {
+    material.uniforms.nightGlowHorizon = { value: new THREE.Vector3() };
+    material.uniforms.nightGlowZenith = { value: new THREE.Vector3() };
+    fs = fs
+      .replace('void main()', `${NIGHT_GLOW_GLSL}\n\t\tvoid main()`)
+      .replace('gl_FragColor = vec4( texColor, 1.0 );', 'texColor += skyNightGlow( direction );\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );');
+  }
+  material.fragmentShader = fs;
+  material.needsUpdate = true;
 }
 
 /**

@@ -5,7 +5,7 @@
 import type { Airport } from '../../core/types';
 import type { RunwayEndChoice } from '../UiHost';
 import { Screen, screenHeader, type ScreenContext } from './Screen';
-import { Txt, button, h } from '../dom';
+import { Txt, button, h, isCoarsePointer } from '../dom';
 import { formatDistance, formatFrequencyMHz, formatLength, formatTimeLocal, timezoneOffsetFromLon } from '../format';
 import { magneticVariationAt, runwayHeadingLabel } from '../runways';
 import { distanceM } from '../geoMath';
@@ -77,7 +77,7 @@ export class WorldMap extends Screen {
     this.conditions.refresh();
     this.renderSummary();
     this.map.invalidate();
-    this.search.input.focus({ preventScroll: true });
+    if (!isCoarsePointer()) this.search.input.focus({ preventScroll: true });
   }
 
   protected override onHide(): void { this.map.setVisible(false); }

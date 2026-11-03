@@ -61,7 +61,11 @@ export class ControlsTab implements SettingsTabView {
   dispose(): void { if (this.rebinding) this.cancelPending(); this.rebinding = null; }
 
   private cancelPending(): void {
-    try { this.d.ctx.host.cancelRebind?.(); } catch { /* host gone */ }
+    const host = this.d.ctx.host;
+    if (typeof host.cancelRebind === 'function') { try { host.cancelRebind(); } catch { /* host gone */ } return; }
+    // Hosts without cancelRebind: Esc is the documented way to end a capture ("Esc cancels"). The
+    // capturing input module sees it first and consumes it (UiManager ignores untrusted keys).
+    try { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); } catch { /* no DOM */ }
   }
 
   private reload(): void {

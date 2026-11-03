@@ -219,6 +219,9 @@ export class InstrumentModel {
   /** Cage / uncage the attitude indicator. */
   cageAttitude(caged: boolean): void { this.ai.caged = caged; }
 
+  /** True while the elapsed timer runs. */
+  get timerIsRunning(): boolean { return this.timerRunning; }
+
   /** Elapsed timer (PFD TMR/REF). */
   startTimer(): void {
     if (this.timerRunning) return;

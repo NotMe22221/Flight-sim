@@ -1,6 +1,6 @@
 /** Keyboard cheat sheet from host.bindings(), grouped and searchable. */
 import type { BindingInfo } from '../UiHost';
-import { button, clear, deviceIcon, h, icon } from '../dom';
+import { button, clear, deviceIcon, h, icon, isCoarsePointer } from '../dom';
 import { bindingGroups } from '../bindingsModel';
 
 export class HelpOverlay {
@@ -9,11 +9,12 @@ export class HelpOverlay {
   private search: HTMLInputElement;
   private bindings: BindingInfo[] = [];
   private onClose?: () => void;
+  private card!: HTMLElement;
 
   constructor(layer: HTMLElement) {
     this.search = h('input', { class: 'input', type: 'search', placeholder: 'Search actions or keys…', autocomplete: 'off', spellcheck: false, onInput: () => this.render() });
     this.list = h('div', { class: 'help-groups scroll', style: 'flex:1;min-height:0;overflow:auto' });
-    const card = h('div', { class: 'panel help-overlay', role: 'dialog', aria: { label: 'Keyboard help' } },
+    const card = this.card = h('div', { class: 'panel help-overlay', role: 'dialog', tabIndex: -1, aria: { label: 'Keyboard help' } },
       h('div', { class: 'row' }, icon('keyboard'), h('h2', { class: 'screen-title', style: 'font-size:1.1em;flex:1', text: 'Controls' }),
         button('', () => this.hide(), { icon: 'close', cls: 'btn-ghost btn-icon', title: 'Close (Esc)' })),
       this.search, this.list,
@@ -29,7 +30,8 @@ export class HelpOverlay {
     this.onClose = onClose;
     this.el.classList.add('visible');
     this.render();
-    this.search.focus();
+    // the card itself takes the focus on touch screens (a focused search box opens the keyboard)
+    if (isCoarsePointer()) this.card.focus(); else this.search.focus();
   }
   hide(): void { if (!this.visible) return; this.el.classList.remove('visible'); const cb = this.onClose; this.onClose = undefined; cb?.(); }
   toggle(bindings: BindingInfo[], onClose?: () => void): void { this.visible ? this.hide() : this.show(bindings, onClose); }

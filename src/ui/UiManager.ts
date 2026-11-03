@@ -308,7 +308,8 @@ export class UiManager {
   // ─── DOM plumbing ─────────────────────────────────────────────────────────
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
-    if (this.disposed || e.defaultPrevented) return;
+    // untrusted: the Esc that Settings › Controls synthesizes to end a pending rebind
+    if (this.disposed || e.defaultPrevented || !e.isTrusted) return;
     const route = this.router.current;
     if (route !== 'flight' && this.screens[route].onKey(e)) { e.preventDefault(); return; }
     if (e.key !== 'Escape' || e.repeat) return;

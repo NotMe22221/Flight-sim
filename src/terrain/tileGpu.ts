@@ -65,9 +65,10 @@ function geometryFrom(position: Float32Array, normal: Float32Array, uv: Float32A
 export function createTileGpu(
   key: string, mesh: MeshPayload, water: WaterPayload | null, indices: SharedIndices,
   shared: TerrainSharedUniforms, texture: Texture | null, textureKey: string | null, uvTransform: ArrayLike<number>,
+  procedural = false,
 ): TileGpu {
   const index = indices.get(mesh.quads);
-  const material = createTerrainMaterial(shared, texture, uvTransform);
+  const material = createTerrainMaterial(shared, texture, uvTransform, procedural);
   const m: TileMesh = new Mesh(geometryFrom(mesh.position, mesh.normal, mesh.uv, mesh.aabb, index), [material]);
   m.name = `terrain ${key}`;
   m.matrixAutoUpdate = false;

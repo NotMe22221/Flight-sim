@@ -122,10 +122,10 @@ export function makePavementImage(size = 256): Rgba {
   const joint = size / 2;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const fine = hash01(hash2(x, 77), y) * 0.1;
-      const stain = valueNoise(x / 37, y / 37, size / 37, 13) * 0.16 + valueNoise(x / 9, y / 9, size / 9, 17) * 0.06;
-      let w = 238 * (1 - fine - stain);
-      if (x % joint < 2 || y % joint < 2) w *= 0.8;
+      const fine = hash01(hash2(x, 77), y) * 0.06;
+      const stain = valueNoise(x / 37, y / 37, size / 37, 13) * 0.1 + valueNoise(x / 9, y / 9, size / 9, 17) * 0.04;
+      let w = 252 * (1 - fine - stain);
+      if (x % joint < 2 || y % joint < 2) w *= 0.84;
       put(img, x, y, w, w, w);
     }
   }

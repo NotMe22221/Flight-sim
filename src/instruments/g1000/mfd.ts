@@ -11,7 +11,8 @@ import { LabelCache } from '../labelCache';
 import type { ComState } from '../radioStack';
 import type { InstrumentReadings } from '../readings';
 import { drawEis } from './eis';
-import { type MapAirport, type MapOrientation, MovingMap } from './map';
+import { type MapAirport, type MapOrientation, type MapViewport, MovingMap } from './map';
+import type { FmsWindow, Rect, WindowDrawData } from './fmsCore';
 import { type CdiSource, G, MFD, cond, condBold } from './palette';
 import { drawComBox, drawNavBox } from './radioBoxes';
 import { box, num, softkeys, text } from './widgets';
@@ -27,6 +28,13 @@ export interface MfdState {
   cdiSource: CdiSource;
   com1: ComState;
   com2: ComState;
+  /** map declutter level 0–3 (DCLTR softkey) */
+  declutter: number;
+  /** softkey labels currently shown and the highlighted keys (bit i = key i) */
+  softkeys: string[];
+  softkeyMask: number;
+  /** page title in the top bar, e.g. "MAP - NAVIGATION MAP" */
+  title: string;
 }
 
 /** Data-field strip geometry (top bar centre). */
@@ -36,18 +44,65 @@ const ktLabels = new LabelCache((v) => `${v}KT`);
 const degLabels = new LabelCache((v) => formatHeadingNum(v) + '°');
 const eteLabels = new LabelCache(formatEte);
 
+/** Map viewports: full width (MAP page) or left of the page window (FPL / NRST pages). */
+export const MFD_MAP_FULL: MapViewport = Object.freeze({ x: MFD.mapX, y: MFD.mapY, w: MFD.mapW, h: 634 });
+export const MFD_MAP_NARROW: MapViewport = Object.freeze({ x: MFD.mapX, y: MFD.mapY, w: 570, h: 634 });
+/** Page window (FPL / NRST) and popups (D→, PROC, menus) on the right. */
+export const MFD_PANEL: Rect = Object.freeze({ x: 724, y: MFD.mapY, w: 300, h: 634 });
+export const MFD_POPUP: Rect = Object.freeze({ x: 724, y: MFD.mapY, w: 300, h: 430 });
+/** Page-group indicator strip above the softkeys. */
+export const PAGE_GROUPS_Y = 700;
+
+/** What the interactive layer adds to the MFD. */
+export interface MfdOverlays {
+  page: FmsWindow | null;
+  popups: readonly FmsWindow[];
+  data: WindowDrawData;
+  groups: readonly { readonly name: string; readonly pages: readonly string[] }[];
+  group: number;
+  pageIndex: number;
+}
+
 /** Draw the MFD. `ctx` must be scaled so that one unit is one design pixel. */
-export function drawMfd(ctx: Ctx2D, s: SimSnapshot, r: InstrumentReadings, st: MfdState, map: MovingMap): void {
+export function drawMfd(ctx: Ctx2D, s: SimSnapshot, r: InstrumentReadings, st: MfdState, map: MovingMap, ov?: MfdOverlays): void {
   ctx.fillStyle = G.black; ctx.fillRect(0, 0, MFD.width, MFD.height);
   if (!r.avionicsOn) return;
   drawNavBox(ctx, s.nav1, s.nav2, st.cdiSource);
   drawComBox(ctx, st.com1, st.com2);
   drawDataFields(ctx, s, r);
   box(ctx, MFD.mapX, MFD.topBarH, MFD.width - MFD.mapX, MFD.dataFieldH, G.barBg);
-  text(ctx, 'MAP - NAVIGATION MAP', MFD.mapX + (MFD.width - MFD.mapX) / 2, MFD.topBarH + MFD.dataFieldH / 2, condBold.get(16), G.white, 'center');
+  text(ctx, st.title, MFD.mapX + (MFD.width - MFD.mapX) / 2, MFD.topBarH + MFD.dataFieldH / 2, condBold.get(16), G.white, 'center');
   drawEis(ctx, r);
-  map.draw(ctx, s, r, st.rangeNm, st.orientation, st.airports);
-  softkeys(ctx, MFD.softkeyY, MFD.softkeyH, MFD.width, MFD_SOFTKEYS);
+  const vp = ov ? (ov.page ? MFD_MAP_NARROW : MFD_MAP_FULL) : undefined;
+  map.draw(ctx, s, r, st.rangeNm, st.orientation, st.airports, { viewport: vp, declutter: st.declutter });
+  if (ov) {
+    if (ov.page) ov.page.draw(ctx, MFD_PANEL, ov.data);
+    for (const w of ov.popups) w.draw(ctx, w.kind === 'menu' || w.kind === 'confirm' ? MFD_POPUP : popupRect(w), ov.data);
+    drawPageGroups(ctx, ov);
+  }
+  softkeys(ctx, MFD.softkeyY, MFD.softkeyH, MFD.width, st.softkeys, -1, st.softkeyMask);
+}
+
+const popupRect = (w: FmsWindow): Rect => (w.kind === 'proc' || w.kind === 'direct' ? MFD_POPUP : MFD_PANEL);
+
+/** Page groups (outer FMS knob) along the bottom right, the active one cyan with its page dots. */
+function drawPageGroups(ctx: Ctx2D, ov: MfdOverlays): void {
+  const y = PAGE_GROUPS_Y, h = MFD.softkeyY - y, gw = 74;
+  box(ctx, MFD.mapX, y, MFD.width - MFD.mapX, h, G.black);
+  const x0 = MFD.width - gw * ov.groups.length - 6;
+  for (let i = 0; i < ov.groups.length; i++) {
+    const x = x0 + i * gw, on = i === ov.group;
+    if (on) { ctx.fillStyle = G.cyan; ctx.fillRect(x + 2, y + 4, gw - 4, 18); }
+    text(ctx, ov.groups[i].name, x + gw / 2, y + 14, condBold.get(14), on ? G.black : G.white, 'center');
+    if (on) {
+      const n = ov.groups[i].pages.length;
+      for (let k = 0; k < n; k++) {
+        ctx.fillStyle = k === ov.pageIndex ? G.cyan : G.darkGrey;
+        ctx.fillRect(x + gw / 2 - n * 6 + k * 12 + 1, y + 26, 9, 6);
+      }
+    }
+  }
+  text(ctx, 'FMS: OUTER GROUP · INNER PAGE · PUSH CURSOR', MFD.mapX + 8, y + h / 2, cond.get(13), G.grey, 'left');
 }
 
 /** GS, DTK (magnetic, from the active leg), TRK (magnetic) and ETE fields. */

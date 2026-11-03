@@ -15,7 +15,7 @@ import { DIGITS, box, bug, drum, num, pointerWindow, text } from './widgets';
 
 const MIN_KT = 20, MAX_KT = 300;
 
-export function drawAirspeedTape(ctx: Ctx2D, r: InstrumentReadings, ap: AutopilotState, v: VSpeeds): void {
+export function drawAirspeedTape(ctx: Ctx2D, r: InstrumentReadings, ap: AutopilotState, v: VSpeeds, showBugs = true): void {
   const x = PFD.asX, w = PFD.asW, top = PFD.tapeTop, bottom = PFD.tapeBottom, k = PFD.asPxPerKt;
   const mid = (top + bottom) / 2, half = (bottom - top) / 2;
   const ias = Math.max(MIN_KT, r.iasKt);
@@ -37,11 +37,13 @@ export function drawAirspeedTape(ctx: Ctx2D, r: InstrumentReadings, ap: Autopilo
     ctx.beginPath(); ctx.moveTo(x + w - 8, y); ctx.lineTo(x + w - (major ? 22 : 15), y); ctx.stroke();
     if (major) ctx.fillText(intLabels.get(val), x + w - 28, y);
   });
-  // V-speed bugs (labels on the right of the tape)
-  vbug(ctx, x + w, mid + tapeOffsetPx(v.vr, ias, k), 'R', half, mid);
-  vbug(ctx, x + w, mid + tapeOffsetPx(v.vx, ias, k), 'X', half, mid);
-  vbug(ctx, x + w, mid + tapeOffsetPx(v.vy, ias, k), 'Y', half, mid);
-  vbug(ctx, x + w, mid + tapeOffsetPx(v.vglide, ias, k), 'G', half, mid);
+  // V-speed bugs (labels on the right of the tape), switchable on the TMR/REF window
+  if (showBugs) {
+    vbug(ctx, x + w, mid + tapeOffsetPx(v.vr, ias, k), 'R', half, mid);
+    vbug(ctx, x + w, mid + tapeOffsetPx(v.vx, ias, k), 'X', half, mid);
+    vbug(ctx, x + w, mid + tapeOffsetPx(v.vy, ias, k), 'Y', half, mid);
+    vbug(ctx, x + w, mid + tapeOffsetPx(v.vglide, ias, k), 'G', half, mid);
+  }
   // FLC selected airspeed bug
   if (ap.vertical === 'FLC' && ap.iasTargetMs > 0) bug(ctx, x + w, clamp(mid + tapeOffsetPx(ap.iasTargetMs * MS_TO_KT, ias, k), top + 6, bottom - 6), 8, 'right');
   // trend vector
