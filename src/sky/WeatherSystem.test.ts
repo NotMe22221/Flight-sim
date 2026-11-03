@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../core/types';
 import { KT } from '../core/units';
 import { weatherFromPreset } from './presets';
+import { windAt } from './wind';
 import { WeatherSystem } from './WeatherSystem';
 
 describe('WeatherSystem', () => {
@@ -82,5 +83,42 @@ describe('WeatherSystem', () => {
     expect(ws.cloudDrifts.length).toBe(ws.state.clouds.length * 2);
     ws.notifyRebase(1000, 0);
     expect(ws.cloudDrifts[0]).toBeLessThan(0);
+  });
+
+  it('windAt(posNED): wind FROM 270° at 10 kt blows toward +East at 5.14 m/s at the 10 m reference', () => {
+    const ws = new WeatherSystem({ airportElevationM: 0, frame: { lat0: 0, lon0: 0, alt0: 0 }, groundHeightUp: () => 0 });
+    ws.setState({ ...weatherFromPreset('clear', 0), winds: [{ altM: 10, directionDeg: 270, speedKt: 10, gustKt: 0 }] }, 0);
+    const out: Vec3 = [9, 9, 9];
+    expect(ws.windAt([0, 0, -10], out)).toBe(out);
+    expect(out[0]).toBeCloseTo(0, 9);
+    expect(out[1]).toBeCloseTo(5.144, 3);
+    expect(out[2]).toBe(0);
+    // wind FROM north blows toward −N
+    ws.setState({ ...weatherFromPreset('clear', 0), winds: [{ altM: 10, directionDeg: 360, speedKt: 10, gustKt: 0 }] }, 0);
+    expect(ws.windAt([500, -300, -10])[0]).toBeCloseTo(-10 * KT, 6);
+  });
+
+  it('transitions keep the wind profile continuous when the layer counts differ (no jump at the end)', () => {
+    const ws = new WeatherSystem({ initial: 'clear' }); // 4 layers up to 6000 m
+    const source = ws.state.winds.map((l) => ({ ...l }));
+    const target = weatherFromPreset('clear', 0);
+    target.winds = [
+      { altM: 10, directionDeg: 200, speedKt: 5, gustKt: 0 },
+      { altM: 1500, directionDeg: 220, speedKt: 15, gustKt: 0 },
+      { altM: 4000, directionDeg: 240, speedKt: 25, gustKt: 0 },
+    ];
+    const at = (alt: number): Vec3 => ws.windAtAltitude(alt, alt, [0, 0, 0]);
+    const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const before0 = [500, 2500, 5000, 7000].map((h) => windAt(source, h, h));
+    ws.setState(target, 10);
+    // t = 0: still exactly the source profile
+    [500, 2500, 5000, 7000].forEach((h, i) => expect(dist(at(h), before0[i])).toBeLessThan(1e-9));
+    for (let k = 0; k < 4; k++) for (let i = 1; i < ws.state.winds.length; i++) expect(ws.state.winds[i].altM).toBeGreaterThanOrEqual(ws.state.winds[i - 1].altM);
+    ws.update(9.999);
+    const late = [500, 2500, 5000, 7000].map(at);
+    ws.update(0.01);
+    expect(ws.transitioning).toBe(false);
+    expect(ws.state.winds).toEqual(target.winds);
+    [500, 2500, 5000, 7000].forEach((h, i) => expect(dist(at(h), late[i])).toBeLessThan(0.02));
   });
 });

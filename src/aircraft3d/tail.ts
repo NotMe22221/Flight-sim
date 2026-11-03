@@ -29,9 +29,10 @@ export function buildTail(layout: C172Layout, mats: ModelMaterials): TailAssembl
   const hMid = planformPoint(hs.sections, hs.halfSpan * 0.5, hs.hingeFraction, new THREE.Vector3());
   const p0 = new THREE.Vector3(-hs.halfSpan, hMid.y, hMid.z);
   const p1 = new THREE.Vector3(hs.halfSpan, hMid.y, hMid.z);
-  const elevator = attachToHinge([elevR, elevL], p0, p1, 'x');
+  const elevatorHinge = attachToHinge([elevR, elevL], p0, p1, 'x');
+  const elevator = elevatorHinge.pivot;
   elevator.name = 'elevatorPivot';
-  group.add(elevator);
+  group.add(elevatorHinge.mount);
 
   // --- vertical fin + rudder (built along +X, then rotated up) ---
   const fin = layout.fin;
@@ -55,9 +56,10 @@ export function buildTail(layout: C172Layout, mats: ModelMaterials): TailAssembl
   // span coordinate x → world y
   const h0 = new THREE.Vector3(0, fin.rootY + r0.x, r0.z);
   const h1 = new THREE.Vector3(0, fin.rootY + r1.x, r1.z);
-  const rudder = attachToHinge(rudMesh, h0, h1, 'y');
+  const rudderHinge = attachToHinge(rudMesh, h0, h1, 'y');
+  const rudder = rudderHinge.pivot;
   rudder.name = 'rudderPivot';
-  group.add(rudder);
+  group.add(rudderHinge.mount);
 
   return { group, elevator, rudder };
 }

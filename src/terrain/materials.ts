@@ -1,32 +1,45 @@
 /**
- * Terrain and ocean ShaderMaterials (docs/research/03 §6). One material instance per tile
- * (so per-tile uniforms upload per draw), all sharing the *same* uniform objects for sun,
- * sky and fog so the sky module drives every tile by writing `TerrainSharedUniforms` once.
+ * Terrain and ocean ShaderMaterials (docs/research/03 §6). One material per tile (per-tile
+ * imagery and UV transform), all referencing the *same* uniform objects for sun, ambient, fog
+ * and time, so `TerrainSystem.setSun/setFog` update every tile by writing one object.
  *
- * Lighting: imagery already carries baked sun shading, so N·L contrast is kept low
- * (0.6 + 0.4·max(N·L, 0)) under hemisphere ambient. Fog: height fog integrated analytically
- * along the ray between the camera altitude and the fragment altitude (Quílez), with a
- * sun-side/anti-sun horizon colour. No depth tricks: works with reversed-Z and log depth.
+ * Lighting is scaled like three's physically based lights (radiance = albedo/π · irradiance), so
+ * terrain sits correctly next to MeshStandardMaterial objects lit by the same sun/ambient values.
+ * Imagery already carries baked sun shading, so slope contrast is reduced: the direct term is
+ * mix(N_flat·L, N·L, uSlopeContrast). Fog is the sky module's exponential height fog
+ * (β(y) = β0·exp(−(y − groundY)·falloff), closed-form optical depth along the view ray) mixed
+ * toward the fog colour with a sun-glow lobe, before tone mapping.
+ *
+ * Depth: no custom depth math. With a reversed depth buffer three supplies the projection and
+ * depth function; with a logarithmic depth buffer the logdepthbuf chunks below write gl_FragDepth.
  */
 import { Color, DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, SRGBColorSpace, ShaderMaterial, Texture, UnsignedByteType, Vector3 } from 'three';
 
+/** Uniform objects shared by every terrain and ocean material. */
 export interface TerrainSharedUniforms {
-  /** unit vector toward the sun, Three.js frame (x E, y U, z S) */
+  /** unit vector toward the sun, render frame (x E, y U, z S) */
   uSunDir: { value: Vector3 };
+  /** linear sun colour (hue), multiplied by uSunIntensity */
   uSunColor: { value: Color };
-  /** hemisphere ambient: sky (above) and ground (below) */
-  uSkyColor: { value: Color };
-  uGroundColor: { value: Color };
-  /** horizon haze colour looking toward / away from the sun */
-  uFogColorSun: { value: Color };
-  uFogColorAnti: { value: Color };
-  /** extinction at sea level, 1/m (Koschmieder: 3.912 / visibility) */
+  /** sun irradiance scale, same units as a three DirectionalLight intensity (0 at night) */
+  uSunIntensity: { value: number };
+  /** ambient (sky) irradiance, same units as three AmbientLight colour × intensity */
+  uAmbient: { value: Color };
+  /** 0 = flat-ground lighting only, 1 = full N·L (imagery already contains shading) */
+  uSlopeContrast: { value: number };
+  /** linear in-scatter (haze) colour */
+  uFogColor: { value: Color };
+  /** linear horizon colour toward the sun (Mie glow lobe) */
+  uSunGlow: { value: Color };
+  /** extinction at the reference height, 1/m (Koschmieder: 3.912 / visibility) */
   uFogDensity: { value: number };
-  /** fog scale height, m */
-  uFogHeightScale: { value: number };
-  /** camera altitude above the ellipsoid, m (set by TerrainSystem every frame) */
-  uCamAltitude: { value: number };
-  /** seconds, for water animation */
+  /** 1 / haze scale height, 1/m */
+  uFogFalloff: { value: number };
+  /** render-frame y of the fog's reference height (ground under the camera) */
+  uFogGroundY: { value: number };
+  /** render-frame position of the earth's centre (local vertical = normalize(p − centre)) */
+  uEarthCenter: { value: Vector3 };
+  /** seconds, ocean animation */
   uTime: { value: number };
 }
 
@@ -34,84 +47,82 @@ export function createTerrainSharedUniforms(): TerrainSharedUniforms {
   return {
     uSunDir: { value: new Vector3(0.3, 0.8, -0.5).normalize() },
     uSunColor: { value: new Color(1.0, 0.96, 0.9) },
-    uSkyColor: { value: new Color(0.45, 0.6, 0.85) },
-    uGroundColor: { value: new Color(0.25, 0.22, 0.18) },
-    uFogColorSun: { value: new Color(0.85, 0.82, 0.75) },
-    uFogColorAnti: { value: new Color(0.62, 0.72, 0.85) },
+    uSunIntensity: { value: Math.PI },
+    uAmbient: { value: new Color(0.35, 0.42, 0.55) },
+    uSlopeContrast: { value: 0.4 },
+    uFogColor: { value: new Color(0.62, 0.72, 0.85) },
+    uSunGlow: { value: new Color(0.85, 0.82, 0.75) },
     uFogDensity: { value: 3.912 / 80_000 },
-    uFogHeightScale: { value: 1200 },
-    uCamAltitude: { value: 0 },
+    uFogFalloff: { value: 1 / 1200 },
+    uFogGroundY: { value: 0 },
+    uEarthCenter: { value: new Vector3(0, -6_371_000, 0) },
     uTime: { value: 0 },
   };
 }
 
+/** Same formula as `HEIGHT_FOG_GLSL` in src/sky/types.ts, so terrain haze matches the sky's. */
 const FOG_GLSL = /* glsl */ `
-uniform vec3 uFogColorSun;
-uniform vec3 uFogColorAnti;
+uniform vec3 uFogColor;
+uniform vec3 uSunGlow;
 uniform float uFogDensity;
-uniform float uFogHeightScale;
-uniform float uCamAltitude;
-uniform vec3 uSunDir;
-// Optical depth of an exponential atmosphere between altitudes hc (camera) and hp over distance d.
-float fogAmount(float d, float hc, float hp) {
-  float b = 1.0 / uFogHeightScale;
-  float dh = hp - hc;
-  float tau = abs(dh) < 1.0
-    ? uFogDensity * exp(-hc * b) * d
-    : uFogDensity * uFogHeightScale * (exp(-hc * b) - exp(-hp * b)) * d / dh;
+uniform float uFogFalloff;
+uniform float uFogGroundY;
+float terrainFogFactor(vec3 origin, vec3 dir, float dist) {
+  float invH = max(uFogFalloff, 1e-7);
+  float dy = abs(dir.y) < 1e-4 ? 1e-4 : dir.y;
+  float h0 = max(origin.y - uFogGroundY, 0.0);
+  float tau = uFogDensity / invH * exp(-h0 * invH) * (1.0 - exp(-dist * dy * invH)) / dy;
   return 1.0 - exp(-max(tau, 0.0));
 }
-vec3 fogColor(vec3 viewDir) {
-  vec2 v = viewDir.xz, s = uSunDir.xz;
-  float lv = length(v), ls = length(s);
-  float c = (lv > 1e-4 && ls > 1e-4) ? dot(v / lv, s / ls) : 0.0;
-  float k = 0.5 + 0.5 * c;
-  return mix(uFogColorAnti, uFogColorSun, k * k);
+vec3 terrainFogColor(vec3 dir, vec3 sunDir) {
+  return mix(uFogColor, uSunGlow, pow(max(dot(dir, sunDir), 0.0), 8.0) * 0.5);
 }
 `;
 
 const TERRAIN_VERT = /* glsl */ `
-attribute float aHeight;
+#include <common>
+#include <logdepthbuf_pars_vertex>
 uniform vec3 uUvTransform;
 varying vec2 vUv;
 varying vec3 vNormalW;
 varying vec3 vWorldPos;
-varying vec3 vViewPos;
-varying float vAlt;
 void main() {
   vUv = uv * uUvTransform.z + uUvTransform.xy;
   vNormalW = normalize(mat3(modelMatrix) * normal);
   vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0); // modelViewMatrix is composed in float64 on the CPU
-  vViewPos = mv.xyz;
-  vAlt = aHeight;
-  gl_Position = projectionMatrix * mv;
+  // modelViewMatrix is composed in float64 on the CPU: only small numbers reach float32 here
+  gl_Position = projectionMatrix * (modelViewMatrix * vec4(position, 1.0));
+  #include <logdepthbuf_vertex>
 }
 `;
 
 const TERRAIN_FRAG = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_fragment>
 uniform sampler2D map;
 uniform float uHasMap;
+uniform vec3 uSunDir;
 uniform vec3 uSunColor;
-uniform vec3 uSkyColor;
-uniform vec3 uGroundColor;
+uniform float uSunIntensity;
+uniform vec3 uAmbient;
+uniform float uSlopeContrast;
+uniform vec3 uEarthCenter;
 varying vec2 vUv;
 varying vec3 vNormalW;
 varying vec3 vWorldPos;
-varying vec3 vViewPos;
-varying float vAlt;
 ${FOG_GLSL}
 void main() {
-  vec3 albedo = uHasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(0.32, 0.36, 0.28);
+  #include <logdepthbuf_fragment>
+  vec3 albedo = uHasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(0.08, 0.1, 0.06);
   vec3 n = normalize(vNormalW);
-  float ndl = max(dot(n, uSunDir), 0.0);
-  float daylight = clamp(uSunDir.y * 6.0 + 0.15, 0.0, 1.0);
-  vec3 hemi = mix(uGroundColor, uSkyColor, n.y * 0.5 + 0.5);
-  vec3 light = hemi * 0.35 + uSunColor * daylight * (0.6 + 0.4 * ndl);
-  vec3 col = albedo * light;
-  float dist = length(vViewPos);
-  vec3 viewDir = normalize(vWorldPos - cameraPosition);
-  col = mix(col, fogColor(viewDir), fogAmount(dist, uCamAltitude, vAlt));
+  vec3 up = normalize(vWorldPos - uEarthCenter);
+  float direct = mix(max(dot(up, uSunDir), 0.0), max(dot(n, uSunDir), 0.0), uSlopeContrast);
+  vec3 irradiance = uSunColor * (uSunIntensity * direct) + uAmbient * (0.75 + 0.25 * dot(n, up));
+  vec3 col = albedo * irradiance * RECIPROCAL_PI;
+  vec3 toFrag = vWorldPos - cameraPosition;
+  float dist = length(toFrag);
+  vec3 dir = toFrag / max(dist, 1e-3);
+  col = mix(col, terrainFogColor(dir, uSunDir), terrainFogFactor(cameraPosition, dir, dist));
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -119,32 +130,32 @@ void main() {
 `;
 
 const WATER_VERT = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_vertex>
 attribute float aDepth;
-varying vec3 vNormalW;
 varying vec3 vWorldPos;
-varying vec3 vViewPos;
 varying float vDepth;
 void main() {
-  vNormalW = normalize(mat3(modelMatrix) * normal);
   vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vViewPos = mv.xyz;
   vDepth = max(-aDepth, 0.0);
-  gl_Position = projectionMatrix * mv;
+  gl_Position = projectionMatrix * (modelViewMatrix * vec4(position, 1.0));
+  #include <logdepthbuf_vertex>
 }
 `;
 
 const WATER_FRAG = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform vec3 uSunDir;
 uniform vec3 uSunColor;
-uniform vec3 uSkyColor;
-uniform vec3 uGroundColor;
+uniform float uSunIntensity;
+uniform vec3 uAmbient;
+uniform vec3 uEarthCenter;
 uniform float uTime;
-varying vec3 vNormalW;
 varying vec3 vWorldPos;
-varying vec3 vViewPos;
 varying float vDepth;
 ${FOG_GLSL}
-// Analytic sum of directional waves; returns the surface slope (dh/dx, dh/dz).
+// Sum of four directional sine waves; returns the surface slope (dh/dx, dh/dz).
 vec2 waveSlope(vec2 p, float t) {
   vec2 s = vec2(0.0);
   vec2 d1 = normalize(vec2(1.0, 0.35)), d2 = normalize(vec2(-0.6, 1.0)), d3 = normalize(vec2(0.2, -1.0)), d4 = normalize(vec2(0.9, 0.9));
@@ -156,30 +167,34 @@ vec2 waveSlope(vec2 p, float t) {
   return s;
 }
 void main() {
-  vec3 up = normalize(vNormalW);
-  float dist = length(vViewPos);
-  // fade the ripples out with distance so the far sea does not sparkle
-  float ripple = 1.0 - smoothstep(2000.0, 20000.0, dist);
-  vec2 slope = waveSlope(vWorldPos.xz, uTime) * ripple;
+  #include <logdepthbuf_fragment>
+  vec3 up = normalize(vWorldPos - uEarthCenter);
+  vec3 toFrag = vWorldPos - cameraPosition;
+  float dist = length(toFrag);
+  vec3 dir = toFrag / max(dist, 1e-3);
+  vec3 v = -dir;
+  // ripples fade with distance so the far sea does not sparkle
+  vec2 slope = waveSlope(vWorldPos.xz, uTime) * (1.0 - smoothstep(2000.0, 20000.0, dist));
   vec3 n = normalize(up + vec3(-slope.x, 0.0, -slope.y));
-  vec3 viewDir = normalize(vWorldPos - cameraPosition);
-  vec3 v = -viewDir;
-  float cosT = max(dot(n, v), 0.0);
-  float fresnel = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
-  float daylight = clamp(uSunDir.y * 6.0 + 0.15, 0.0, 1.0);
-  vec3 deep = vec3(0.012, 0.045, 0.09), shallow = vec3(0.05, 0.22, 0.26);
-  vec3 water = mix(deep, shallow, exp(-vDepth / 8.0));
-  vec3 hemi = mix(uGroundColor, uSkyColor, 0.75);
-  vec3 body = water * (hemi * 0.5 + uSunColor * daylight * 0.8);
+  float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  vec3 waterAlbedo = mix(vec3(0.012, 0.045, 0.09), vec3(0.05, 0.22, 0.26), exp(-vDepth / 8.0));
+  vec3 irradiance = uSunColor * (uSunIntensity * max(dot(up, uSunDir), 0.0)) + uAmbient;
+  vec3 body = waterAlbedo * irradiance * RECIPROCAL_PI;
+  // sky reflection ≈ the horizon haze colour; normalized Blinn-Phong sun glint
   vec3 h = normalize(uSunDir + v);
-  float spec = pow(max(dot(n, h), 0.0), 400.0) * daylight * (0.6 + 2.0 * (1.0 - clamp(uSunDir.y * 3.0, 0.0, 1.0)));
-  vec3 col = mix(body, uSkyColor, fresnel) + uSunColor * spec;
-  col = mix(col, fogColor(viewDir), fogAmount(dist, uCamAltitude, 0.0));
+  float shininess = 400.0;
+  float glint = (shininess + 8.0) / (8.0 * PI) * pow(max(dot(n, h), 0.0), shininess) * max(dot(n, uSunDir), 0.0);
+  float fresnelSun = 0.02 + 0.98 * pow(1.0 - max(dot(v, h), 0.0), 5.0);
+  vec3 col = mix(body, uFogColor, fresnel) + uSunColor * (uSunIntensity * glint * fresnelSun);
+  col = mix(col, terrainFogColor(dir, uSunDir), terrainFogFactor(cameraPosition, dir, dist));
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
 `;
+
+/** Shader sources (exported for tests that check the depth chunks are present). */
+export const TERRAIN_SHADERS = { terrainVertex: TERRAIN_VERT, terrainFragment: TERRAIN_FRAG, waterVertex: WATER_VERT, waterFragment: WATER_FRAG } as const;
 
 /** Per-tile terrain material. `shared` uniform objects are referenced, not copied. */
 export function createTerrainMaterial(shared: TerrainSharedUniforms, map: Texture | null, uvTransform: ArrayLike<number>): ShaderMaterial {
@@ -198,12 +213,7 @@ export function createTerrainMaterial(shared: TerrainSharedUniforms, map: Textur
 
 /** Per-tile ocean material (same uniform sharing). */
 export function createWaterMaterial(shared: TerrainSharedUniforms): ShaderMaterial {
-  return new ShaderMaterial({
-    name: 'ocean',
-    vertexShader: WATER_VERT,
-    fragmentShader: WATER_FRAG,
-    uniforms: { ...shared },
-  });
+  return new ShaderMaterial({ name: 'ocean', vertexShader: WATER_VERT, fragmentShader: WATER_FRAG, uniforms: { ...shared } });
 }
 
 /** Imagery texture from a flipped ImageBitmap (§3.4) — sRGB, mipmapped, anisotropic. */

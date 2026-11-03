@@ -13,16 +13,31 @@ export class HttpError extends Error {
   }
 }
 
+/** `fetch`-compatible function (injected in tests and by the in-thread loader). */
+export type FetchFn = (url: string, init: RequestInit) => Promise<Response>;
+
+/** The platform fetch, called unbound-safe (some browsers throw "Illegal invocation" otherwise). */
+export const platformFetch: FetchFn = (url, init) => fetch(url, init);
+
 /** Raw tile responses keyed by URL. Degrades to plain fetch when the Cache API is unavailable. */
 export class TileCache {
   private opening: Promise<Cache | null> | null = null;
   private puts = 0;
 
-  constructor(public readonly name: string, public readonly maxEntries: number) {}
+  /**
+   * @param fetchFn network fetch (defaults to the platform fetch)
+   * @param useCacheApi set false to bypass the Cache API (tests, injected fetch)
+   */
+  constructor(
+    public readonly name: string,
+    public readonly maxEntries: number,
+    private readonly fetchFn: FetchFn = platformFetch,
+    private readonly useCacheApi = true,
+  ) {}
 
   private open(): Promise<Cache | null> {
     if (!this.opening) {
-      this.opening = typeof caches === 'undefined'
+      this.opening = !this.useCacheApi || typeof caches === 'undefined'
         ? Promise.resolve(null)
         : caches.open(this.name).catch(() => null);
     }
@@ -36,7 +51,7 @@ export class TileCache {
       const hit = await cache.match(url).catch(() => undefined);
       if (hit) return hit;
     }
-    const res = await fetch(url, { mode: 'cors', credentials: 'omit', signal });
+    const res = await this.fetchFn(url, { mode: 'cors', credentials: 'omit', signal });
     if (!res.ok) throw new HttpError(res.status, url);
     if (cache) {
       const copy = res.clone();

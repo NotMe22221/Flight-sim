@@ -33,17 +33,22 @@ export function c172ModelConfig(): AircraftModelConfig {
   return {
     geometry: {
       S: 16.2, b: 11.0, cbar: 1.49, arpOffset: [-0.05, 0, -0.9], macHeightOnGround: 2.1,
-      lengthM: 8.28, heightM: 2.72, eyePoint: [0.4, -0.25, -0.55],
+      // eye: left seat, just ahead of the FS 36 pilot station (CG FS 41 ⇒ 0.13 m forward)
+      lengthM: 8.28, heightM: 2.72, eyePoint: [0.15, -0.25, -0.55],
     },
     propeller: {
       diameterM: 1.93, blades: 2, inertia: 1.7,
       Ct: { xs: [0, 0.5, 1], ys: [0.1, 0.06, 0] }, Cp: { xs: [0, 0.5, 1], ys: [0.05, 0.04, 0.01] },
-      sense: 1, pFactorM: 0.05, position: [1.98, 0, -0.05], fixedPitch: true,
+      // hub FS −37.7 in: 1.98 m ahead of the CG and 0.07 m below its waterline (body z down)
+      sense: 1, pFactorM: 0.05, position: [1.98, 0, 0.07], fixedPitch: true,
     },
+    // JSBSim c172p stations relative to CG FS 41: nose FS −6.8 in, mains FS 58.2 in
+    // (wheelbase 65 in = 1.65 m); real 172S track 100 in = 2.54 m. Equal heights keep the
+    // stand-alone model level on the ground (the FDM config supplies its own).
     gear: [
-      gear('nose', [1.7, 0, 1.2], 0.18, 10, 'none'),
-      gear('left main', [-0.44, -1.27, 1.2], 0.22, 0, 'left'),
-      gear('right main', [-0.44, 1.27, 1.2], 0.22, 0, 'right'),
+      gear('nose', [1.214, 0, 1.2], 0.18, 10, 'none'),
+      gear('left main', [-0.437, -1.27, 1.2], 0.22, 0, 'left'),
+      gear('right main', [-0.437, 1.27, 1.2], 0.22, 0, 'right'),
     ],
   };
 }

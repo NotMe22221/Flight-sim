@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { GearState } from '../core/types';
 import type { C172Layout, GearLayout } from './c172Layout';
 import type { ModelMaterials } from './materials';
+import { finiteOr } from './finite';
 
 interface Leg {
   layout: GearLayout;
@@ -113,10 +114,12 @@ export class LandingGear {
     for (const leg of this.legs) {
       const s = states[leg.layout.index];
       if (!s) continue;
-      const c = Math.max(0, Math.min(s.compressionM, leg.layout.tyreRadius * 2));
+      // NaN / negative → 0, +∞ → the cap (a NaN would otherwise hide the wheel)
+      const c = s.compressionM > 0 ? Math.min(s.compressionM, leg.layout.tyreRadius * 2) : 0;
       if (leg.isNose) {
         leg.carrier.position.y = c;
-        leg.root.rotation.y = -s.steerRad;
+        // steerRad > 0 = wheel turned right (about body +z, down) ⇒ negative about model +Y
+        leg.root.rotation.y = -finiteOr(s.steerRad);
       } else {
         // shorten the leg so the axle rises by c (vertical component of the leg direction)
         const dy = -leg.dir.y * leg.length; // positive drop
@@ -124,7 +127,8 @@ export class LandingGear {
         leg.legMesh.scale.y = k;
         leg.carrier.position.set(leg.dir.x * leg.length * (k - 1), leg.dir.y * leg.length * (k - 1), leg.dir.z * leg.length * (k - 1));
       }
-      leg.wheel.rotation.x -= (s.wheelSpeedMs / leg.layout.tyreRadius) * dt;
+      // rolling forward (toward −Z) turns the top of the tyre forward: negative about +X
+      leg.wheel.rotation.x -= (finiteOr(s.wheelSpeedMs) / leg.layout.tyreRadius) * dt;
       if (Math.abs(leg.wheel.rotation.x) > 2 * Math.PI) leg.wheel.rotation.x %= 2 * Math.PI;
     }
   }

@@ -71,19 +71,21 @@ export class Propeller {
     this.group.add(this.disc);
   }
 
-  /** Advance by dt with the engine at `rpm`. */
+  /** Advance by dt (s, ≥ 0) with the engine at `rpm` (non-finite values count as 0). */
   update(rpm: number, dt: number): void {
-    const omega = (rpm * 2 * Math.PI) / 60;
-    this.angle -= this.sense * omega * dt;
+    const r = Number.isFinite(rpm) ? rpm : 0;
+    const step = dt > 0 ? dt : 0;
+    const omega = (r * 2 * Math.PI) / 60;
+    this.angle -= this.sense * omega * step;
     if (this.angle > 2 * Math.PI || this.angle < -2 * Math.PI) this.angle %= 2 * Math.PI;
-    const discK = smoothstep(330, 520, rpm);
-    const bladesVisible = rpm < 450;
+    const discK = smoothstep(330, 520, Math.abs(r));
+    const bladesVisible = Math.abs(r) < 450;
     this.blades.visible = bladesVisible;
     if (bladesVisible) this.blades.rotation.z = this.angle;
     this.disc.visible = discK > 0.001;
     this.discMaterial.opacity = 0.85 * discK;
     // slow shimmer of the blur pattern (the real rate would alias)
-    this.disc.rotation.z -= this.sense * 2.5 * dt;
+    this.disc.rotation.z = (this.disc.rotation.z - this.sense * 2.5 * step) % (2 * Math.PI);
   }
 
   /** true when the disc (not blades) is being shown */

@@ -64,3 +64,55 @@ export class SpringVector3 {
     return p;
   }
 }
+
+/**
+ * Damped second-order spring on a scalar with arbitrary damping ratio ζ (exact per-step
+ * solution for a target held constant over the step, so it is frame-rate independent).
+ * Used for the cockpit head model (ωn ≈ 6 rad/s, ζ ≈ 0.7: a slight overshoot reads as "head").
+ */
+export class DampedSpringScalar {
+  x = 0;
+  v = 0;
+  constructor(public omega: number, public zeta: number) {}
+
+  reset(x: number, v = 0): void { this.x = x; this.v = v; }
+
+  update(target: number, dt: number): number {
+    const w = this.omega, z = this.zeta;
+    const d0 = this.x - target, v0 = this.v;
+    if (!(dt > 0)) return this.x;
+    if (Math.abs(z - 1) < 1e-6) {
+      const e = Math.exp(-w * dt), c = v0 + w * d0;
+      this.x = target + (d0 + c * dt) * e;
+      this.v = (v0 - w * c * dt) * e;
+    } else if (z < 1) {
+      const a = z * w, wd = w * Math.sqrt(1 - z * z);
+      const e = Math.exp(-a * dt), cs = Math.cos(wd * dt), sn = Math.sin(wd * dt);
+      this.x = target + e * (d0 * cs + ((v0 + a * d0) / wd) * sn);
+      this.v = e * (v0 * cs - ((w * w * d0 + a * v0) / wd) * sn);
+    } else {
+      const s = w * Math.sqrt(z * z - 1);
+      const r1 = -z * w + s, r2 = -z * w - s;
+      const c1 = (v0 - r2 * d0) / (r1 - r2), c2 = d0 - c1;
+      const e1 = Math.exp(r1 * dt), e2 = Math.exp(r2 * dt);
+      this.x = target + c1 * e1 + c2 * e2;
+      this.v = r1 * c1 * e1 + r2 * c2 * e2;
+    }
+    return this.x;
+  }
+}
+
+/**
+ * Exponentially decaying rate (inertia after a drag is released): advances `rate` by `dt` with
+ * time constant `tau` and returns the exact distance covered during the step, ∫ r·e^(−t/τ) dt.
+ * Summed over any frame sequence the total coast is r₀·τ, independent of the frame rate.
+ */
+export function coastStep(rate: number, dt: number, tau: number): { distance: number; rate: number } {
+  coastScratch.distance = 0; coastScratch.rate = 0;
+  if (tau <= 0 || !(dt > 0)) { coastScratch.rate = tau <= 0 ? 0 : rate; return coastScratch; }
+  const k = Math.exp(-dt / tau);
+  coastScratch.distance = rate * tau * (1 - k);
+  coastScratch.rate = rate * k;
+  return coastScratch;
+}
+const coastScratch = { distance: 0, rate: 0 };

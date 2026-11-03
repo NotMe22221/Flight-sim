@@ -37,7 +37,11 @@ void main() {
   vec3 p = mod( aSeed * uBox + uOffset, uBox ) - 0.5 * uBox + uCamPos;
   p.xz += uSnow * uFlutter * vec2( sin( uTime * 1.7 + aRand * 6.2832 ), cos( uTime * 1.3 + aRand * 6.2832 ) );
   vec3 toCam = normalize( uCamPos - p + vec3( 1e-4, 1e-4, 0.0 ) );
-  vec3 right = normalize( cross( uAxis, toCam ) );
+  // streak width axis; when looking straight along the streak the cross product vanishes (0/0 = NaN):
+  // fall back to any axis perpendicular to the view direction
+  vec3 c = cross( uAxis, toCam );
+  float cl = length( c );
+  vec3 right = cl > 1e-5 ? c / cl : normalize( abs( toCam.y ) < 0.9 ? cross( vec3( 0.0, 1.0, 0.0 ), toCam ) : cross( vec3( 1.0, 0.0, 0.0 ), toCam ) );
   vec3 along = uSnow > 0.5 ? normalize( cross( toCam, right ) ) : uAxis;
   vec3 world = p + along * ( position.y * uLength ) + right * ( position.x * uWidth );
   gl_Position = projectionMatrix * viewMatrix * vec4( world, 1.0 );

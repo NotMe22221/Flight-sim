@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { SpringScalar, SpringVector3, expSmoothing, omegaFromTau, smoothAngle } from './smoothing';
+import { DampedSpringScalar, SpringScalar, SpringVector3, coastStep, expSmoothing, omegaFromTau, smoothAngle } from './smoothing';
 
 describe('expSmoothing', () => {
   it('is frame-rate independent: 1 s at 30 Hz equals 1 s at 240 Hz', () => {
@@ -70,5 +70,48 @@ describe('smoothAngle', () => {
   it('takes the short way round the wrap', () => {
     expect(smoothAngle(3.0, -3.0, 1)).toBeCloseTo(3.0 + (2 * Math.PI - 6.0), 9);
     expect(smoothAngle(0.1, 0.2, 0.5)).toBeCloseTo(0.15, 9);
+  });
+});
+
+describe('DampedSpringScalar', () => {
+  it('is exact for any step size (100 × 0.01 s == 1 × 1 s) for ζ < 1, = 1 and > 1', () => {
+    for (const zeta of [0.3, 0.7, 1, 1.8]) {
+      const a = new DampedSpringScalar(6, zeta); a.reset(1, -0.5);
+      const b = new DampedSpringScalar(6, zeta); b.reset(1, -0.5);
+      for (let i = 0; i < 100; i++) a.update(0.2, 0.01);
+      b.update(0.2, 1.0);
+      expect(a.x).toBeCloseTo(b.x, 9);
+      expect(a.v).toBeCloseTo(b.v, 9);
+    }
+  });
+
+  it('ζ = 0.7 overshoots a step by e^(−πζ/√(1−ζ²)) ≈ 4.6 %', () => {
+    const s = new DampedSpringScalar(6, 0.7);
+    let peak = 0;
+    for (let i = 0; i < 600; i++) peak = Math.max(peak, s.update(1, 1 / 240));
+    expect(peak - 1).toBeCloseTo(Math.exp((-Math.PI * 0.7) / Math.sqrt(1 - 0.49)), 3);
+    expect(s.x).toBeCloseTo(1, 3);
+  });
+
+  it('matches SpringScalar when critically damped and does nothing for dt ≤ 0 or NaN', () => {
+    const d = new DampedSpringScalar(5, 1); d.reset(2);
+    const c = new SpringScalar(5); c.reset(2);
+    for (let i = 0; i < 30; i++) { d.update(-1, 1 / 60); c.update(-1, 1 / 60); }
+    expect(d.x).toBeCloseTo(c.x, 12);
+    const x = d.x;
+    d.update(5, 0); d.update(5, Number.NaN);
+    expect(d.x).toBe(x);
+  });
+});
+
+describe('coastStep', () => {
+  it('covers r₀·τ in total at any frame rate', () => {
+    const total = (hz: number) => {
+      let r = 2, sum = 0;
+      for (let i = 0; i < hz * 10; i++) { const s = coastStep(r, 1 / hz, 0.4); sum += s.distance; r = s.rate; }
+      return sum;
+    };
+    expect(total(30)).toBeCloseTo(0.8, 9);
+    expect(total(144)).toBeCloseTo(0.8, 9);
   });
 });

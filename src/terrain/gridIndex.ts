@@ -170,3 +170,32 @@ export function descendantCode(za: number, zc: number, xc: number, yc: number): 
   const mask = (1 << depth) - 1;
   return mortonEncode(xc & mask, yc & mask);
 }
+
+/**
+ * Allocation-free form of `quadrantGridRange` + `quadrantSkirtRanges`: writes the index ranges
+ * that draw sub-square (depth, code) of a `quads` tile as (start, count) pairs into `out`
+ * (capacity ≥ 10) and returns the number of pairs. Depth 0 is the whole tile (one range,
+ * grid and skirts together); deeper sub-squares give one grid range plus the tile-edge
+ * skirt segments on their border (0–2, or 4 when the depth is clamped to a whole tile).
+ */
+export function subSquareRanges(quads: number, depth: number, code: number, out: Int32Array): number {
+  if (depth <= 0) { out[0] = 0; out[1] = tileIndexCount(quads); return 1; }
+  const maxDepth = Math.log2(quads);
+  if (depth > maxDepth) { code = code >>> (2 * (depth - maxDepth)); depth = maxDepth; }
+  const N = quads, side = N >>> depth, quadCount = side * side;
+  out[0] = code * quadCount * 6;
+  out[1] = quadCount * 6;
+  let n = 1, i0 = 0, j0 = 0;
+  for (let d = 0; d < depth; d++) {
+    const pair = (code >>> (2 * (depth - 1 - d))) & 3;
+    const half = N >>> (d + 1);
+    if (pair & 1) i0 += half;
+    if (pair & 2) j0 += half;
+  }
+  const gridEnd = gridIndexCount(N), run = side * 6;
+  if (j0 === 0) { out[2 * n] = gridEnd + i0 * 6; out[2 * n + 1] = run; n++; }
+  if (j0 + side === N) { out[2 * n] = gridEnd + 6 * N + i0 * 6; out[2 * n + 1] = run; n++; }
+  if (i0 === 0) { out[2 * n] = gridEnd + 12 * N + j0 * 6; out[2 * n + 1] = run; n++; }
+  if (i0 + side === N) { out[2 * n] = gridEnd + 18 * N + j0 * 6; out[2 * n + 1] = run; n++; }
+  return n;
+}

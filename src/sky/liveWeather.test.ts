@@ -59,7 +59,14 @@ describe('Open-Meteo live weather', () => {
     snowy.hourly.snowfall = col(0.8); snowy.hourly.rain = col(0); snowy.hourly.precipitation = col(0.8); snowy.hourly.weather_code = col(73);
     const s = openMeteoToWeatherState(snowy, 0);
     expect(s.precipitationType).toBe('snow');
-    expect(s.precipitationRate).toBeCloseTo(8);
+    // snowfall is cm of snow depth; the rate is liquid-water equivalent mm/h (Open-Meteo: cm × 10 / 7)
+    expect(s.precipitationRate).toBeCloseTo((0.8 * 10) / 7, 6);
+    // convective showers are in `precipitation` but not in `rain`
+    const showery = structuredClone(fixture);
+    showery.hourly.precipitation = col(3); showery.hourly.rain = col(0); showery.hourly.snowfall = col(0); showery.hourly.weather_code = col(81);
+    const sh = openMeteoToWeatherState(showery, 0);
+    expect(sh.precipitationType).toBe('rain');
+    expect(sh.precipitationRate).toBeCloseTo(3, 6);
     const stormy = structuredClone(fixture);
     stormy.hourly.weather_code = col(95); stormy.hourly.rain = col(6); stormy.hourly.cape = col(2000);
     const t = openMeteoToWeatherState(stormy, 0);

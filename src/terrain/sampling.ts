@@ -66,3 +66,27 @@ export function downsampleGrid(src: Float32Array, width: number, factor: number,
   }
   return dst;
 }
+
+/**
+ * Upsample the part of an ancestor tile's grid that covers one of its descendants: the
+ * descendant `depth` levels below at offset (sx, sy), in descendant tiles from the ancestor's
+ * NW corner (0 ≤ sx, sy < 2^depth). The result is `outWidth`² heights sampled bilinearly at
+ * the descendant's own pixel centres (row 0 = north) — the "parent tile" elevation fallback.
+ */
+export function extractSubGrid(
+  src: ArrayLike<number>, srcWidth: number,
+  depth: number, sx: number, sy: number,
+  outWidth: number, out?: Float32Array,
+): Float32Array {
+  const n = 2 ** depth;
+  if (sx < 0 || sy < 0 || sx >= n || sy >= n) throw new Error(`extractSubGrid: offset (${sx}, ${sy}) outside 2^${depth}`);
+  const dst = out && out.length === outWidth * outWidth ? out : new Float32Array(outWidth * outWidth);
+  const scale = srcWidth / (n * outWidth); // ancestor pixels per descendant pixel
+  const ox = (sx * srcWidth) / n, oy = (sy * srcWidth) / n;
+  for (let j = 0; j < outWidth; j++) {
+    const py = oy + (j + 0.5) * scale;
+    const row = j * outWidth;
+    for (let i = 0; i < outWidth; i++) dst[row + i] = bilinearSample(src, srcWidth, srcWidth, ox + (i + 0.5) * scale, py);
+  }
+  return dst;
+}

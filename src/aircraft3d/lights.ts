@@ -1,7 +1,10 @@
 /**
  * Exterior lighting: nav lights (red left / green right / white tail), red beacon blinking
  * at 1 Hz, white wing-tip strobes double-flashing every 1.5 s, landing and taxi spotlights.
- * Spotlights are only switched on when allowed (external camera or night) to save cost.
+ *
+ * Spotlight gating: the cockpit switch drives `visible`; the "allowed" gate (external camera
+ * or night) drives `intensity`. Toggling `visible` changes the scene's light count, which makes
+ * three.js build new programs for every lit material, so it must not flip on each view change.
  */
 import * as THREE from 'three';
 import type { ControlInputs } from '../core/types';
@@ -24,6 +27,8 @@ export class AircraftLights {
   readonly group = new THREE.Group();
   readonly landingLight: THREE.SpotLight;
   readonly taxiLight: THREE.SpotLight;
+  private readonly landingIntensity: number;
+  private readonly taxiIntensity: number;
   /** internal clock, s */
   private t = 0;
   private readonly nav: THREE.Object3D[] = [];
@@ -72,8 +77,10 @@ export class AircraftLights {
       this.lenses.push(lens);
       return s;
     };
-    this.landingLight = makeSpot(l.landing, opts.landingIntensity ?? 4000, 11, 1.5);
-    this.taxiLight = makeSpot(l.taxi, opts.taxiIntensity ?? 2500, 24, 7);
+    this.landingIntensity = opts.landingIntensity ?? 4000;
+    this.taxiIntensity = opts.taxiIntensity ?? 2500;
+    this.landingLight = makeSpot(l.landing, this.landingIntensity, 11, 1.5);
+    this.taxiLight = makeSpot(l.taxi, this.taxiIntensity, 24, 7);
   }
 
   /**
@@ -88,8 +95,10 @@ export class AircraftLights {
     for (const n of this.nav) n.visible = lights.nav;
     for (const b of this.beacon) b.visible = beaconOn;
     for (const s of this.strobes) s.visible = strobeOn;
-    this.landingLight.visible = lights.landing && spotlightsAllowed;
-    this.taxiLight.visible = lights.taxi && spotlightsAllowed;
+    this.landingLight.visible = lights.landing;
+    this.taxiLight.visible = lights.taxi;
+    this.landingLight.intensity = spotlightsAllowed ? this.landingIntensity : 0;
+    this.taxiLight.intensity = spotlightsAllowed ? this.taxiIntensity : 0;
     this.lenses[0].visible = lights.landing;
     this.lenses[1].visible = lights.taxi;
   }
@@ -98,6 +107,9 @@ export class AircraftLights {
   get beaconLit(): boolean { return this.beacon[0].visible; }
   get strobeLit(): boolean { return this.strobes[0].visible; }
   get navLit(): boolean { return this.nav[0].visible; }
+  /** landing / taxi spotlight actually illuminating (switched on and allowed) */
+  get landingLit(): boolean { return this.landingLight.visible && this.landingLight.intensity > 0; }
+  get taxiLit(): boolean { return this.taxiLight.visible && this.taxiLight.intensity > 0; }
   get clock(): number { return this.t; }
 
   dispose(): void {

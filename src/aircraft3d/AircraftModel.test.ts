@@ -14,7 +14,7 @@ function tePoint(pivot: THREE.Group, side: 'x' | 'y' = 'x'): THREE.Vector3 {
   const bb = mesh.geometry.boundingBox!;
   // TE = max local z, mid span, chord-line height
   const p = new THREE.Vector3(side === 'x' ? (bb.min.x + bb.max.x) / 2 : 0, side === 'x' ? 0 : (bb.min.y + bb.max.y) / 2, bb.max.z);
-  pivot.updateMatrixWorld(true);
+  pivot.updateWorldMatrix(true, true);
   return p.applyMatrix4(pivot.matrixWorld);
 }
 
@@ -28,10 +28,26 @@ describe('AircraftModel (Node build, no DOM)', () => {
     expect(model.panelMeshG1000.material).toBeInstanceOf(THREE.MeshBasicMaterial);
     expect(model.eyePointLocal.x).toBeCloseTo(-0.25);
     expect(model.eyePointLocal.y).toBeCloseTo(0.55);
-    expect(model.eyePointLocal.z).toBeCloseTo(-0.4);
-    // panel ≈ 0.65 m ahead of and 0.35 m below the eye
-    expect(model.panelMesh.position.z).toBeCloseTo(-1.05, 2);
+    expect(model.eyePointLocal.z).toBeCloseTo(-0.15);
+    // panel ≈ 0.65 m ahead of and 0.35 m below the eye, aft of the firewall (FS 0 ≈ z −1.04)
+    expect(model.panelMesh.position.z).toBeCloseTo(-0.8, 2);
     expect(model.panelMesh.position.y).toBeCloseTo(0.2, 2);
+  });
+
+  it('panel planes show an assigned instrument texture at full brightness without a recompile', () => {
+    for (const mesh of [model.panelMesh, model.panelMeshG1000]) {
+      const mat = mesh.material;
+      // MeshBasicMaterial multiplies map × color: a dark placeholder colour would black out the gauges
+      expect(mat.color.getHex()).toBe(0xffffff);
+      // a placeholder map is bound from the start, so swapping in a CanvasTexture keeps the same program
+      expect(mat.map).toBeInstanceOf(THREE.Texture);
+      expect(mat.toneMapped).toBe(false);
+      // the plane faces the pilot (+Z normal tilted up) and is in front of the eye
+      const n = new THREE.Vector3(0, 0, 1).applyQuaternion(mesh.quaternion);
+      expect(n.z).toBeGreaterThan(0.9);
+      expect(n.y).toBeGreaterThan(0);
+      expect(mesh.position.z).toBeLessThan(model.eyePointLocal.z - 0.4);
+    }
   });
 
   it('has C172-like overall extents (span 11 m, length ≈ 8.3 m, sits on its gear ~1.2 m below the CG)', () => {
@@ -76,6 +92,41 @@ describe('AircraftModel (Node build, no DOM)', () => {
     expect(e0.z).toBeGreaterThan(5.5);
   });
 
+  it('every hinged surface rotates about its own (swept / dihedral) hinge line', () => {
+    const st = makeTestState();
+    const inputs = defaultControlInputs();
+    const hingeEnds = (pivot: THREE.Group, axis: 'x' | 'y'): [THREE.Vector3, THREE.Vector3] => {
+      model.root.updateMatrixWorld(true);
+      const m = pivot.matrixWorld;
+      const a = new THREE.Vector3(0, 0, 0).applyMatrix4(m);
+      const b = (axis === 'x' ? new THREE.Vector3(1.5, 0, 0) : new THREE.Vector3(0, 1.5, 0)).applyMatrix4(m);
+      return [a, b];
+    };
+    const sf = model.surfaces;
+    const cases: [THREE.Group, 'x' | 'y'][] = [
+      [sf.aileronLeft, 'x'], [sf.aileronRight, 'x'], [sf.flapLeft, 'x'], [sf.flapRight, 'x'], [sf.elevator, 'x'], [sf.rudder, 'y'],
+    ];
+    model.root.position.set(0, 0, 0); model.root.quaternion.identity();
+    model.update(st, inputs, 0, false);
+    const before = cases.map(([p, ax]) => hingeEnds(p, ax));
+    st.surfaces.elevatorRad = -25 * D2R;
+    st.surfaces.aileronLeftRad = 15 * D2R;
+    st.surfaces.aileronRightRad = -20 * D2R;
+    st.surfaces.flapDeg = 30;
+    st.surfaces.rudderRad = 16 * D2R;
+    model.update(st, inputs, 0, false);
+    cases.forEach(([p, ax], i) => {
+      const [a, b] = hingeEnds(p, ax);
+      expect(a.distanceTo(before[i][0])).toBeLessThan(1e-6);
+      expect(b.distanceTo(before[i][1])).toBeLessThan(1e-6);
+    });
+    // the aileron hinge on the tapered panel really is swept and has dihedral (so the test bites)
+    const [a0, a1] = before[1];
+    const dir = a1.clone().sub(a0).normalize();
+    expect(Math.abs(dir.z)).toBeGreaterThan(0.05);
+    expect(Math.abs(dir.y)).toBeGreaterThan(0.01);
+  });
+
   it('propeller shows blades at low rpm and the blurred disc above ~400 rpm', () => {
     const st = makeTestState();
     const inputs = defaultControlInputs();
@@ -117,6 +168,32 @@ describe('AircraftModel (Node build, no DOM)', () => {
     expect(Math.abs(wheel.rotation.x)).toBeCloseTo((10 / 0.22) * 0.1, 3);
   });
 
+  it('a single non-finite state sample does not permanently poison the animation accumulators', () => {
+    const m = new AircraftModel(c172ModelConfig());
+    const st = makeTestState();
+    const inputs = defaultControlInputs();
+    st.engine.rpm = Number.NaN;
+    st.gear[0].compressionM = Number.NaN; st.gear[0].steerRad = Number.NaN;
+    st.gear[1].wheelSpeedMs = Number.NaN; st.gear[1].compressionM = Number.POSITIVE_INFINITY;
+    st.surfaces.elevatorRad = Number.NaN;
+    m.update(st, inputs, Number.NaN, false);
+    m.update(st, inputs, 1 / 60, false);
+    st.engine.rpm = 300;
+    st.gear[0].compressionM = 0.02; st.gear[0].steerRad = 0;
+    st.gear[1].wheelSpeedMs = 5; st.gear[1].compressionM = 0.03;
+    st.surfaces.elevatorRad = 0.1;
+    m.update(st, inputs, 1 / 60, false);
+    expect(Number.isFinite(m.propeller.angle)).toBe(true);
+    expect(Number.isFinite(m.gear.wheelFor(1)!.rotation.x)).toBe(true);
+    expect(m.gear.wheelFor(1)!.rotation.x).not.toBe(0);
+    expect(m.gear.carrierFor(0)!.position.y).toBeCloseTo(0.02, 9);
+    expect(m.gear.carrierFor(1)!.position.y).toBeCloseTo(0.03, 6);
+    expect(m.surfaces.elevator.rotation.x).toBeCloseTo(0.1, 9);
+    m.root.updateMatrixWorld(true);
+    m.root.traverse((o) => { expect(Number.isFinite(o.matrixWorld.elements[12] + o.matrixWorld.elements[0])).toBe(true); });
+    m.dispose();
+  });
+
   it('lights: nav steady, beacon 1 Hz, strobes double-flash every 1.5 s, spotlights gated', () => {
     const fresh = new AircraftModel(c172ModelConfig());
     const st = makeTestState();
@@ -142,12 +219,20 @@ describe('AircraftModel (Node build, no DOM)', () => {
     expect(fresh.lights.strobeLit).toBe(false);
     step(0.50, false); // t = 1.52: strobe first flash of the second cycle
     expect(fresh.lights.strobeLit).toBe(true);
-    // spotlights are off in the cockpit by day, on at night
+    // spotlights are dark in the cockpit by day, lit at night. The gate uses intensity, not
+    // `visible`, so switching views never changes the scene's light count (no shader recompiles).
     step(0.01, true);
-    expect(fresh.lights.landingLight.visible).toBe(false);
+    expect(fresh.lights.landingLit).toBe(false);
+    expect(fresh.lights.landingLight.visible).toBe(true);
+    expect(fresh.lights.landingLight.intensity).toBe(0);
     fresh.setSunElevation(-10 * D2R);
     step(0.01, true);
-    expect(fresh.lights.landingLight.visible).toBe(true);
+    expect(fresh.lights.landingLit).toBe(true);
+    expect(fresh.lights.landingLight.intensity).toBeGreaterThan(1000);
+    inputs.lights.landing = false;
+    step(0.01, false);
+    expect(fresh.lights.landingLight.visible).toBe(false);
+    expect(fresh.lights.landingLit).toBe(false);
     inputs.lights.nav = false;
     step(0.01, false);
     expect(fresh.lights.navLit).toBe(false);
@@ -201,9 +286,14 @@ describe('AircraftModel (Node build, no DOM)', () => {
     model.root.traverse((o) => { const g = (o as THREE.Mesh).geometry; if (g) g.addEventListener('dispose', () => disposedGeos++); });
     let disposedMats = 0;
     model.materials.paint.addEventListener('dispose', () => disposedMats++);
+    // three.js shares one geometry between every Sprite in the app: it must survive our dispose
+    let spriteGeoDisposed = false;
+    const sprite = new THREE.Sprite();
+    sprite.geometry.addEventListener('dispose', () => { spriteGeoDisposed = true; });
     model.dispose();
     expect(disposedGeos).toBeGreaterThan(20);
     expect(disposedMats).toBe(1);
+    expect(spriteGeoDisposed).toBe(false);
     model.dispose(); // idempotent
   });
 });

@@ -110,12 +110,15 @@ export function openMeteoToWeatherState(json: unknown, utcMs: number, elevationM
   if (high >= 0.05) clouds.push({ baseM: 7500, topM: 9000, coverage: high, density: 0.5, type: 'cirrus' });
   w.clouds = clouds;
 
-  // ── precipitation / storms ──────────────────────────────────────────────────────────
-  const rain = hourlyNumber(h, 'rain', i) ?? hourlyNumber(h, 'precipitation', i) ?? 0;
-  const snowCm = hourlyNumber(h, 'snowfall', i) ?? 0;
+  // ── precipitation / storms (rates are liquid-water equivalent, mm/h) ─────────────────
+  // `snowfall` is cm of fresh snow (water equivalent = cm · 10 / 7 mm per Open-Meteo); `rain` excludes
+  // convective showers, which only appear in the `precipitation` total (rain + showers + snow WE).
+  const snowWe = ((hourlyNumber(h, 'snowfall', i) ?? 0) * 10) / 7;
+  const total = hourlyNumber(h, 'precipitation', i);
+  const liquid = Math.max(hourlyNumber(h, 'rain', i) ?? 0, total !== null ? total - snowWe : 0);
   const code = hourlyNumber(h, 'weather_code', i) ?? 0;
-  if (snowCm > 0 && snowCm * 10 >= rain) { w.precipitationType = 'snow'; w.precipitationRate = snowCm * 10; }
-  else if (rain > 0) { w.precipitationType = 'rain'; w.precipitationRate = rain; }
+  if (snowWe > 0 && snowWe >= liquid) { w.precipitationType = 'snow'; w.precipitationRate = snowWe; }
+  else if (liquid > 0) { w.precipitationType = 'rain'; w.precipitationRate = liquid; }
   else { w.precipitationType = 'none'; w.precipitationRate = 0; }
   w.thunderstorm = code >= 95;
 

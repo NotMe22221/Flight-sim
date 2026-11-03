@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { descendantCode, gridIndex, gridIndexCount, mortonDecode, mortonEncode, quadrantGridRange, quadrantSkirtRanges, tileIndexCount, tileVertexCount } from './gridIndex';
+import { descendantCode, gridIndex, gridIndexCount, mortonDecode, mortonEncode, quadrantGridRange, quadrantSkirtRanges, subSquareRanges, tileIndexCount, tileVertexCount } from './gridIndex';
 
 describe('gridIndex', () => {
   it('morton round trip', () => {
@@ -55,5 +55,23 @@ describe('gridIndex', () => {
   it('descendantCode gives the Morton path of a child inside its ancestor', () => {
     expect(descendantCode(14, 15, 2 * 100 + 1, 2 * 50)).toBe(1); // NE child
     expect(descendantCode(13, 15, 4 * 7 + 2, 4 * 3 + 3)).toBe(mortonEncode(2, 3));
+  });
+});
+
+describe('subSquareRanges', () => {
+  it('matches quadrantGridRange + quadrantSkirtRanges for every sub-square down to depth 3', () => {
+    const out = new Int32Array(10);
+    expect(subSquareRanges(64, 0, 0, out)).toBe(1);
+    expect([out[0], out[1]]).toEqual([0, tileIndexCount(64)]);
+    for (let depth = 1; depth <= 3; depth++) {
+      for (let code = 0; code < 4 ** depth; code++) {
+        const n = subSquareRanges(64, depth, code, out);
+        const g = quadrantGridRange(64, depth, code);
+        const sk = quadrantSkirtRanges(64, depth, code);
+        expect(n).toBe(1 + sk.length);
+        expect([out[0], out[1]]).toEqual([g.start, g.count]);
+        for (let k = 0; k < sk.length; k++) expect([out[2 + 2 * k], out[3 + 2 * k]]).toEqual([sk[k].start, sk[k].count]);
+      }
+    }
   });
 });

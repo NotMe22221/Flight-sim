@@ -20,6 +20,7 @@ export { PreethamSky, DEFAULT_PREETHAM, type PreethamParams, SKY_RADIANCE_SCALE 
 export {
   targetExposure, adaptExposure, sunLightIntensity, hemisphereIntensity, moonLightIntensity, ambientFloor, starVisibility,
   turbidityFromVisibility, mieFromVisibility, fogBetaFromVisibility, fogExp2DensityFromVisibility, hazeScaleHeight,
+  heightFogOpticalDepth, MIN_FOG_INV_H,
   acesFilmic, linearToSrgb, encodeDisplayColor, cloudCoverFraction, colorTemperatureK, luminance, normalizeColor,
   DEFAULT_EXPOSURE, type ExposureOptions,
 } from './lighting';

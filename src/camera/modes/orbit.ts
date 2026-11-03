@@ -1,11 +1,12 @@
 /**
- * External orbit camera: orbits the aircraft at `orbitDistanceM` (8..200 m, cameraZoom axis),
- * yaw/pitch from pointer drag (relative to the smoothed aircraft heading, so it follows the
- * aircraft round turns) with inertia after the drag is released.
+ * External orbit camera: orbits the aircraft at `orbitDistanceM` (8..200 m; ×distanceStep per
+ * zoom action, continuous with the held cameraZoom axis), yaw/pitch from pointer drag
+ * (relative to the smoothed aircraft heading, so it follows the aircraft round turns) with
+ * inertia after the drag is released (exact exponential coast: frame-rate independent).
  */
 import * as THREE from 'three';
 import type { CameraState } from '../../core/types';
-import { expSmoothing, smoothAngle } from '../smoothing';
+import { coastStep, expSmoothing, smoothAngle } from '../smoothing';
 import type { CameraFrame, CameraModeHandler, ResolvedCameraOptions } from '../types';
 import { WORLD_UP, clamp, clampAboveGround } from './util';
 
@@ -44,16 +45,18 @@ export class OrbitMode implements CameraModeHandler {
       this.yawVel = frame.pointerYaw / dt;
       this.pitchVel = frame.pointerPitch / dt;
     } else {
-      const k = Math.exp(-dt / o.orbitInertiaTauS);
-      this.yawVel *= k; this.pitchVel *= k;
-      dYaw += this.yawVel * dt; dPitch += this.pitchVel * dt;
-      if (Math.abs(this.yawVel) < 1e-4) this.yawVel = 0;
-      if (Math.abs(this.pitchVel) < 1e-4) this.pitchVel = 0;
+      let c = coastStep(this.yawVel, dt, o.orbitInertiaTauS);
+      dYaw += c.distance; this.yawVel = c.rate;
+      c = coastStep(this.pitchVel, dt, o.orbitInertiaTauS);
+      dPitch += c.distance; this.pitchVel = c.rate;
+      if (Math.abs(this.yawVel) < 1e-6) this.yawVel = 0;
+      if (Math.abs(this.pitchVel) < 1e-6) this.pitchVel = 0;
     }
     s.orbitYaw += dYaw;
     if (s.orbitYaw > Math.PI) s.orbitYaw -= 2 * Math.PI; else if (s.orbitYaw < -Math.PI) s.orbitYaw += 2 * Math.PI;
     s.orbitPitch = clamp(s.orbitPitch + dPitch, -10 * D2R, 85 * D2R);
-    s.orbitDistanceM = clamp(s.orbitDistanceM * Math.exp(-frame.zoomAxis * dt * 1.2), o.orbitMinM, o.orbitMaxM);
+    const zoomExp = -frame.zoomAxis * o.distanceRatePerS * dt;
+    s.orbitDistanceM = clamp(s.orbitDistanceM * Math.exp(zoomExp) * Math.pow(o.distanceStep, -frame.zoomSteps), o.orbitMinM, o.orbitMaxM);
 
     this.headingS = smoothAngle(this.headingS, frame.heading, expSmoothing(dt, 0.3));
     const az = this.headingS + Math.PI + s.orbitYaw;

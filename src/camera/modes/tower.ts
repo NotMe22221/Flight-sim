@@ -41,10 +41,20 @@ export class TowerMode implements CameraModeHandler {
 
   get isSeeded(): boolean { return this.seeded; }
 
+  /** Forget the tower position; the controller re-seeds it from the aircraft on the next update. */
+  unseed(): void { this.seeded = false; }
+
   enter(frame: CameraFrame): void {
     if (!this.seeded) this.seedFromAircraft(frame);
     this.look.reset(frame.pos);
     this.fovS = this.fovFor(frame);
+  }
+
+  snap(frame: CameraFrame): void { this.enter(frame); }
+
+  shiftOrigin(delta: THREE.Vector3): void {
+    this.position.add(delta);
+    this.look.pos.add(delta);
   }
 
   private fovFor(frame: CameraFrame): number {

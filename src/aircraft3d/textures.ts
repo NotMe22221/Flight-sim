@@ -106,3 +106,15 @@ export function createHaloTexture(size = 64): THREE.DataTexture {
   t.minFilter = THREE.LinearFilter;
   return t;
 }
+
+/**
+ * 1×1 dark-grey placeholder bound as the instrument-panel `map` until the instruments module
+ * assigns its CanvasTexture. Binding *a* map from the start keeps USE_MAP in the shader, so
+ * swapping textures later needs no `material.needsUpdate` and the colour stays white.
+ */
+export function createPanelPlaceholderTexture(): THREE.DataTexture {
+  const t = new THREE.DataTexture(new Uint8Array([28, 29, 31, 255]), 1, 1, THREE.RGBAFormat);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.needsUpdate = true;
+  return t;
+}

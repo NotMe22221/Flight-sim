@@ -19,8 +19,9 @@ import { buildTail } from './tail';
 import { Propeller } from './propeller';
 import { LandingGear } from './gear';
 import { AircraftLights } from './lights';
-import { CockpitInterior, type PanelVariant } from './interior';
+import { CockpitInterior, type PanelMesh, type PanelVariant } from './interior';
 import { createModelMaterials, type ModelMaterials } from './materials';
+import { finiteOr, safeDt } from './finite';
 
 const D2R = Math.PI / 180;
 
@@ -55,10 +56,10 @@ export class AircraftModel {
   readonly exterior = new THREE.Group();
   /** cockpit shell, only shown in cockpit view */
   readonly interior: THREE.Group;
-  /** instrument panel plane (steam six-pack size, 1.0 × 0.45 m); set `material.map` */
-  readonly panelMesh: THREE.Mesh;
+  /** instrument panel plane (steam six-pack size, 1.0 × 0.45 m); assign `material.map` */
+  readonly panelMesh: PanelMesh;
   /** G1000-sized alternative (1.0 × 0.36 m), hidden unless {@link setPanelVariant}('g1000') */
-  readonly panelMeshG1000: THREE.Mesh;
+  readonly panelMeshG1000: PanelMesh;
   /** pilot eye point in model-local coordinates (from config.geometry.eyePoint) */
   readonly eyePointLocal: THREE.Vector3;
   readonly layout: C172Layout;
@@ -134,26 +135,29 @@ export class AircraftModel {
   }
 
   /**
-   * Animate from the latest state.
-   * @param cameraIsCockpit hide the cabin shell / show the interior, and switch the
-   *        landing/taxi spotlights off in daylight to save a shadow-casting light.
+   * Animate from the latest (interpolated) state. Allocation-free; non-finite samples are
+   * treated as 0 so one bad frame cannot poison the propeller / wheel accumulators.
+   * @param dt              real seconds since the previous call (≥ 0)
+   * @param cameraIsCockpit hide the cabin shell / show the interior, and darken the
+   *        landing/taxi spotlights in daylight (intensity 0; the light count stays constant).
    */
   update(state: AircraftState, inputs: ControlInputs, dt: number, cameraIsCockpit: boolean): void {
     const s = state.surfaces;
     const sf = this.surfaces;
+    const step = safeDt(dt);
     // positive = trailing edge down (δe > 0 nose down; per-surface aileron deflection)
-    sf.aileronLeft.rotation.x = s.aileronLeftRad;
-    sf.aileronRight.rotation.x = s.aileronRightRad;
-    const flap = s.flapDeg * D2R;
+    sf.aileronLeft.rotation.x = finiteOr(s.aileronLeftRad);
+    sf.aileronRight.rotation.x = finiteOr(s.aileronRightRad);
+    const flap = finiteOr(s.flapDeg) * D2R;
     sf.flapLeft.rotation.x = flap;
     sf.flapRight.rotation.x = flap;
-    sf.elevator.rotation.x = s.elevatorRad;
+    sf.elevator.rotation.x = finiteOr(s.elevatorRad);
     // δr > 0 = trailing edge left; the hinge axis points up so a negative rotation swings the TE left
-    sf.rudder.rotation.y = -s.rudderRad;
+    sf.rudder.rotation.y = -finiteOr(s.rudderRad);
 
-    this.propeller.update(state.engine.rpm, dt);
-    this.gear.update(state.gear, dt);
-    this.lights.update(dt, inputs.lights, !cameraIsCockpit || this.night);
+    this.propeller.update(finiteOr(state.engine.rpm), step);
+    this.gear.update(state.gear, step);
+    this.lights.update(step, inputs.lights, !cameraIsCockpit || this.night);
     this.cockpit.update(inputs);
 
     this.cabinShell.visible = this.exteriorEnabled && !cameraIsCockpit;
@@ -185,6 +189,8 @@ export class AircraftModel {
     this.disposed = true;
     const seen = new Set<THREE.BufferGeometry>();
     this.root.traverse((o) => {
+      // Sprite geometry is a single buffer shared by every Sprite in the app: never dispose it
+      if (o instanceof THREE.Sprite) return;
       const geo = (o as THREE.Mesh).geometry;
       if (geo instanceof THREE.BufferGeometry && !seen.has(geo)) { seen.add(geo); geo.dispose(); }
     });

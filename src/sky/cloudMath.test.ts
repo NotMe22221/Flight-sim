@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CloudLayer } from '../core/types';
-import { CLOUD_NOISE_GLSL, cloudDensityAt, cloudLayerDensityAt, coverageMask, fbm2, hash2, valueNoise2, verticalProfile } from './cloudMath';
+import { CLOUD_NOISE_GLSL, cloudDensityAt, cloudLayerDensityAt, cloudTypeParams, coverageMask, fbm2, hash2, valueNoise2, verticalProfile } from './cloudMath';
 
 const layer = (o: Partial<CloudLayer> = {}): CloudLayer => ({ baseM: 1000, topM: 1800, coverage: 0.5, density: 1, type: 'cumulus', ...o });
 
@@ -62,5 +62,21 @@ describe('cloud density maths', () => {
     expect(CLOUD_NOISE_GLSL).toContain('cloudFbm');
     expect(CLOUD_NOISE_GLSL).toContain('0.250');
     expect(CLOUD_NOISE_GLSL).toContain('CLOUD_OCTAVES');
+  });
+
+  it('CPU density reproduces the GPU formula: coverage mask, detail erosion (×7 + 3.7), vertical profile, density', () => {
+    const l = layer({ coverage: 0.44, density: 0.9 });
+    const tp = cloudTypeParams(l.type);
+    const mid = 0.5 * (l.baseM + l.topM);
+    let edges = 0;
+    for (let i = 0; i < 400; i++) {
+      const x = i * 173.3 - 30_000, z = 12_000 - i * 97.1, dx = 517, dz = -211;
+      const px = (x - dx) / tp.featureSizeM, pz = (z - dz) / tp.featureSizeM;
+      const m = coverageMask(fbm2(px, pz), l.coverage);
+      const eroded = Math.min(Math.max(m - (1 - m) * fbm2(px * 7 + 3.7, pz * 7 + 3.7) * tp.erosion, 0), 1);
+      if (m > 0 && m < 1) edges++;
+      expect(cloudLayerDensityAt(l, x, mid, z, dx, dz)).toBeCloseTo(eroded * verticalProfile(l, mid) * l.density, 12);
+    }
+    expect(edges).toBeGreaterThan(10); // the comparison exercised soft cloud edges, not just 0/1
   });
 });

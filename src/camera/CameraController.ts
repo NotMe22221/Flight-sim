@@ -16,7 +16,7 @@ import { DroneMode } from './modes/drone';
 import { TowerMode } from './modes/tower';
 import { FlybyMode } from './modes/flyby';
 import { WingMode } from './modes/wing';
-import { dirFromYaw } from './modes/util';
+import { dirFromYaw, yawOf } from './modes/util';
 import { resolveCameraOptions, type CameraFrame, type CameraModeHandler, type CameraOptions, type ResolvedCameraOptions } from './types';
 
 const D2R = Math.PI / 180;
@@ -40,6 +40,9 @@ export class CameraController {
   private readonly handlers: Record<CameraMode, CameraModeHandler>;
   private userFovDeg: number;
   private pendingEnter = true;
+  private pendingSnap = false;
+  /** zoomIn (+1) / zoomOut (−1) steps requested since the last update */
+  private pendingZoomSteps = 0;
   private lastFov = -1;
   private lastNear = -1;
   private readonly frame: CameraFrame;
@@ -73,7 +76,7 @@ export class CameraController {
       forward: new THREE.Vector3(), up: new THREE.Vector3(), right: new THREE.Vector3(),
       forwardH: new THREE.Vector3(), velDirH: new THREE.Vector3(), vel: new THREE.Vector3(),
       heading: 0, roll: 0, lookYaw: 0, lookPitch: 0, pointerYaw: 0, pointerPitch: 0, axisYaw: 0, axisPitch: 0,
-      pointerActive: false, zoomAxis: 0,
+      pointerActive: false, zoomAxis: 0, zoomSteps: 0,
     };
   }
 
@@ -98,19 +101,46 @@ export class CameraController {
   /** Smoothly return cockpit free-look to straight ahead. */
   recentre(): void { this.cockpit.recentre(); }
 
-  /** Field of view (deg) used by cockpit/chase/orbit/drone/wing; tower and flyby auto-zoom. */
+  /** User field of view (deg) used by cockpit/chase/orbit/drone/wing; tower and flyby auto-zoom. */
   get fovDeg(): number { return this.userFovDeg; }
   setFov(deg: number): void {
+    if (!Number.isFinite(deg)) return;
     this.userFovDeg = Math.min(this.options.maxFovDeg, Math.max(this.options.minFovDeg, deg));
   }
-  zoomIn(): void { this.setFov(this.userFovDeg * this.options.zoomStep); }
-  zoomOut(): void { this.setFov(this.userFovDeg / this.options.zoomStep); }
+  /**
+   * One zoom step (a wheel notch / key press), applied on the next update: cockpit, drone and
+   * wing narrow the FOV by `fovStepDeg`; chase and orbit move in by `distanceStep`.
+   */
+  zoomIn(): void { this.pendingZoomSteps += 1; }
+  zoomOut(): void { this.pendingZoomSteps -= 1; }
 
   /** Fixed tower position (render frame). Unset towers seed themselves 300 m left / 20 m above the aircraft. */
   setTowerPosition(posThree: THREE.Vector3): void { this.tower.setPosition(posThree); }
   /** Drone follow mode: keep the current offset from the aircraft (in its heading frame). */
   setDroneFollow(on: boolean): void { this.drone.setFollow(on); }
   get droneFollow(): boolean { return this.drone.following; }
+  /** Drone translation speed at full axis deflection, m/s. */
+  setDroneSpeed(ms: number): void { this.drone.setSpeed(ms); }
+
+  /**
+   * The render-frame origin moved (floating-origin rebase): every world position is now
+   * `old + delta`. Shifts the world-anchored camera state (tower, fly-by point, drone, look-at
+   * springs) so nothing swings. Call it in the same frame the world/aircraft are rebased.
+   */
+  shiftOrigin(delta: THREE.Vector3): void {
+    if (!Number.isFinite(delta.x + delta.y + delta.z)) return;
+    for (const m of MODE_ORDER) this.handlers[m].shiftOrigin?.(delta);
+    this.camera.position.add(delta);
+  }
+
+  /**
+   * After a teleport / flight reset: re-seed the tower from the aircraft and jump the active
+   * mode straight to its steady-state pose on the next update (no spring swing across the map).
+   */
+  snapToAircraft(): void {
+    this.tower.unseed();
+    this.pendingSnap = true;
+  }
   /** Pick a new fly-by point now. */
   reseedFlyby(): void { if (this.state.mode === 'flyby') this.flyby.seed(this.frame); }
 
@@ -147,48 +177,67 @@ export class CameraController {
     eyePointLocal: THREE.Vector3,
   ): void {
     const f = this.frame, o = this.options;
-    f.dt = dt < 0 ? 0 : dt > 0.25 ? 0.25 : dt;
+    // A non-finite sample would poison every spring for good: keep the last good camera pose.
+    const p = aircraftPosThree, q = aircraftQuatThree;
+    if (!Number.isFinite(p.x + p.y + p.z + q.x + q.y + q.z + q.w)) return;
+    // NaN / negative → 0; clamp like the main loop
+    f.dt = dt > 0 ? (dt > 0.25 ? 0.25 : dt) : 0;
     f.aircraft = aircraft;
     f.input = input;
-    f.pos.copy(aircraftPosThree);
-    f.quat.copy(aircraftQuatThree);
+    f.pos.copy(p);
+    f.quat.copy(q);
     f.eye.copy(eyePointLocal);
     f.forward.copy(NOSE).applyQuaternion(f.quat);
     f.up.copy(UP).applyQuaternion(f.quat);
     f.right.copy(RIGHT).applyQuaternion(f.quat);
-    f.heading = aircraft.headingTrueRad;
-    f.roll = aircraft.euler[0];
     f.forwardH.set(f.forward.x, 0, f.forward.z);
-    if (f.forwardH.lengthSq() < 1e-6) dirFromYaw(f.heading, f.forwardH); else f.forwardH.normalize();
+    const h = aircraft.headingTrueRad;
+    const nearVertical = f.forwardH.lengthSq() < 1e-6;
+    if (!nearVertical) f.forwardH.normalize();
+    f.heading = Number.isFinite(h) ? h : nearVertical ? 0 : yawOf(f.forwardH);
+    if (nearVertical) dirFromYaw(f.heading, f.forwardH);
+    const r = aircraft.euler[0];
+    f.roll = Number.isFinite(r) ? r : 0;
     const v = aircraft.velNED;
     f.vel.set(v[1], -v[2], -v[0]);
+    if (!Number.isFinite(f.vel.x + f.vel.y + f.vel.z)) f.vel.set(0, 0, 0);
     this.velScratch.set(f.vel.x, 0, f.vel.z);
     if (this.velScratch.lengthSq() > 9) f.velDirH.copy(this.velScratch).normalize(); else f.velDirH.copy(f.forwardH);
 
-    // look input
-    f.pointerActive = input.pointerDx !== 0 || input.pointerDy !== 0;
-    f.pointerYaw = input.pointerDx * o.pointerSensitivity;
-    f.pointerPitch = -input.pointerDy * o.pointerSensitivity;
-    f.axisYaw = input.axes.lookYaw * o.lookRateRadS * f.dt;
-    f.axisPitch = input.axes.lookPitch * o.lookRateRadS * f.dt;
+    // look input (`|| 0` maps NaN to 0); + yaw = look right, + pitch = look up
+    const pdx = input.pointerDx || 0, pdy = input.pointerDy || 0;
+    f.pointerActive = pdx !== 0 || pdy !== 0;
+    f.pointerYaw = pdx * o.pointerSensitivity;
+    f.pointerPitch = -pdy * o.pointerSensitivity;
+    f.axisYaw = (input.axes.lookYaw || 0) * o.lookRateRadS * f.dt;
+    f.axisPitch = (input.axes.lookPitch || 0) * o.lookRateRadS * f.dt;
     f.lookYaw = f.pointerYaw + f.axisYaw;
     f.lookPitch = f.pointerPitch + f.axisPitch;
-    const z = input.axes.cameraZoom;
+    const z = input.axes.cameraZoom || 0;
     f.zoomAxis = z < -1 ? -1 : z > 1 ? 1 : z;
 
     if (o.consumeActions) {
       const actions = input.actions;
       for (let i = 0; i < actions.length; i++) this.handleAction(actions[i]);
     }
+    f.zoomSteps = this.pendingZoomSteps;
+    this.pendingZoomSteps = 0;
+    const mode = this.state.mode;
+    if (mode === 'cockpit' || mode === 'drone' || mode === 'wing') {
+      // FOV modes: a step per action, continuous while the zoom axis is held (+ = zoom in)
+      this.setFov(this.userFovDeg - f.zoomSteps * o.fovStepDeg - f.zoomAxis * o.fovRateDegS * f.dt);
+    }
 
     // tower is seeded relative to the spawn point on the very first frame
     if (!this.tower.isSeeded) this.tower.seedFromAircraft(f);
 
-    const handler = this.handlers[this.state.mode];
+    const handler = this.handlers[mode];
     if (this.pendingEnter) { handler.enter(f, this.camera); this.pendingEnter = false; }
+    if (this.pendingSnap) { handler.snap?.(f, this.camera); this.pendingSnap = false; }
     const fov = handler.update(f, this.camera) ?? this.userFovDeg;
     this.state.fovDeg = fov;
-    const near = this.state.mode === 'cockpit' ? o.nearCockpitM : o.nearExternalM;
+    // the wing camera sits 0.4 m above the skin: it needs the cockpit near plane too
+    const near = mode === 'cockpit' || mode === 'wing' ? o.nearCockpitM : o.nearExternalM;
     if (fov !== this.lastFov || near !== this.lastNear) {
       this.camera.fov = fov;
       this.camera.near = near;
@@ -198,7 +247,9 @@ export class CameraController {
     }
   }
 
+  /** New viewport aspect (width / height); ignored unless finite and > 0 (e.g. a 0-height canvas). */
   handleResize(aspect: number): void {
+    if (!(aspect > 0) || !Number.isFinite(aspect)) return;
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
   }

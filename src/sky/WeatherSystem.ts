@@ -9,7 +9,7 @@ import { KT } from '../core/units';
 import { cloudDensityAt } from './cloudMath';
 import { parseMetar, type MetarReport } from './metar';
 import { cloneWeather, weatherFromPreset } from './presets';
-import { GustModel, type GustModelOptions, Z0_DEFAULT, gustExcessAt, windAt } from './wind';
+import { GustModel, type GustModelOptions, WIND_REFERENCE_HEIGHT_M, Z0_DEFAULT, gustExcessAt, windAt } from './wind';
 
 export interface WeatherSystemOptions {
   /** departure airport elevation, m MSL: preset layers are AGL here; default station elevation for METARs */
@@ -43,6 +43,9 @@ export class WeatherSystem {
 
   private from: WeatherState | null = null;
   private to: WeatherState | null = null;
+  /** wind layers of `from`/`to` padded to equal length with virtual layers sampled from each side's own profile */
+  private fromWinds: WindLayer[] = [];
+  private toWinds: WindLayer[] = [];
   private elapsedS = 0;
   private durationS = 0;
   /** accumulated wind drift of each cloud layer's noise field: [dx, dz, …] (render frame: x East, z South), m */
@@ -155,6 +158,14 @@ export class WeatherSystem {
     return this.windAtAltitude(altMsl, agl, out);
   }
 
+  /**
+   * Wind velocity (NED, m/s, the direction the air moves TOWARD) at a local-NED position: mean wind
+   * with the surface log profile + the active discrete gust. Pass `out` in per-frame code.
+   */
+  windAt(posNED: Readonly<Vec3>, out: Vec3 = [0, 0, 0]): Vec3 {
+    return this.windNED(posNED[0], posNED[1], posNED[2], out);
+  }
+
   /** Cloud density 0..1 at a render-frame point (x East, y Up MSL, z South). */
   cloudDensityAt(x: number, y: number, z: number): number {
     return cloudDensityAt(this.state.clouds, x, y, z, this.drifts);
@@ -185,6 +196,10 @@ export class WeatherSystem {
     s.clouds.length = nc;
     while (s.winds.length < nw) s.winds.push({ altM: 0, directionDeg: 0, speedKt: 0, gustKt: 0 });
     s.winds.length = nw;
+    // Unmatched wind layers blend toward the OTHER profile's wind at their altitude, so the profile is
+    // exactly `from` at t = 0 and exactly `to` at t = 1 (dropping the virtual layers then is seamless).
+    this.fromWinds = padWindLayers(from.winds, to.winds);
+    this.toWinds = padWindLayers(to.winds, from.winds);
   }
 
   private step(dt: number): void {
@@ -202,7 +217,8 @@ export class WeatherSystem {
     if (k >= 0.5) { s.thunderstorm = to.thunderstorm; s.turbulence = to.turbulence; s.precipitationType = to.precipitationType; }
     else { s.thunderstorm = from.thunderstorm; s.turbulence = from.turbulence; if (to.precipitationRate <= 0) s.precipitationType = from.precipitationType; }
     for (let i = 0; i < s.clouds.length; i++) lerpCloud(from.clouds[i], to.clouds[i], k, s.clouds[i]);
-    for (let i = 0; i < s.winds.length; i++) lerpWind(from.winds[i], to.winds[i], k, s.winds[i]);
+    for (let i = 0; i < s.winds.length; i++) lerpWind(this.fromWinds[i], this.toWinds[i], k, s.winds[i]);
+    sortWindLayers(s.winds);
     if (t >= 1) {
       assignWeather(s, to);
       this.drifts.length = Math.min(this.drifts.length, s.clouds.length * 2);
@@ -231,13 +247,12 @@ export function assignWeather(dst: WeatherState, src: WeatherState): void {
 }
 
 function lerpCloud(a: CloudLayer | undefined, b: CloudLayer | undefined, k: number, out: CloudLayer): void {
-  // A missing side fades through zero coverage at the other side's geometry.
-  const fa = a ?? (b ? { ...b, coverage: 0 } : undefined);
-  const fb = b ?? (a ? { ...a, coverage: 0 } : undefined);
+  // A missing side fades through zero coverage at the other side's geometry (no allocation per frame).
+  const fa = a ?? b, fb = b ?? a;
   if (!fa || !fb) return;
   out.baseM = lerp(fa.baseM, fb.baseM, k);
   out.topM = lerp(fa.topM, fb.topM, k);
-  out.coverage = lerp(fa.coverage, fb.coverage, k);
+  out.coverage = lerp(a ? a.coverage : 0, b ? b.coverage : 0, k);
   out.density = lerp(fa.density, fb.density, k);
   out.type = k < 0.5 ? fa.type : fb.type;
 }
@@ -249,6 +264,31 @@ function lerpWind(a: WindLayer | undefined, b: WindLayer | undefined, k: number,
   out.speedKt = lerp(fa.speedKt, fb.speedKt, k);
   out.gustKt = lerp(fa.gustKt, fb.gustKt, k);
   out.directionDeg = wrap360(fa.directionDeg + deltaDeg(fb.directionDeg, fa.directionDeg) * k);
+}
+
+const padScratch: Vec3 = [0, 0, 0];
+
+/** `own` followed by virtual layers at `other`'s extra altitudes, sampled from `own`'s profile (FROM deg, kt). */
+function padWindLayers(own: readonly WindLayer[], other: readonly WindLayer[]): WindLayer[] {
+  const out = own.map((l) => ({ ...l }));
+  for (let i = own.length; i < other.length; i++) {
+    const altM = other[i].altM;
+    const v = windAt(own, altM, WIND_REFERENCE_HEIGHT_M, padScratch);
+    const speedKt = Math.hypot(v[0], v[1]) / KT;
+    const excessKt = gustExcessAt(own, altM) / KT;
+    out.push({ altM, directionDeg: wrap360((Math.atan2(v[1], v[0]) * 180) / Math.PI + 180), speedKt, gustKt: excessKt > 0 ? speedKt + excessKt : 0 });
+  }
+  return out;
+}
+
+/** In-place insertion sort by altitude (`windAt` needs ascending layers; no allocation). */
+function sortWindLayers(layers: WindLayer[]): void {
+  for (let i = 1; i < layers.length; i++) {
+    const l = layers[i];
+    let j = i - 1;
+    while (j >= 0 && layers[j].altM > l.altM) { layers[j + 1] = layers[j]; j--; }
+    layers[j + 1] = l;
+  }
 }
 
 /** Convenience: wind speed (m/s) of a layer. */

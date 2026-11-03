@@ -11,12 +11,15 @@ import type { ModelMaterials } from './materials';
 
 export type PanelVariant = 'steam' | 'g1000';
 
+/** Instrument panel plane: assign the instruments texture to `material.map`. */
+export type PanelMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+
 export class CockpitInterior {
   readonly group = new THREE.Group();
   /** steam-gauge panel plane (1.0 × 0.45 m); the instruments module sets `material.map` */
-  readonly panelMesh: THREE.Mesh;
+  readonly panelMesh: PanelMesh;
   /** G1000-sized panel plane (1.0 × 0.36 m), hidden until {@link setPanelVariant}('g1000') */
-  readonly panelMeshG1000: THREE.Mesh;
+  readonly panelMeshG1000: PanelMesh;
   private readonly yokes: THREE.Group[] = [];
   private readonly yokeBaseZ: number;
   private readonly pedalLeft: THREE.Mesh;
@@ -154,17 +157,18 @@ export class CockpitInterior {
 
   /** Animate controls from the pilot inputs. */
   update(inputs: ControlInputs): void {
-    const pitch = Math.max(-1, Math.min(1, inputs.pitch));
-    const roll = Math.max(-1, Math.min(1, inputs.roll));
-    const yaw = Math.max(-1, Math.min(1, inputs.yaw));
+    // `|| 0` maps NaN to 0
+    const pitch = Math.max(-1, Math.min(1, inputs.pitch || 0));
+    const roll = Math.max(-1, Math.min(1, inputs.roll || 0));
+    const yaw = Math.max(-1, Math.min(1, inputs.yaw || 0));
     for (const y of this.yokes) {
       y.position.z = this.yokeBaseZ + 0.07 * pitch; // stick back ⇒ toward the pilot (+Z)
       y.rotation.z = -1.3 * roll;                  // roll right ⇒ clockwise seen by the pilot
     }
     this.pedalRight.position.z = this.pedalBaseZ - 0.06 * yaw; // nose right ⇒ right pedal forward (−Z)
     this.pedalLeft.position.z = this.pedalBaseZ + 0.06 * yaw;
-    this.throttle.position.z = this.knobBaseZ + 0.09 * (1 - Math.max(0, Math.min(1, inputs.throttle)));
-    this.mixture.position.z = this.knobBaseZ + 0.09 * (1 - Math.max(0, Math.min(1, inputs.mixture)));
+    this.throttle.position.z = this.knobBaseZ + 0.09 * (1 - Math.max(0, Math.min(1, inputs.throttle || 0)));
+    this.mixture.position.z = this.knobBaseZ + 0.09 * (1 - Math.max(0, Math.min(1, inputs.mixture || 0)));
   }
 
   setPanelVariant(v: PanelVariant): void {

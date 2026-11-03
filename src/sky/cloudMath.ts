@@ -1,6 +1,6 @@
 /**
- * CPU twin of the cloud-layer plane shader (clouds.ts): value-noise fbm, coverage threshold and
- * vertical profile. Used for `cloudDensityAt()` (FDM bumpiness, visibility, in-cloud fog) and for
+ * CPU twin of the cloud-layer plane shader (clouds.ts): value-noise fbm, coverage threshold, detail
+ * erosion and vertical profile. Used for `cloudDensityAt()` (FDM bumpiness, visibility, in-cloud fog) and for
  * tests. The GLSL in `CLOUD_NOISE_GLSL` uses the same hash/noise so the CPU and GPU fields agree
  * statistically (float32 vs float64 rounding means they are not bit-identical).
  */
@@ -88,8 +88,10 @@ export function cloudLayerDensityAt(layer: CloudLayer, x: number, y: number, z: 
   if (v <= 0) return 0;
   const p = cloudTypeParams(layer.type);
   const inv = 1 / p.featureSizeM;
-  const shape = fbm2((x - driftX) * inv, (z - driftZ) * inv, octaves);
-  const mask = coverageMask(shape, layer.coverage);
+  const px = (x - driftX) * inv, pz = (z - driftZ) * inv;
+  let mask = coverageMask(fbm2(px, pz, octaves), layer.coverage);
+  // detail erosion of the soft edges, exactly as the plane shader (no effect where mask is 0 or 1)
+  if (mask > 0 && mask < 1) mask = clamp(mask - (1 - mask) * fbm2(px * 7 + 3.7, pz * 7 + 3.7, octaves) * p.erosion, 0, 1);
   return clamp(mask * v * clamp(layer.density, 0, 1), 0, 1);
 }
 

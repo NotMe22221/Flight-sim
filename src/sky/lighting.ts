@@ -122,6 +122,22 @@ export const fogBetaFromVisibility = (visibilityM: number): number => 3.912 / Ma
  */
 export const fogExp2DensityFromVisibility = (visibilityM: number): number => 1.9780 / Math.max(visibilityM, 10);
 
+/** Smallest `fogHeightFalloff` published (m⁻¹): a 100 km scale height ≈ homogeneous fog. */
+export const MIN_FOG_INV_H = 1e-5;
+
+/**
+ * Optical depth ∫₀^dist β0·exp(−h(s)·invH) ds along a unit ray that starts `h0` m above the fog's ground
+ * reference with vertical component `dirY` — the closed form of Quilez's "better fog",
+ * β0·e^(−h0·invH)·dist·(1 − e^(−k))/k with k = dist·dirY·invH. Written so it stays finite for any input
+ * (k → 0 series, clamped exponents, exact homogeneous limit for invH = 0). CPU twin of `HEIGHT_FOG_GLSL`.
+ */
+export function heightFogOpticalDepth(h0: number, dirY: number, dist: number, beta0: number, invH: number): number {
+  const k = dist * dirY * invH;
+  const e0 = Math.exp(-Math.min(Math.max(h0, 0) * invH, 80));
+  const g = Math.abs(k) < 1e-3 ? 1 - k * (0.5 - k / 6) : (1 - Math.exp(-clamp(k, -80, 80))) / k;
+  return beta0 * e0 * dist * g;
+}
+
 /** Haze scale height H (m): 400 in fog, 1200 for haze, up to 8000 for very clean air. */
 export function hazeScaleHeight(visibilityM: number): number {
   if (visibilityM < 2000) return lerp(300, 400, visibilityM / 2000);

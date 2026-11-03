@@ -7,8 +7,10 @@
  *    radiance values in the scale of the Preetham sky shader, i.e. BEFORE tone mapping. Custom shaders
  *    should mix them in before `#include <tonemapping_fragment>` (as the sky dome and cloud planes do).
  *  - `fogColorEncoded` is the same horizon colour after ACES tone mapping (current exposure) and sRGB
- *    encoding — what `scene.fog.color` is set to, because Three.js applies built-in fog AFTER tone
- *    mapping and colour-space conversion.
+ *    encoding — the value the GPU receives as the built-in fog uniform, because Three.js applies
+ *    built-in fog AFTER tone mapping and colour-space conversion. `scene.fog.color` holds it tagged as
+ *    sRGB (`setRGB(r, g, b, SRGBColorSpace)`), since r187 re-encodes `fog.color` to the output colour
+ *    space on upload; never copy the raw triple into a `Color` that three will encode again.
  */
 import * as THREE from 'three';
 
@@ -19,13 +21,17 @@ export interface SkyLighting {
   /** linear sky radiance straight up */ skyColorZenith: THREE.Color;
   /** linear sky radiance averaged around the horizon at +1° */ skyColorHorizon: THREE.Color;
   /** linear in-scatter colour for fog (horizon colour, blended toward cloud grey inside cloud) */ fogColor: THREE.Color;
-  /** extinction coefficient β per metre at the surface (Koschmieder 3.912 / visibility, boosted inside cloud/fog) */ fogDensity: number;
-  /** 1 / haze scale height (m⁻¹): β(h) = fogDensity · exp(−h · fogHeightFalloff), h = height above ground */ fogHeightFalloff: number;
+  /**
+   * β0 (m⁻¹) of the exponential extinction profile β(h) = fogDensity · exp(−h · fogHeightFalloff), h = height
+   * above `groundY`. Outside cloud it is Koschmieder 3.912 / visibility; inside cloud the profile flattens and
+   * β0 is chosen so β at the camera blends toward the in-cloud extinction (fly-through fog).
+   */ fogDensity: number;
+  /** 1 / scale height (m⁻¹, ≥ `MIN_FOG_INV_H`): haze 1/400…1/8000, a ground-fog layer 1/fogTop, ≈ 0 inside cloud */ fogHeightFalloff: number;
   /** current renderer tone-mapping exposure */ exposure: number;
   /** hemisphere + ambient light intensity sum (skylight level) */ ambientIntensity: number;
 
   // ── extras beyond the baseline contract ──
-  /** tone-mapped, sRGB-encoded fog colour (value assigned to `scene.fog.color`) */ fogColorEncoded: THREE.Color;
+  /** tone-mapped, sRGB-encoded fog colour: raw display values the built-in fog shader receives */ fogColorEncoded: THREE.Color;
   /** `FogExp2.density` currently assigned to `scene.fog` */ fogExp2Density: number;
   /** linear direct-sun radiance for custom shaders (sunE · Fex · 0.04), 0 at night */ sunRadiance: THREE.Color;
   /** linear horizon radiance in the sun's azimuth (sun-ward Mie glow for custom fog) */ sunGlowColor: THREE.Color;
@@ -63,9 +69,11 @@ export function createSkyLighting(): SkyLighting {
  */
 export const HEIGHT_FOG_GLSL = /* glsl */ `
 float heightFogOpticalDepth( vec3 origin, vec3 dir, float dist, float beta0, float invH, float groundY ) {
-  float dy = abs( dir.y ) < 1e-4 ? 1e-4 : dir.y;
-  float h0 = max( origin.y - groundY, 0.0 );
-  return beta0 / invH * exp( - h0 * invH ) * ( 1.0 - exp( - dist * dy * invH ) ) / dy;
+  // ∫ beta0·exp(−h·invH) ds = beta0·e^(−h0·invH)·dist·(1 − e^(−k))/k, k = dist·dir.y·invH (finite for any input)
+  float k = dist * dir.y * invH;
+  float e0 = exp( - min( max( origin.y - groundY, 0.0 ) * invH, 80.0 ) );
+  float g = abs( k ) < 1e-3 ? 1.0 - k * ( 0.5 - k / 6.0 ) : ( 1.0 - exp( - clamp( k, -80.0, 80.0 ) ) ) / k;
+  return beta0 * e0 * dist * g;
 }
 float heightFogFactor( vec3 origin, vec3 dir, float dist, float beta0, float invH, float groundY ) {
   return 1.0 - exp( - heightFogOpticalDepth( origin, dir, dist, beta0, invH, groundY ) );

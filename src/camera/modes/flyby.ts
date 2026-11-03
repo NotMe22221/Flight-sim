@@ -37,6 +37,12 @@ export class FlybyMode implements CameraModeHandler {
 
   enter(frame: CameraFrame): void { this.seed(frame); }
   reset(frame: CameraFrame): void { this.seed(frame); }
+  snap(frame: CameraFrame): void { this.seed(frame); }
+
+  shiftOrigin(delta: THREE.Vector3): void {
+    this.position.add(delta);
+    this.look.pos.add(delta);
+  }
 
   update(frame: CameraFrame, camera: THREE.PerspectiveCamera): number | undefined {
     const dt = frame.dt;

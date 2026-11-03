@@ -1,0 +1,243 @@
+/**
+ * Keyboard source: tracks keys by `KeyboardEvent.code`, resolves chords (exact modifier
+ * match, captured at key-down) to actions and keyboard-synthesised axes, and turns them into
+ * edges / repeats / held levels via a HoldTracker. Never relies on OS key repeat.
+ *
+ * Rules:
+ *  - preventDefault only for chords that are bound (browser shortcuts keep working);
+ *  - events from input/textarea/select/contenteditable, with Meta held, or while captured are ignored;
+ *  - window blur / document hidden / capture release every key (no stuck keys);
+ *  - an axis key pressed with unbound modifiers falls back to its unmodified binding
+ *    (Shift+↑ still pitches) unless that chord is bound to an action.
+ */
+import type { SimAxis } from '../core/types';
+import { type BindableAction, LEVER_AXES, actionMeta } from './actions';
+import { type AxisBinding, type Binding, isActionBinding } from './bindings';
+import { type Chord, MODIFIER_CODES, chordToString } from './chord';
+import { HoldTracker, KeyAxis, type KeyAxisTuning, BRAKE_KEY_TUNING, LOOK_KEY_TUNING, STICK_KEY_TUNING, type RepeatTuning } from './keyAxis';
+
+interface ChordEntry { actions: BindableAction[]; axes: AxisBinding[] }
+
+interface KeyState {
+  code: string;
+  down: boolean;
+  /** down at some point since the last poll (taps shorter than a frame still count) */
+  latched: boolean;
+  /** press order, for "last pressed wins" on an axis */
+  seq: number;
+  actions: BindableAction[];
+  axes: AxisBinding[];
+}
+
+/** Returns true when the event target is a text-entry control that owns the keyboard. */
+export function isEditableTarget(t: EventTarget | null): boolean {
+  const el = t as (HTMLElement & { tagName?: unknown }) | null;
+  if (!el || typeof el.tagName !== 'string') return false;
+  const tag = el.tagName.toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+}
+
+/** Tuning for the ramped keyboard axis of each centring SimAxis. */
+export function keyAxisTuningFor(axis: SimAxis): KeyAxisTuning {
+  if (axis === 'brakeLeft' || axis === 'brakeRight') return { ...BRAKE_KEY_TUNING };
+  if (axis === 'lookYaw' || axis === 'lookPitch') return { ...LOOK_KEY_TUNING };
+  return { ...STICK_KEY_TUNING };
+}
+
+export class KeyboardSource {
+  /** edges, repeats and held levels of keyboard actions */
+  readonly tracker: HoldTracker<BindableAction>;
+  /** ramped virtual sticks for centring axes, created on demand from the bindings */
+  readonly axes = new Map<SimAxis, KeyAxis>();
+  private axisList: Array<{ axis: SimAxis; ka: KeyAxis; lastActive: number }> = [];
+  private chords = new Map<string, ChordEntry>();
+  private keys = new Map<string, KeyState>();
+  private keyList: KeyState[] = [];
+  private seq = 0;
+  private captured = false;
+  private attached = false;
+  private pressedSincePoll = false;
+  /** rebinding hook: receives every non-modifier chord; return true to swallow it */
+  listener: ((chord: Chord) => boolean) | null = null;
+
+  constructor(private win: Window | null, private doc: Document | null, bindings: readonly Binding[], repeat: Partial<RepeatTuning> = {}) {
+    this.tracker = new HoldTracker<BindableAction>((a) => actionMeta(a), repeat);
+    this.setBindings(bindings);
+  }
+
+  /** Rebuilds the chord index (keyboard bindings only); releases keys whose bindings vanished. */
+  setBindings(bindings: readonly Binding[]): void {
+    this.releaseAll();
+    this.chords.clear();
+    for (const b of bindings) {
+      if (b.device !== 'keyboard' || !b.code) continue;
+      const k = chordToString({ code: b.code, ctrl: b.ctrl, shift: b.shift, alt: b.alt });
+      let e = this.chords.get(k);
+      if (!e) { e = { actions: [], axes: [] }; this.chords.set(k, e); }
+      if (isActionBinding(b)) { if (!e.actions.includes(b.action)) e.actions.push(b.action); } else {
+        e.axes.push(b);
+        if (!LEVER_AXES.has(b.axis) && b.axis !== 'cameraZoom' && !this.axes.has(b.axis)) {
+          const ka = new KeyAxis(keyAxisTuningFor(b.axis));
+          this.axes.set(b.axis, ka);
+          this.axisList.push({ axis: b.axis, ka, lastActive: -Infinity });
+        }
+      }
+    }
+    for (const a of this.axisList) a.ka.sensitivity = 1;
+    for (const b of bindings) {
+      if (b.device === 'keyboard' && !isActionBinding(b) && b.sensitivity !== undefined) {
+        const ka = this.axes.get(b.axis);
+        if (ka) ka.sensitivity = b.sensitivity;
+      }
+    }
+  }
+
+  attach(): void {
+    if (this.attached || !this.win) return;
+    this.attached = true;
+    this.win.addEventListener('keydown', this.onKeyDown);
+    this.win.addEventListener('keyup', this.onKeyUp);
+    this.win.addEventListener('blur', this.onBlur);
+    this.doc?.addEventListener('visibilitychange', this.onVisibility);
+  }
+
+  detach(): void {
+    if (!this.attached || !this.win) return;
+    this.attached = false;
+    this.win.removeEventListener('keydown', this.onKeyDown);
+    this.win.removeEventListener('keyup', this.onKeyUp);
+    this.win.removeEventListener('blur', this.onBlur);
+    this.doc?.removeEventListener('visibilitychange', this.onVisibility);
+    this.releaseAll();
+  }
+
+  /** While captured (a menu owns the keyboard) keys are ignored; capturing releases all keys. */
+  setCaptured(flag: boolean): void {
+    if (flag && !this.captured) this.releaseAll();
+    this.captured = flag;
+  }
+
+  get isCaptured(): boolean { return this.captured; }
+
+  /** True if a chord (exact) is bound to anything. */
+  isBound(c: Chord): boolean { return this.chords.has(chordToString(c)); }
+
+  /** Releases every key and action; ramped axes return to centre on their own. */
+  releaseAll(): void {
+    for (let i = 0; i < this.keyList.length; i++) {
+      const s = this.keyList[i];
+      s.down = false; s.latched = false; s.actions.length = 0; s.axes.length = 0;
+    }
+    this.tracker.releaseAll();
+    for (let i = 0; i < this.axisList.length; i++) this.axisList[i].ka.setDirection(0);
+  }
+
+  /** Whether a key with this code is physically down. */
+  isDown(code: string): boolean { return this.keys.get(code)?.down ?? false; }
+
+  /**
+   * Direction (−1/0/+1) requested for an axis by held (or tapped-since-last-poll) keys;
+   * the most recently pressed key wins when both directions are held.
+   */
+  direction(axis: SimAxis): number {
+    let best = -1, dir = 0;
+    for (let i = 0; i < this.keyList.length; i++) {
+      const s = this.keyList[i];
+      if (!(s.down || s.latched) || s.seq < best) continue;
+      for (let j = 0; j < s.axes.length; j++) {
+        const b = s.axes[j];
+        if (b.axis === axis && b.dir) { best = s.seq; dir = b.dir; }
+      }
+    }
+    return dir;
+  }
+
+  /** Ramped value of a centring keyboard axis (0 if none is bound). */
+  value(axis: SimAxis): number { return this.axes.get(axis)?.value ?? 0; }
+
+  /** Manager-clock time a key last drove (or the ramp still deflects) this axis. */
+  lastActive(axis: SimAxis): number {
+    for (let i = 0; i < this.axisList.length; i++) if (this.axisList[i].axis === axis) return this.axisList[i].lastActive;
+    return -Infinity;
+  }
+
+  /**
+   * Advances ramps and repeat timers. `emit` receives edges/repeats, `hold` every held action.
+   * Returns true if a bound key was pressed since the previous poll (device activity).
+   * Allocation-free.
+   */
+  poll(dt: number, now: number, emit: (a: BindableAction) => void, hold: (a: BindableAction) => void): boolean {
+    for (let i = 0; i < this.axisList.length; i++) {
+      const e = this.axisList[i];
+      e.ka.setDirection(this.direction(e.axis));
+      e.ka.step(dt);
+      if (e.ka.direction !== 0 || e.ka.value !== 0) e.lastActive = now;
+    }
+    this.tracker.poll(dt, emit, hold);
+    for (let i = 0; i < this.keyList.length; i++) { const s = this.keyList[i]; s.latched = s.down; }
+    const pressed = this.pressedSincePoll;
+    this.pressedSincePoll = false;
+    return pressed;
+  }
+
+  private keyState(code: string): KeyState {
+    let s = this.keys.get(code);
+    if (!s) {
+      s = { code, down: false, latched: false, seq: 0, actions: [], axes: [] };
+      this.keys.set(code, s);
+      this.keyList.push(s);
+    }
+    return s;
+  }
+
+  private readonly onKeyDown = (e: KeyboardEvent): void => {
+    if (e.metaKey) return;
+    if (this.listener) {
+      if (MODIFIER_CODES.has(e.code)) return;
+      if (this.listener({ code: e.code, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey })) e.preventDefault();
+      return;
+    }
+    if (this.captured || isEditableTarget(e.target)) return;
+    const prev = this.keys.get(e.code);
+    if (prev?.down) {
+      // OS auto-repeat: we generate our own repeats; only keep the browser from acting on bound keys
+      if (prev.actions.length > 0 || prev.axes.length > 0) e.preventDefault();
+      return;
+    }
+    if (MODIFIER_CODES.has(e.code)) return;
+    const chord: Chord = { code: e.code, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey };
+    let entry = this.chords.get(chordToString(chord));
+    let axes = entry?.axes;
+    const actions = entry?.actions;
+    if ((!actions || actions.length === 0) && (!axes || axes.length === 0) && (e.ctrlKey || e.shiftKey || e.altKey)) {
+      entry = this.chords.get(e.code); // axis fallback to the unmodified chord
+      axes = entry?.axes;
+    }
+    const hasActions = !!actions && actions.length > 0;
+    const hasAxes = !!axes && axes.length > 0;
+    if (!hasActions && !hasAxes) return;
+    e.preventDefault();
+    const s = this.keyState(e.code);
+    s.down = true; s.latched = true; s.seq = ++this.seq;
+    s.actions.length = 0; s.axes.length = 0;
+    if (actions) for (const a of actions) { s.actions.push(a); this.tracker.press(a); }
+    if (axes) for (const b of axes) s.axes.push(b);
+    this.pressedSincePoll = true;
+  };
+
+  private readonly onKeyUp = (e: KeyboardEvent): void => {
+    const s = this.keys.get(e.code);
+    if (!s || !s.down) return;
+    s.down = false;
+    for (let i = 0; i < s.actions.length; i++) this.tracker.release(s.actions[i]);
+    s.actions.length = 0;
+    // axis bindings stay latched until the next poll so sub-frame taps still move the ramp
+    e.preventDefault();
+  };
+
+  private readonly onBlur = (): void => { this.releaseAll(); };
+
+  private readonly onVisibility = (): void => {
+    if (this.doc && this.doc.visibilityState === 'hidden') this.releaseAll();
+  };
+}

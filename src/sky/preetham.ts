@@ -132,25 +132,31 @@ export class PreethamSky {
   horizonAverage(out: Vec3 = [0, 0, 0], n = 8, elDeg = 1): Vec3 {
     const el = elDeg / R2D;
     const ce = Math.cos(el), se = Math.sin(el);
-    const dir: Vec3 = [0, se, 0];
-    out[0] = out[1] = out[2] = 0;
+    const dir = this.tmpDir;
+    dir[1] = se;
+    let r = 0, g = 0, b = 0; // accumulate locally so `out` may alias nothing we read
     for (let i = 0; i < n; i++) {
       const az = (i / n) * 2 * Math.PI;
       dir[0] = ce * Math.sin(az); dir[2] = -ce * Math.cos(az);
-      const r = this.radiance(dir, this.tmp2);
-      out[0] += r[0]; out[1] += r[1]; out[2] += r[2];
+      const c = this.radiance(dir, this.tmp2);
+      r += c[0]; g += c[1]; b += c[2];
     }
-    out[0] /= n; out[1] /= n; out[2] /= n;
+    out[0] = r / n; out[1] = g / n; out[2] = b / n;
     return out;
   }
   private readonly tmp2: Vec3 = [0, 0, 0];
+  private readonly tmpDir: Vec3 = [0, 0, 0];
 
   /** Radiance at the horizon in the sun's azimuth (the warm Mie glow custom fog shaders can add sun-ward). */
   horizonTowardSun(out: Vec3 = [0, 0, 0], elDeg = 1): Vec3 {
     const el = elDeg / R2D;
     const hx = this.sunDir[0], hz = this.sunDir[2];
-    const hl = Math.hypot(hx, hz) || 1;
-    const dir: Vec3 = [(hx / hl) * Math.cos(el), Math.sin(el), (hz / hl) * Math.cos(el)];
+    const hl = Math.hypot(hx, hz);
+    const dir = this.tmpDir;
+    // sun at the zenith has no azimuth: any horizon direction will do (north)
+    if (hl < 1e-9) { dir[0] = 0; dir[2] = -Math.cos(el); }
+    else { dir[0] = (hx / hl) * Math.cos(el); dir[2] = (hz / hl) * Math.cos(el); }
+    dir[1] = Math.sin(el);
     return this.radiance(dir, out);
   }
 

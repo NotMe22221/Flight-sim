@@ -80,7 +80,7 @@ export class TerrainWorkerPool {
   }
 
   has(key: string): boolean { return this.entries.has(key); }
-  isInFlight(key: string): boolean { return this.entries.get(key)?.worker !== null && this.entries.has(key); }
+  isInFlight(key: string): boolean { const e = this.entries.get(key); return e !== undefined && e.worker !== null; }
   get queued(): number { return this.queue.length; }
   get inFlight(): number { let n = 0; for (const s of this.slots) n += s.inFlight.size; return n; }
   get stats(): { queued: number; inFlight: number; completed: number; failed: number; aborted: number } {
@@ -91,13 +91,18 @@ export class TerrainWorkerPool {
   pump(now: number): void {
     if (this.disposed) return;
     const grace = this.opts.cancelGraceMs;
-    // Cancel released work past its grace.
-    if (this.queue.some((e) => e.releasedAt >= 0 && now - e.releasedAt > grace)) {
-      this.queue = this.queue.filter((e) => {
-        if (e.releasedAt >= 0 && now - e.releasedAt > grace) { this.entries.delete(e.req.key); return false; }
-        return true;
-      });
+    // Drop queued work released past its grace (in place, no allocation) and report it as aborted.
+    let w = 0;
+    for (let r = 0; r < this.queue.length; r++) {
+      const e = this.queue[r];
+      if (e.releasedAt >= 0 && now - e.releasedAt > grace) {
+        this.entries.delete(e.req.key);
+        this.aborted++;
+        this.opts.onAborted?.(e.req.key);
+      } else this.queue[w++] = e;
     }
+    this.queue.length = w;
+    // In-flight work released past its grace: ask the worker to abort (it answers 'aborted').
     for (const e of this.entries.values()) {
       if (e.worker && !e.abortSent && e.releasedAt >= 0 && now - e.releasedAt > grace) {
         e.abortSent = true;

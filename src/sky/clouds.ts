@@ -5,15 +5,19 @@
  * into the same height fog as the terrain. The plane sits at the layer base when the camera is below,
  * at the top when above, and follows the camera's altitude while inside (fly-through = fog, see
  * `densityAtCamera`). Planes re-centre under the camera every frame; the noise is sampled from
- * world coordinates so they never "swim".
+ * world coordinates minus the accumulated wind drift, so they never "swim".
+ *
+ * Frames: render x = East, z = South; layer altitudes are MSL and render y is height above the
+ * floating origin, so `MSL = y + altitudeOffsetM` (the frame's `alt0`, 0 for frames built by
+ * `world/rebase`). Floating-origin moves are absorbed into the drift offsets (`notifyRebase`).
  *
  * Tier B (volumetric ray-marching) can replace this class behind the same public surface.
  */
 import * as THREE from 'three';
 import { clamp } from '../core/math';
 import type { CloudLayer, WindLayer } from '../core/types';
-import { CLOUD_NOISE_GLSL, cloudDensityAt, cloudTypeParams } from './cloudMath';
-import type { SkyLighting } from './types';
+import { CLOUD_NOISE_GLSL, cloudDensityAt, cloudLayerDensityAt, cloudTypeParams } from './cloudMath';
+import { HEIGHT_FOG_GLSL, type SkyLighting } from './types';
 import { windAt } from './wind';
 
 export interface CloudLayersOptions {
@@ -50,24 +54,19 @@ uniform float uSigmaT;
 uniform float uBrightness;
 uniform float uErosion;
 uniform vec2 uDrift;
-uniform vec2 uWorldOffset;
 uniform float uFogBeta;
 uniform float uFogInvH;
 uniform float uGroundY;
 uniform float uRadius;
 varying vec3 vWorld;
 ${CLOUD_NOISE_GLSL}
-float fogOD( vec3 o, vec3 d, float t ) {
-  float dy = abs( d.y ) < 1e-4 ? 1e-4 : d.y;
-  float h0 = max( o.y - uGroundY, 0.0 );
-  return uFogBeta / uFogInvH * exp( - h0 * uFogInvH ) * ( 1.0 - exp( - t * dy * uFogInvH ) ) / dy;
-}
+${HEIGHT_FOG_GLSL}
 void main() {
   #include <logdepthbuf_fragment>
   vec3 toP = vWorld - cameraPosition;
   float dist = length( toP );
   vec3 d = toP / max( dist, 1e-3 );
-  vec2 p = ( vWorld.xz + uWorldOffset - uDrift ) * uFeatureInv;
+  vec2 p = ( vWorld.xz - uDrift ) * uFeatureInv;
   float shape = cloudFbm( p );
   float detail = cloudFbm( p * 7.0 + 3.7 );
   float dens = cloudCoverageMask( shape, uCoverage );
@@ -81,7 +80,7 @@ void main() {
   float hg = 0.0795775 * ( 1.0 - 0.36 ) / pow( 1.0 + 0.36 - 1.2 * cosT, 1.5 );
   vec3 col = uSkyAmbient * 0.8 + uSunRadiance * uBrightness * ( sunT * 0.9 + hg * 2.5 * powder * ( 1.0 - alpha ) );
   if ( ! gl_FrontFacing ) col = col * 0.55 + uSkyAmbient * 0.25;
-  float fogF = 1.0 - exp( - fogOD( cameraPosition, d, dist ) );
+  float fogF = heightFogFactor( cameraPosition, d, dist, uFogBeta, uFogInvH, uGroundY );
   col = mix( col, uHorizonColor, fogF );
   alpha *= smoothstep( 0.0, 0.015, abs( d.y ) );
   float horiz = length( vWorld.xz - cameraPosition.xz );
@@ -111,8 +110,10 @@ export class CloudLayers {
 
   private readonly geometry: THREE.PlaneGeometry;
   private readonly planes: CloudPlane[] = [];
-  private readonly worldOffset = new THREE.Vector2();
+  /** accumulated noise-field offsets [dx, dz, …] per layer (render frame, m), incl. rebase shifts */
   private readonly drifts: number[] = [];
+  /** MSL altitude of render y = 0 (the frame's alt0) used by the last `update` */
+  private altitudeOffsetM = 0;
   private readonly windNED: [number, number, number] = [0, 0, 0];
   private layers: readonly CloudLayer[] = [];
 
@@ -132,7 +133,7 @@ export class CloudLayers {
       uSkyAmbient: { value: new THREE.Color() }, uHorizonColor: { value: new THREE.Color() },
       uCoverage: { value: 0 }, uDensity: { value: 1 }, uBase: { value: 0 }, uTop: { value: 1 },
       uFeatureInv: { value: 1 / 2500 }, uSigmaT: { value: 0.006 }, uBrightness: { value: 1 }, uErosion: { value: 0.4 },
-      uDrift: { value: new THREE.Vector2() }, uWorldOffset: { value: new THREE.Vector2() },
+      uDrift: { value: new THREE.Vector2() },
       uFogBeta: { value: 1e-4 }, uFogInvH: { value: 1 / 1200 }, uGroundY: { value: 0 }, uRadius: { value: this.radiusM },
     };
     const material = new THREE.ShaderMaterial({
@@ -149,30 +150,38 @@ export class CloudLayers {
   }
 
   /**
+   * @param cameraPos camera position, render frame
+   * @param dt sim seconds (drift integration; 0 while paused)
    * @param layers current cloud layers (MSL)
    * @param winds wind layers (for the drift of each noise field)
-   * @param dt sim seconds
    * @param drifts optional externally integrated drifts ([dx, dz, …] per layer, e.g. `WeatherSystem.cloudDrifts`)
-   *               so the FDM's `cloudDensityAt` and the visuals use the identical field
+   *               so the FDM's `cloudDensityAt` and the visuals use the identical field. The owner of
+   *               external drifts handles floating-origin shifts itself (`WeatherSystem.notifyRebase`).
+   * @param altitudeOffsetM MSL altitude of render y = 0 (the local frame's `alt0`)
    */
-  update(cameraPos: THREE.Vector3, dt: number, L: SkyLighting, layers: readonly CloudLayer[], winds: readonly WindLayer[], drifts?: readonly number[]): void {
+  update(cameraPos: THREE.Vector3, dt: number, L: SkyLighting, layers: readonly CloudLayer[], winds: readonly WindLayer[], drifts?: readonly number[], altitudeOffsetM = 0): void {
     this.layers = layers;
+    this.altitudeOffsetM = altitudeOffsetM;
+    const camMsl = cameraPos.y + altitudeOffsetM;
     const n = Math.min(layers.length, this.maxLayers);
     while (this.planes.length < n) this.planes.push(this.createPlane());
     for (let i = n; i < this.planes.length; i++) this.planes[i].mesh.visible = false;
+
+    // drift of every layer's noise field (all layers, so `cloudDensityAt` stays consistent beyond maxLayers)
+    const groundMsl = L.groundY + altitudeOffsetM;
+    for (let i = 0; i < layers.length; i++) {
+      if (drifts) { this.drifts[i * 2] = drifts[i * 2] ?? 0; this.drifts[i * 2 + 1] = drifts[i * 2 + 1] ?? 0; continue; }
+      const mid = 0.5 * (layers[i].baseM + layers[i].topM);
+      windAt(winds, mid, Math.max(mid - groundMsl, 10), this.windNED);
+      this.drifts[i * 2] = (this.drifts[i * 2] ?? 0) + this.windNED[1] * dt; // E
+      this.drifts[i * 2 + 1] = (this.drifts[i * 2 + 1] ?? 0) - this.windNED[0] * dt; // S = −N
+    }
+    this.drifts.length = layers.length * 2;
 
     this.densityAtCamera = 0;
     this.insideLayer = -1;
     for (let i = 0; i < n; i++) {
       const layer = layers[i];
-      // drift
-      if (drifts) { this.drifts[i * 2] = drifts[i * 2] ?? 0; this.drifts[i * 2 + 1] = drifts[i * 2 + 1] ?? 0; }
-      else {
-        const mid = 0.5 * (layer.baseM + layer.topM);
-        windAt(winds, mid, Math.max(mid - L.groundY, 10), this.windNED);
-        this.drifts[i * 2] = (this.drifts[i * 2] ?? 0) + this.windNED[1] * dt; // E
-        this.drifts[i * 2 + 1] = (this.drifts[i * 2 + 1] ?? 0) - this.windNED[0] * dt; // S = −N
-      }
       const p = this.planes[i];
       const visible = layer.coverage > 0.005 && layer.density > 0.005 && layer.topM > layer.baseM;
       p.mesh.visible = visible;
@@ -184,35 +193,50 @@ export class CloudLayers {
       u.uBase.value = layer.baseM; u.uTop.value = layer.topM;
       u.uFeatureInv.value = 1 / tp.featureSizeM; u.uSigmaT.value = tp.sigmaT; u.uBrightness.value = tp.brightness; u.uErosion.value = tp.erosion;
       (u.uDrift.value as THREE.Vector2).set(this.drifts[i * 2], this.drifts[i * 2 + 1]);
-      (u.uWorldOffset.value as THREE.Vector2).copy(this.worldOffset);
       (u.uSunDir.value as THREE.Vector3).copy(L.sunDirThree);
       (u.uSunRadiance.value as THREE.Color).copy(L.sunRadiance);
       (u.uSkyAmbient.value as THREE.Color).copy(L.skyColorZenith).lerp(L.skyColorHorizon, 0.5);
       (u.uHorizonColor.value as THREE.Color).copy(L.fogColor);
       u.uFogBeta.value = L.fogDensity; u.uFogInvH.value = L.fogHeightFalloff; u.uGroundY.value = L.groundY;
       // plane altitude: base when below, top when above, camera altitude while inside
-      const y = clamp(cameraPos.y, layer.baseM, layer.topM);
-      p.mesh.position.set(cameraPos.x, y, cameraPos.z);
-      if (cameraPos.y > layer.baseM && cameraPos.y < layer.topM) {
-        const d = cloudDensityAt([layer], cameraPos.x + this.worldOffset.x, cameraPos.y, cameraPos.z + this.worldOffset.y, [this.drifts[i * 2], this.drifts[i * 2 + 1]], this.octaves);
+      const yMsl = clamp(camMsl, layer.baseM, layer.topM);
+      p.mesh.position.set(cameraPos.x, yMsl - altitudeOffsetM, cameraPos.z);
+      if (camMsl > layer.baseM && camMsl < layer.topM) {
+        const d = cloudLayerDensityAt(layer, cameraPos.x, camMsl, cameraPos.z, this.drifts[i * 2], this.drifts[i * 2 + 1], this.octaves);
         if (d > this.densityAtCamera) { this.densityAtCamera = d; this.insideLayer = i; }
       }
     }
-    this.drifts.length = n * 2;
+  }
+
+  /**
+   * Refresh the aerial-perspective uniforms (fog colour, β0, falloff, ground height) of the visible
+   * planes. `SkySystem` calls this after computing the frame's fog, which depends on `densityAtCamera`
+   * from `update`, so the planes never lag the terrain fog by a frame.
+   */
+  setFog(L: SkyLighting): void {
+    for (const p of this.planes) {
+      if (!p.mesh.visible) continue;
+      (p.u.uHorizonColor.value as THREE.Color).copy(L.fogColor);
+      p.u.uFogBeta.value = L.fogDensity; p.u.uFogInvH.value = L.fogHeightFalloff; p.u.uGroundY.value = L.groundY;
+    }
   }
 
   /** Cloud density 0..1 at a render-frame point (same field as the shader, max over layers). */
   cloudDensityAt(pos: THREE.Vector3): number {
-    return cloudDensityAt(this.layers, pos.x + this.worldOffset.x, pos.y, pos.z + this.worldOffset.y, this.drifts, this.octaves);
+    return cloudDensityAt(this.layers, pos.x, pos.y + this.altitudeOffsetM, pos.z, this.drifts, this.octaves);
   }
 
   /**
-   * The floating origin moved: world coordinates of everything shifted by `-delta` (render frame).
-   * Accumulate the opposite so the noise field stays attached to the ground.
+   * The floating origin moved by `originShiftThree` (the new origin's position in the OLD render
+   * frame), so every render-frame position changed by −shift. Shift the self-integrated drifts the
+   * same way so the noise field stays attached to the ground. (Drifts supplied to `update` by a
+   * `WeatherSystem` are overwritten next frame; that system shifts its own in `notifyRebase`.)
    */
-  notifyRebase(deltaThree: THREE.Vector3): void {
-    this.worldOffset.x += deltaThree.x;
-    this.worldOffset.y += deltaThree.z;
+  notifyRebase(originShiftThree: THREE.Vector3): void {
+    for (let i = 0; i < this.drifts.length; i += 2) {
+      this.drifts[i] -= originShiftThree.x;
+      this.drifts[i + 1] -= originShiftThree.z;
+    }
   }
 
   dispose(): void {

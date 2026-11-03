@@ -6,15 +6,26 @@ import type { AircraftState, CameraMode, InputSnapshot, SimAxis } from '../core/
 
 /** Which InputSnapshot axes translate the drone camera. */
 export interface DroneAxisMap {
-  /** axis for forward/back (+ = forward along the view); default 'pitch' */
+  /** axis for forward/back; default 'pitch' */
   forward: SimAxis;
+  /**
+   * sign applied to `forward` so that + moves along the view. Default −1: pushing the stick
+   * forward gives pitch −1 (nose down, docs/research/06 B5) and must fly the drone forward.
+   */
+  forwardSign: 1 | -1;
   /** axis for strafe (+ = right); default 'roll' */
   strafe: SimAxis;
   /** axis for vertical; default 'throttle' */
   vertical: SimAxis;
-  /** value of `vertical` that means "no vertical motion" (0.5 for a 0..1 throttle, 0 for a ±1 axis) */
-  verticalCentre: number;
-  /** dead band around the centre */
+  /**
+   * value of `vertical` that means "no vertical motion". 'entry' (default) captures the axis
+   * value when the drone is entered, so an idle or cruise throttle does not make it sink or
+   * climb; use 0 for a ±1 axis.
+   */
+  verticalCentre: number | 'entry';
+  /** axis travel from the centre that gives full vertical speed (0.5 for a 0..1 throttle, 1 for ±1) */
+  verticalRange: number;
+  /** dead band around the centre, axis units */
   verticalDeadband: number;
 }
 
@@ -23,10 +34,17 @@ export interface CameraOptions {
   aircraftLengthM?: number;
   /** default field of view, deg (default 70) */
   defaultFovDeg?: number;
+  /** user FOV limits for cockpit / drone / wing (default 30°..90°, docs/research/06 B4.1) */
   minFovDeg?: number;
   maxFovDeg?: number;
-  /** multiplicative step for zoomIn/zoomOut actions (default 0.8) */
-  zoomStep?: number;
+  /** FOV change per zoomIn/zoomOut action in cockpit / drone / wing (default 5°) */
+  fovStepDeg?: number;
+  /** chase / orbit distance factor per zoomOut action (zoomIn divides; default 1.1) */
+  distanceStep?: number;
+  /** held cameraZoom axis (+1 = zoom in): FOV rate, deg/s (default 40) */
+  fovRateDegS?: number;
+  /** held cameraZoom axis: distance e-folding rate, 1/s (default 1.2) */
+  distanceRatePerS?: number;
   /** far plane (default 600 km) */
   farM?: number;
   /** near plane in the cockpit (default 0.05) / outside (default 0.5) */
@@ -44,10 +62,16 @@ export interface CameraOptions {
   cockpitPitchMaxRad?: number;
   /** head orientation lags the aircraft attitude with this time constant (default 0.08 s) */
   headLagTauS?: number;
-  /** g-induced vertical head offset, m per g of (nz − 1) (default 0.03), clamped to ±gBobMaxM (0.05) */
+  /**
+   * Head displacement opposite to the body specific force: m per g of (nx, ny, nz − 1)
+   * (default 0.02 = ±2 cm/g, docs/research/01 §6), each axis clamped to ±gBobMaxM (0.05 m).
+   */
   gBobMPerG?: number;
   gBobMaxM?: number;
-  /** chase distance (default 3 × aircraft length ≈ 25 m), scaled by the cameraZoom axis */
+  /** head spring natural frequency (default 6 rad/s) and damping ratio (default 0.7) */
+  headSpringOmega?: number;
+  headSpringZeta?: number;
+  /** initial chase distance (default 3 × aircraft length ≈ 25 m); zoom changes it */
   chaseDistanceM?: number;
   /** chase elevation angle above the aircraft (default 15°) */
   chaseElevationRad?: number;
@@ -60,7 +84,7 @@ export interface CameraOptions {
   orbitMinM?: number;
   orbitMaxM?: number;
   orbitInertiaTauS?: number;
-  /** drone base speed, m/s (default 20), scaled by 8^cameraZoom */
+  /** drone translation speed at full axis deflection, m/s (default 20; see setDroneSpeed) */
   droneBaseSpeedMs?: number;
   droneAxes?: Partial<DroneAxisMap>;
   /** tower auto-FOV: aircraft length as a fraction of the frame height (default 0.04) */
@@ -95,9 +119,12 @@ export function resolveCameraOptions(o: CameraOptions): ResolvedCameraOptions {
   return {
     aircraftLengthM: length,
     defaultFovDeg: o.defaultFovDeg ?? 70,
-    minFovDeg: o.minFovDeg ?? 15,
-    maxFovDeg: o.maxFovDeg ?? 110,
-    zoomStep: o.zoomStep ?? 0.8,
+    minFovDeg: o.minFovDeg ?? 30,
+    maxFovDeg: o.maxFovDeg ?? 90,
+    fovStepDeg: o.fovStepDeg ?? 5,
+    distanceStep: o.distanceStep ?? 1.1,
+    fovRateDegS: o.fovRateDegS ?? 40,
+    distanceRatePerS: o.distanceRatePerS ?? 1.2,
     farM: o.farM ?? 600_000,
     nearCockpitM: o.nearCockpitM ?? 0.05,
     nearExternalM: o.nearExternalM ?? 0.5,
@@ -108,8 +135,10 @@ export function resolveCameraOptions(o: CameraOptions): ResolvedCameraOptions {
     cockpitPitchMinRad: o.cockpitPitchMinRad ?? -60 * D2R,
     cockpitPitchMaxRad: o.cockpitPitchMaxRad ?? 80 * D2R,
     headLagTauS: o.headLagTauS ?? 0.08,
-    gBobMPerG: o.gBobMPerG ?? 0.03,
+    gBobMPerG: o.gBobMPerG ?? 0.02,
     gBobMaxM: o.gBobMaxM ?? 0.05,
+    headSpringOmega: o.headSpringOmega ?? 6,
+    headSpringZeta: o.headSpringZeta ?? 0.7,
     chaseDistanceM: o.chaseDistanceM ?? 3 * length,
     chaseElevationRad: o.chaseElevationRad ?? 15 * D2R,
     chasePosTauS: o.chasePosTauS ?? 0.35,
@@ -119,7 +148,10 @@ export function resolveCameraOptions(o: CameraOptions): ResolvedCameraOptions {
     orbitMaxM: o.orbitMaxM ?? 200,
     orbitInertiaTauS: o.orbitInertiaTauS ?? 0.4,
     droneBaseSpeedMs: o.droneBaseSpeedMs ?? 20,
-    droneAxes: { forward: 'pitch', strafe: 'roll', vertical: 'throttle', verticalCentre: 0.5, verticalDeadband: 0.08, ...o.droneAxes },
+    droneAxes: {
+      forward: 'pitch', forwardSign: -1, strafe: 'roll', vertical: 'throttle',
+      verticalCentre: 'entry', verticalRange: 0.5, verticalDeadband: 0.03, ...o.droneAxes,
+    },
     towerFrameFraction: o.towerFrameFraction ?? 0.04,
     towerMinFovDeg: o.towerMinFovDeg ?? 2,
     towerMaxFovDeg: o.towerMaxFovDeg ?? 60,
@@ -168,8 +200,10 @@ export interface CameraFrame {
   axisPitch: number;
   /** true when the pointer moved this frame (cancels recentring, drives orbit inertia) */
   pointerActive: boolean;
-  /** cameraZoom axis, −1..1 */
+  /** held cameraZoom axis, −1..1, + = zoom in (a rate: hold to keep zooming) */
   zoomAxis: number;
+  /** zoomIn / zoomOut actions this frame: + per zoomIn, − per zoomOut (each is one step) */
+  zoomSteps: number;
 }
 
 /** Interface implemented by each camera mode. */
@@ -180,4 +214,8 @@ export interface CameraModeHandler {
   update(frame: CameraFrame, camera: THREE.PerspectiveCamera): number | undefined;
   /** cameraReset action */
   reset?(frame: CameraFrame): void;
+  /** jump straight to the steady-state pose (after a teleport / flight reset) */
+  snap?(frame: CameraFrame, camera: THREE.PerspectiveCamera): void;
+  /** the render-frame origin moved: translate world-anchored state by `delta` */
+  shiftOrigin?(delta: THREE.Vector3): void;
 }

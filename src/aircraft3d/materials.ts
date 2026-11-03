@@ -4,7 +4,7 @@
  * pass, which would need a scene render-to-texture per frame).
  */
 import * as THREE from 'three';
-import { createHaloTexture, createLiveryTexture, createPropBlurTexture } from './textures';
+import { createHaloTexture, createLiveryTexture, createPanelPlaceholderTexture, createPropBlurTexture } from './textures';
 
 export interface ModelMaterials {
   /** white livery paint with the cheat-line/registration map (fuselage) */
@@ -23,7 +23,10 @@ export interface ModelMaterials {
   interiorDark: THREE.MeshStandardMaterial;
   seat: THREE.MeshStandardMaterial;
   panelFrame: THREE.MeshStandardMaterial;
-  /** unlit; the instruments module sets `.map` */
+  /**
+   * Unlit, white, not tone-mapped. The instruments module assigns its texture to `.map`
+   * (a dark placeholder is bound until then, so no `needsUpdate` is required).
+   */
   panel: THREE.MeshBasicMaterial;
   panelG1000: THREE.MeshBasicMaterial;
   propDisc: THREE.MeshBasicMaterial;
@@ -70,10 +73,11 @@ export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials
   const interiorDark = new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.9, metalness: 0 });
   const seat = new THREE.MeshStandardMaterial({ color: 0x5c3f2a, roughness: 0.8, metalness: 0 });
   const panelFrame = new THREE.MeshStandardMaterial({ color: 0x2b2c2e, roughness: 0.85, metalness: 0.1 });
-  const panel = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
-  const panelG1000 = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
-  // until the instruments module assigns a map, show a dark panel rather than a white rectangle
-  panel.color.setHex(0x1c1d1f); panelG1000.color.setHex(0x1c1d1f);
+  // Until the instruments module assigns a map, a dark placeholder map shows instead of a white
+  // rectangle. The colour must stay white: MeshBasicMaterial multiplies map × color.
+  const panelPlaceholder = createPanelPlaceholderTexture();
+  const panel = new THREE.MeshBasicMaterial({ color: 0xffffff, map: panelPlaceholder, toneMapped: false });
+  const panelG1000 = new THREE.MeshBasicMaterial({ color: 0xffffff, map: panelPlaceholder, toneMapped: false });
   const propDisc = new THREE.MeshBasicMaterial({ map: blur, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
   const navRed = new THREE.MeshBasicMaterial({ color: 0xff2020, toneMapped: false });
   const navGreen = new THREE.MeshBasicMaterial({ color: 0x20ff40, toneMapped: false });
@@ -94,6 +98,7 @@ export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials
       livery?.dispose();
       blur.dispose();
       halo.dispose();
+      panelPlaceholder.dispose();
     },
   };
 }

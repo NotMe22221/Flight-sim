@@ -3,7 +3,7 @@ import type { Vec3 } from '../core/types';
 import { dirFromAzEl } from '../geo/solar';
 import {
   DEFAULT_EXPOSURE, acesFilmic, adaptExposure, ambientFloor, cloudCoverFraction, colorTemperatureK, encodeDisplayColor,
-  fogBetaFromVisibility, fogExp2DensityFromVisibility, hazeScaleHeight, hemisphereIntensity, linearToSrgb, moonLightIntensity,
+  fogBetaFromVisibility, fogExp2DensityFromVisibility, hazeScaleHeight, heightFogOpticalDepth, hemisphereIntensity, linearToSrgb, moonLightIntensity,
   starVisibility, sunLightIntensity, targetExposure, turbidityFromVisibility,
 } from './lighting';
 import { DEFAULT_PREETHAM, PreethamSky } from './preetham';
@@ -110,5 +110,19 @@ describe('solar-driven lighting curves', () => {
     expect(cloudCoverFraction([])).toBe(0);
     expect(cloudCoverFraction([{ baseM: 0, topM: 1, coverage: 1, density: 1, type: 'stratus' }])).toBe(1);
     expect(cloudCoverFraction([{ baseM: 0, topM: 1, coverage: 0.5, density: 1, type: 'stratus' }, { baseM: 2, topM: 3, coverage: 0.5, density: 1, type: 'stratus' }])).toBeCloseTo(0.75, 9);
+  });
+
+  it('height-fog optical depth matches numerical integration of β0·exp(−h/H) along the ray', () => {
+    const beta0 = 3.912 / 5000, invH = 1 / 1200;
+    for (const [h0, dirY, dist] of [[10, 0, 8000], [500, -0.2, 2400], [1500, -1, 1500], [100, 0.5, 20_000], [3000, -0.05, 50_000], [0, 1e-6, 1000]]) {
+      let num = 0;
+      const n = 20_000;
+      for (let i = 0; i < n; i++) { const s = (i + 0.5) * (dist / n); num += beta0 * Math.exp(-Math.max(h0 + s * dirY, -1e9) * invH) * (dist / n); }
+      expect(heightFogOpticalDepth(h0, dirY, dist, beta0, invH)).toBeCloseTo(num, 6);
+    }
+    // homogeneous limit (no height falloff) and extreme inputs stay finite
+    expect(heightFogOpticalDepth(1000, -0.7, 300, 0.03, 0)).toBeCloseTo(9, 9);
+    expect(Number.isFinite(heightFogOpticalDepth(40_000, -1, 40_000, 0.01, 1 / 300))).toBe(true);
+    expect(Number.isFinite(heightFogOpticalDepth(0, -1, 1e6, 0.01, 1 / 300))).toBe(true);
   });
 });

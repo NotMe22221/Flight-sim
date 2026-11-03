@@ -65,11 +65,12 @@ export function buildWings(layout: C172Layout, mats: ModelMaterials): WingAssemb
     const mL = new THREE.Mesh(gL, mats.paintPlain); mL.name = `${name}Left`;
     const p0 = planformPoint(sections, span[0], hf, new THREE.Vector3());
     const p1 = planformPoint(sections, span[1], hf, new THREE.Vector3());
-    const right = attachToHinge(mR, p0, p1, 'x');
+    const hingeR = attachToHinge(mR, p0, p1, 'x');
     const p0L = p0.clone().setX(-p0.x), p1L = p1.clone().setX(-p1.x);
-    const left = attachToHinge(mL, p0L, p1L, 'x');
+    const hingeL = attachToHinge(mL, p0L, p1L, 'x');
+    const right = hingeR.pivot, left = hingeL.pivot;
     right.name = `${name}RightPivot`; left.name = `${name}LeftPivot`;
-    group.add(right, left);
+    group.add(hingeR.mount, hingeL.mount);
     return { right, left };
   };
   const flaps = hinged(flapSpan, 'flap');

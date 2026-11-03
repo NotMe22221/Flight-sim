@@ -17,7 +17,7 @@ import type { SimSnapshot, SunState, Vec3, WeatherState } from '../core/types';
 import { dirFromAzEl, moonPosition, sunPosition } from '../geo/solar';
 import { CloudLayers, type CloudLayersOptions } from './clouds';
 import {
-  DEFAULT_EXPOSURE, type ExposureOptions, adaptExposure, ambientFloor, cloudCoverFraction, encodeDisplayColor, fogBetaFromVisibility,
+  DEFAULT_EXPOSURE, type ExposureOptions, MIN_FOG_INV_H, adaptExposure, ambientFloor, cloudCoverFraction, encodeDisplayColor, fogBetaFromVisibility,
   hazeScaleHeight, hemisphereIntensity, mieFromVisibility, mixVec3, moonLightIntensity, normalizeColor, starVisibility, sunLightIntensity,
   targetExposure, turbidityFromVisibility,
 } from './lighting';
@@ -59,8 +59,11 @@ export interface SkySystemOptions {
   precipitation?: PrecipitationOptions;
 }
 
-/** The subset of the snapshot the sky needs. */
-export type SkySnapshot = Pick<SimSnapshot, 'time' | 'aircraft' | 'weather'>;
+/**
+ * The subset of the snapshot the sky needs. `frame` (optional) gives the floating origin's `alt0`:
+ * render y is height above that origin, so MSL = y + alt0 (frames from `world/rebase` use alt0 = 0).
+ */
+export type SkySnapshot = Pick<SimSnapshot, 'time' | 'aircraft' | 'weather'> & Partial<Pick<SimSnapshot, 'frame'>>;
 
 const SUN_DISTANCE_M = 600;
 const MOON_LIGHT_COLOR = 0xb8c4ff;
@@ -90,6 +93,8 @@ export class SkySystem {
   private readonly opts: Required<Pick<SkySystemOptions, 'shadows' | 'shadowRadiusM' | 'environmentMap' | 'envRebakeDeg' | 'envRebakeMinS' | 'sunIntensity' | 'inCloudBeta'>>;
   private readonly params: PreethamParams;
   private exposure: number;
+  /** false until the first update (and after `resetAdaptation`): exposure snaps instead of adapting */
+  private adapted = false;
   private pmrem: THREE.PMREMGenerator | null = null;
   private envTarget: THREE.WebGLRenderTarget | null = null;
   private readonly envScene = new THREE.Scene();
@@ -177,7 +182,8 @@ export class SkySystem {
     this.sunLight.shadow.normalBias = 0.3;
     scene.add(this.sunLight);
     scene.add(this.sunLight.target);
-    if (this.opts.shadows) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; }
+    // PCFSoftShadowMap is deprecated since r186 (it logs a warning and falls back to PCF)
+    if (this.opts.shadows) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap; }
 
     this.moonLight = new THREE.DirectionalLight(MOON_LIGHT_COLOR, 0);
     this.moonLight.name = 'moonLight';
@@ -211,6 +217,9 @@ export class SkySystem {
   /** the weather used for the last update */
   get currentWeather(): WeatherState { return this.weather; }
 
+  /** Skip eye adaptation on the next `update` (snap to the target exposure), e.g. after a time jump or teleport. */
+  resetAdaptation(): void { this.adapted = false; }
+
   /** Replace the weather (the next `update` also reads `snapshot.weather` when present). */
   setWeather(w: WeatherState): void { this.weather = w; }
 
@@ -223,9 +232,14 @@ export class SkySystem {
   /** Cloud density 0..1 at a render-frame point (for FDM bumpiness / visibility). */
   cloudDensityAt(posThree: THREE.Vector3): number { return this.clouds.cloudDensityAt(posThree); }
 
-  /** Call when the floating origin moved: `deltaThree` = new render coords of the old origin. */
-  notifyRebase(deltaThree: THREE.Vector3): void {
-    this.clouds.notifyRebase(deltaThree);
+  /**
+   * Call when the floating origin moved. `originShiftThree` is the NEW origin's position expressed in
+   * the OLD render frame (from `RebaseTransform.translationNED` t: `(t[1], −t[2], −t[0])`), i.e. every
+   * render-frame position changes by −originShiftThree. When cloud drifts are shared with a
+   * `WeatherSystem` (`setCloudDrifts`), also call `WeatherSystem.notifyRebase(shift.x, shift.z)`.
+   */
+  notifyRebase(originShiftThree: THREE.Vector3): void {
+    this.clouds.notifyRebase(originShiftThree);
     this.hasPrevCam = false;
   }
 
@@ -242,6 +256,10 @@ export class SkySystem {
     const L = this.lighting;
     const lat = aircraft.geo.lat, lon = aircraft.geo.lon;
     const camPos = cameraPosThree;
+    /** MSL altitude of render y = 0 */
+    const alt0 = snapshot.frame?.alt0 ?? 0;
+    /** sim seconds this frame (weather evolution follows the sim clock; 0 while paused) */
+    const simDt = dt * Math.max(time.timeScale, 0);
 
     // ── camera velocity (for rain streaks) ──
     if (this.hasPrevCam && dt > 1e-4) {
@@ -299,24 +317,23 @@ export class SkySystem {
     L.cloudCover = cloudCover;
 
     // ── clouds (also gives the in-cloud density at the camera) ──
-    this.clouds.update(camPos, dt, L, w.clouds, w.winds, this.cloudDrifts ?? undefined);
+    this.clouds.update(camPos, simDt, L, w.clouds, w.winds, this.cloudDrifts ?? undefined, alt0);
     const inCloud = this.clouds.densityAtCamera;
     L.inCloud = inCloud;
 
-    // ── fog / aerial perspective ──
+    // ── fog / aerial perspective: β(h) = β0·exp(−h/H), h above the ground under the aircraft ──
     const camAgl = Math.max(camPos.y - L.groundY, 0);
-    const H = hazeScaleHeight(w.visibilityM);
+    let H = hazeScaleHeight(w.visibilityM);
+    // a ground fog layer: the reported visibility applies at the surface and the extinction decays over
+    // the layer depth, so it thins out above the top yet still hides the ground when seen from above
+    if (w.fogTopM > 0) H = Math.min(H, Math.max(w.fogTopM, 30));
     const betaSurface = fogBetaFromVisibility(w.visibilityM);
-    let beta = betaSurface;
-    if (w.fogTopM > 0) {
-      // a ground fog layer: reported visibility applies inside it, clearer air above
-      const betaAloft = fogBetaFromVisibility(Math.max(w.visibilityM, 15_000));
-      const inFog = 1 - smoothstep(w.fogTopM - 30, w.fogTopM + 30, camAgl);
-      beta = lerp(betaAloft, betaSurface, inFog);
-    }
-    beta = lerp(beta, this.opts.inCloudBeta, inCloud);
-    L.fogDensity = beta;
-    L.fogHeightFalloff = 1 / H;
+    // inside cloud the fog becomes homogeneous (falloff → 0) and β at the camera blends toward the
+    // in-cloud extinction, so terrain/cloud shaders fog out exactly like the built-in FogExp2 below
+    const invH = Math.max((1 - inCloud) / H, MIN_FOG_INV_H);
+    const betaCamera = lerp(betaSurface * Math.exp(-camAgl / H), this.opts.inCloudBeta, inCloud);
+    L.fogHeightFalloff = invH;
+    L.fogDensity = inCloud > 0 ? betaCamera * Math.exp(Math.min(camAgl * invH, 80)) : betaSurface;
     // fog colour: horizon sky, blended toward a cloud grey (ambient) inside cloud
     mixVec3(this.zenith, this.horizon, 0.5, this.cloudGrey);
     this.cloudGrey[0] = this.cloudGrey[0] * 0.9 + L.sunRadiance.r * 0.08;
@@ -324,21 +341,26 @@ export class SkySystem {
     this.cloudGrey[2] = this.cloudGrey[2] * 0.9 + L.sunRadiance.b * 0.08;
     mixVec3(this.horizon, this.cloudGrey, inCloud, this.tmpA);
     L.fogColor.setRGB(this.tmpA[0], this.tmpA[1], this.tmpA[2]);
+    this.clouds.setFog(L);
 
     // ── exposure ──
     const target = targetExposure(el, cloudCover, mp.illuminatedFraction, this.exposureOptions);
-    this.exposure = adaptExposure(this.exposure, target, dt, this.exposureOptions.adaptTimeS);
+    this.exposure = this.adapted ? adaptExposure(this.exposure, target, dt, this.exposureOptions.adaptTimeS) : target;
+    this.adapted = true;
     this.renderer.toneMappingExposure = this.exposure;
     L.exposure = this.exposure;
 
     // built-in fog: density at (half) the camera height so standard materials get a plausible haze;
-    // colour must be tone mapped + encoded because Three applies fog after tone mapping.
-    const betaCam = beta * Math.exp(-0.5 * camAgl / H) * (1 - inCloud) + this.opts.inCloudBeta * inCloud;
+    // colour must be tone mapped + encoded because Three applies fog after tone mapping and output
+    // encoding. Three r187 converts `fog.color` from the working space to the output colour space
+    // when uploading the uniform, so hand it the display value AS sRGB (converted back to linear on
+    // set) — copying the encoded triple raw would sRGB-encode it twice (washed-out fog).
+    const betaCam = betaSurface * Math.exp(-0.5 * camAgl / H) * (1 - inCloud) + this.opts.inCloudBeta * inCloud;
     L.fogExp2Density = (1.978 / 3.912) * betaCam;
     this.fog.density = L.fogExp2Density;
     encodeDisplayColor(this.tmpA, this.exposure, this.tmpB);
-    L.fogColorEncoded.setRGB(this.tmpB[0], this.tmpB[1], this.tmpB[2]);
-    this.fog.color.copy(L.fogColorEncoded);
+    L.fogColorEncoded.setRGB(this.tmpB[0], this.tmpB[1], this.tmpB[2], THREE.LinearSRGBColorSpace);
+    this.fog.color.setRGB(this.tmpB[0], this.tmpB[1], this.tmpB[2], THREE.SRGBColorSpace);
 
     // ── lights ──
     normalizeColor(this.transmittance, this.tmpC);
@@ -380,7 +402,7 @@ export class SkySystem {
     this.moon.mesh.visible = this.moon.mesh.visible && cloudCover < 0.98 && inCloud < 0.5;
 
     // ── precipitation ──
-    windAt(w.winds, camPos.y, camAgl, this.windNED);
+    windAt(w.winds, camPos.y + alt0, camAgl, this.windNED);
     this.windThree.set(this.windNED[1], 0, -this.windNED[0]);
     this.precipitation.update(dt, camPos, this.camVel, this.windThree, w, L);
 
@@ -423,7 +445,7 @@ export class SkySystem {
   }
 
   dispose(): void {
-    this.scene.environment = null;
+    if (this.envTarget && this.scene.environment === this.envTarget.texture) this.scene.environment = null;
     this.envTarget?.dispose();
     this.pmrem?.dispose();
     this.sky.geometry.dispose();
@@ -454,11 +476,13 @@ export class SkySystem {
  * (Three injects `USE_REVERSED_DEPTH_BUFFER` into every program when the renderer uses it).
  */
 export function patchSkyDepth(material: THREE.ShaderMaterial): void {
-  const needle = 'gl_Position.z = gl_Position.w;';
-  if (!material.vertexShader.includes(needle) || material.vertexShader.includes('USE_REVERSED_DEPTH_BUFFER')) return;
+  // match the statement AND the rest of its line (r187 has a trailing `// set z to camera.far`
+  // comment, which must not end up after `#endif`)
+  const needle = /gl_Position\.z = gl_Position\.w;[^\n]*/;
+  if (!needle.test(material.vertexShader) || material.vertexShader.includes('USE_REVERSED_DEPTH_BUFFER')) return;
   material.vertexShader = material.vertexShader.replace(
     needle,
-    '#ifdef USE_REVERSED_DEPTH_BUFFER\n\t\t\tgl_Position.z = 0.0;\n\t\t\t#else\n\t\t\tgl_Position.z = gl_Position.w;\n\t\t\t#endif',
+    '\n#ifdef USE_REVERSED_DEPTH_BUFFER\n\t\t\tgl_Position.z = 0.0; // far plane under reversed depth\n#else\n\t\t\tgl_Position.z = gl_Position.w; // far plane\n#endif\n',
   );
   material.needsUpdate = true;
 }

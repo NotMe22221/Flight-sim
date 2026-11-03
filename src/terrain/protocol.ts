@@ -15,6 +15,13 @@ export interface ElevationSource {
   /** 'png' decodes with fast-png (bit exact, works in Node); 'webp' needs createImageBitmap */
   format: 'png' | 'webp' | 'none';
   tileSize: number;
+  /** zoom of the data this source provides: the tile's own zoom, or an ancestor's for the parent fallback */
+  zoom: number;
+  /**
+   * Parent-tile fallback: `url` is an ancestor `depth` levels up; upsample the sub-square at
+   * offset (x, y) (in descendant tiles from the ancestor's NW corner) to the full tile size.
+   */
+  sub?: { depth: number; x: number; y: number };
 }
 
 export interface LoadRequest {
@@ -67,7 +74,8 @@ export interface WaterPayload {
 }
 
 export type ImageryPayload =
-  | { kind: 'bitmap'; providerId: string; zI: number; bitmap: ImageBitmap }
+  /** fetched imagery tile (zI, x, y) of the provider; shared by every terrain tile below it */
+  | { kind: 'bitmap'; providerId: string; zI: number; x: number; y: number; bitmap: ImageBitmap }
   | { kind: 'rgba'; providerId: string; zI: number; data: Uint8ClampedArray; width: number }
   | null;
 
@@ -79,6 +87,8 @@ export interface TileResponse {
   y: number;
   frame: LocalFrameInfo;
   elevationProviderId: string;
+  /** zoom of the elevation data actually used (< z when the parent-tile fallback answered) */
+  elevationZoom: number;
   mesh: MeshPayload;
   water: WaterPayload | null;
   heights: Float32Array;
