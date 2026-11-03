@@ -12,7 +12,7 @@ import { C172S } from '../fdm/aircraft/c172';
 import { atmosphere, casFromTas } from '../fdm/atmosphere';
 import { NavDb, FlightPlanner, fetchLoader, runwayInUse, type FlightPlanEx } from '../nav';
 import { magneticDeclinationDeg } from '../geo/magvar';
-import { sunEvents } from '../geo/solar';
+import { sunEvents, sunPosition } from '../geo/solar';
 import { LocalFrame, nedToThree } from '../geo/wgs84';
 import { World } from '../world/World';
 import { LandingGuide } from '../world/LandingGuide';
@@ -461,7 +461,8 @@ export class Simulator {
     this.plugins.hud?.update(snap, dt);
     this.plugins.audio?.update(dt, s, this.cameras.state, this.weather.state);
     this.plugins.audio?.setMarker?.(this.radios.state.nav1.marker ?? null);
-    if (this.inFlight) this.plugins.atc?.update(dt * (this.paused ? 0 : 1), s, this.weather.state);
+    // ATC follows live flight only: replayed poses and slew teleports would drive its state machine
+    if (this.inFlight && !this.replayer.active && !this.slew) this.plugins.atc?.update(dt * (this.paused ? 0 : 1), s, this.weather.state);
     this.plugins.ui?.update(snap, dt);
     if ((this.frameCount & 15) === 0) this.events.emit('terrain:progress', { ready: snap.terrainReady });
     tn = performance.now(); this.mark('instruments', tn - tm); tm = tn;
@@ -534,6 +535,12 @@ export class Simulator {
   setPaused(p: boolean): void {
     this.paused = p;
     this.loop.reset();
+  }
+
+  /** Spawn convenience: panel lights on when the sun is below ~3° at the spawn point (off by day). */
+  private applyPanelLightsForDaylight(lat: number, lon: number): void {
+    const el = sunPosition(this.time.utcMs, lat, lon).elevation;
+    this.input.controls.lights.panel = el < 3 ? 1 : 0;
   }
 
   /** Set the clock to a local solar hour at the aircraft's longitude (keeps the date). */
@@ -612,6 +619,7 @@ export class Simulator {
     const tas = c.speedKt * KT * Math.sqrt(1.225 / a.densityKgM3);
     await this.beginFlight(ap, end, { geo: { lat: p.lat, lon: p.lon, alt }, headingRad: end.headingDeg * DEG, speedMs: tas, onGround: false, engineRunning: true, gammaRad: -c.glideDeg * DEG }, { flapsIndex: 2 });
     this.setTimePreset(c.time);
+    this.applyPanelLightsForDaylight(p.lat, p.lon);
   }
 
   /** Default "Fly now": KSFO 28R. */
@@ -661,6 +669,7 @@ export class Simulator {
     c.masterBattery = spawn.engineRunning; c.masterAlternator = spawn.engineRunning; c.avionicsMaster = spawn.engineRunning; c.fuelPump = false;
     c.flapsIndex = opts.flapsIndex ?? 0;
     c.lights = { nav: true, beacon: spawn.engineRunning, strobe: !spawn.onGround, landing: !spawn.onGround, taxi: spawn.onGround && spawn.engineRunning, panel: 0 };
+    this.applyPanelLightsForDaylight(g.lat, g.lon);
     this.fdm.clearCrash();
     this.crashReported = false;
     this.stress.reset();
