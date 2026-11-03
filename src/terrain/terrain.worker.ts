@@ -15,12 +15,17 @@ const ctx: TileJobContext = {
   procedural: createProceduralCache(),
 };
 
+/** Post a response; whatever happens, the main thread gets an answer for `msg.key` (or it would wait forever). */
 const post = (msg: WorkerResponse, transfer: Transferable[]): void => {
   try {
     scope.postMessage(msg, transfer);
-  } catch {
-    scope.postMessage(msg); // e.g. a detached buffer listed twice: fall back to a copy
-  }
+    return;
+  } catch { /* e.g. a buffer listed twice: try a copy */ }
+  try {
+    scope.postMessage(msg);
+    return;
+  } catch { /* not cloneable */ }
+  scope.postMessage({ type: 'error', key: msg.key, message: 'tile response could not be posted' } satisfies WorkerResponse);
 };
 
 scope.onmessage = (e: MessageEvent<WorkerRequest>): void => {
@@ -29,10 +34,10 @@ scope.onmessage = (e: MessageEvent<WorkerRequest>): void => {
     case 'load': {
       const ctrl = new AbortController();
       inflight.set(msg.key, ctrl);
-      void runTileJob(msg, ctrl.signal, ctx).then(({ response, transfer }) => {
-        inflight.delete(msg.key);
-        post(response, transfer);
-      });
+      void runTileJob(msg, ctrl.signal, ctx).then(
+        ({ response, transfer }) => { inflight.delete(msg.key); post(response, transfer); },
+        (err: unknown) => { inflight.delete(msg.key); post({ type: 'error', key: msg.key, message: String(err) }, []); },
+      );
       break;
     }
     case 'abort': inflight.get(msg.key)?.abort(); break;

@@ -42,7 +42,12 @@ export class InThreadWorker implements WorkerLike {
     const ctrl = new AbortController();
     this.inflight.set(req.key, ctrl);
     await Promise.resolve(); // never answer synchronously from inside postMessage
-    const { response } = await runTileJob(req, ctrl.signal, this.ctx);
+    let response: WorkerResponse;
+    try {
+      ({ response } = await runTileJob(req, ctrl.signal, this.ctx));
+    } catch (err) {
+      response = { type: 'error', key: req.key, message: String(err) }; // always answer the key
+    }
     this.inflight.delete(req.key);
     if (this.terminated) return;
     try {

@@ -150,6 +150,8 @@ export interface AutopilotProtections {
   disconnectOnStallWarning: boolean;
   /** disconnect on the FDM's overspeed warning */
   disconnectOnOverspeed: boolean;
+  /** the avionics bus (`AircraftState.electrical.avionicsPowered`) must be down this long before AP/FD/YD drop, s */
+  powerLossS: number;
 }
 
 export interface AutopilotBehaviour {
@@ -262,6 +264,7 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     maxBankRad: 60 * DEG,
     disconnectOnStallWarning: true,
     disconnectOnOverspeed: true,
+    powerLossS: 0.25,
   },
   behaviour: {
     autoInterceptFromRol: true,

@@ -58,7 +58,10 @@ camera.update(dtReal, state, pos, quat, input, model.eyePointLocal);
   clips cells along the zero level set by bisection, so window edges are smooth curves. Glass,
   rubber gaskets and door seams are patches of the same surface offset along the analytic
   normal. A dark inner face of the cabin skin makes the windows read as tinted glass over a dark
-  cabin from outside.
+  cabin from outside. The nose bowl is sampled finely (its radius doubles within 8 cm) and
+  carries the two cooling-air inlets beside the spinner (a skin patch clipped by a front-view
+  field); an exhaust stack under the cowl and a raked COM whip on the tailcone complete the
+  silhouette (`layout.details`).
 - **Cockpit** (`interior.ts`): a lining that follows the fuselage profile 3 cm inside the skin
   with the same window cut-outs (reveals face into each opening), fabric door panels, a padded
   glareshield hood whose lip covers the top of the panel planes, the panel board 1.5 cm behind
@@ -120,7 +123,8 @@ and span come from it, so model and physics agree.
 - `frames.test.ts`: identity; pitch up ⇒ nose +y; roll right ⇒ right wing −y; heading 090 ⇒
   nose +x; heading 180; equivalence with rotating body axes by `q_bn`; round trips.
 - `c172Layout.test.ts`: fixture numbers against the spec (above); FRD → model mapping; nav
-  light sides; dihedral and flap/aileron spans.
+  light sides; slim A-pillar and window tops under the wing root; nose inlets on the nose-bowl
+  face clear of the spinner; dihedral and flap/aileron spans.
 - `skin.test.ts`: window distance fields (sign, rounded corners, short edges, sides); every
   window centre lies on the skin; no skin triangle inside a window; skin + glass area equals
   the uncut skin; outward winding.
@@ -141,6 +145,10 @@ and span come from it, so model and physics agree.
   night; a screen-space minimum size would need a custom shader.
 - The spring-steel main legs shorten along their axis instead of bending outward.
 - No damage states, doors, or reflections on the glass (no transmission pass).
+- The panel texture is one unlit plane: the radio displays dim with the gauges at night (they
+  are not separately self-lit), and there is no flood-light pooling on the panel.
+- The cockpit has no magnetic compass, sun visors or headliner details; the cabin cross-section
+  is a superellipse, so the door-window tops sit where the side wall turns into the roof.
 
 ## Tuning knobs
 

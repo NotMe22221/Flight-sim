@@ -15,7 +15,7 @@ export class MainMenu extends Screen {
       this.summary[k] = v;
       return h('div', { class: 'summary-item', role: 'button', tabIndex: 0, onClick, onKeyDown: (e) => { if (e.key === 'Enter') onClick(); } }, icon(ic), h('div', null, h('div', { class: 'summary-k', text: label }), v));
     };
-    this.resumeBtn = button('Resume flight', () => ctx.navigate('flight'), { icon: 'play', cls: 'menu-btn primary' });
+    this.resumeBtn = button('Resume flight', () => (ctx.resumeFlight ? ctx.resumeFlight() : ctx.navigate('flight')), { icon: 'play', cls: 'menu-btn primary' });
     this.resumeBtn.style.display = 'none';
     this.flyBtn = button('Fly now', () => ctx.fly(), { icon: 'plane', cls: 'menu-btn primary' });
     const left = h('div', { class: 'main-left' },

@@ -67,9 +67,10 @@ research 05 §9.3).
     ▲ clear of runway → "taxi to parking" (GND)                           │                                                │ "contact Departure 120.9" /
     │                                                                    ▼                                                ▼ "frequency change approved"
   LANDED ◀── touchdown (full stop) ─────────────────────────────────── PATTERN ◀── TWR: "enter right downwind …" ── INBOUND ◀── ENROUTE
-    "exit runway when able,              leg detection, reports,             (entry by geometry)          ≤ 12 nm & closing   (flight following,
-     contact Ground" (< 20 kt)            landing clearance at ≤ 3 nm final,                               on a towered field   ATIS, destinations)
-                                          go-around, touch-and-go loop ───┐                                  (or "prepare to land at …")
+    "exit runway when able,              leg detection, reports,             (entry by geometry)          ≤ 12 nm, closing    (flight following,
+     contact Ground" (< 20 kt)            landing clearance at ≤ 3 nm final,                               and heading for a   ATIS, destinations)
+                                          go-around, touch-and-go loop ───┐                                  towered field (or
+                                                                          │                                  "prepare to land at …")
                                                         ▲                 │
                                                         └─────────────────┘
 ```
@@ -78,19 +79,32 @@ research 05 §9.3).
   The pilot's transmission goes out immediately; requests get the controller's reply
   1.5–2.75 s of sim time later (`REPLY_DELAY_MIN_S`/`MAX_S`), and the state changes when the
   reply goes out. Selections are refused while a reply is pending.
-* **Unsolicited calls** (made once, guarded by flags/phase changes): departure handoff,
-  radar-service termination with a handoff to tower on inbound, landing clearance when
-  established on final within 3.2 nm, go-around (after a landing clearance, below 500 ft,
-  climbing > 1.5 m/s for 1.5 s and ≥ 10 m above the lowest point), "exit runway when able,
-  contact Ground" below 10 m/s, "frequency change approved" when leaving the pattern.
+* **Unsolicited calls** (made once, guarded by flags/phase changes, and only to a pilot tuned
+  to that controller — nobody calls an aircraft that never contacted the tower): departure
+  handoff, landing clearance when established on final within 3.2 nm, go-around (after a
+  landing clearance, below 500 ft, climbing > 1.5 m/s for 2 s and ≥ 30 m above the lowest
+  point — a glidepath correction is not a go-around), "exit runway when able, contact Ground"
+  below 10 m/s ("remain this frequency" when the tower has no ground frequency), "frequency
+  change approved" when leaving the pattern.
+* **Flight following ends on request**: on an arrival (automatic or picked from the menu) the
+  INBOUND menu offers "Request landing at <field>" to the radar controller ("radar service
+  terminated, squawk VFR, contact <field> Tower …", or "change to advisory frequency approved"
+  at an untowered field) and "Cancel flight following". Approaching a towered field does not
+  end radar service by itself — the aircraft may be passing over it.
 * **Go-around → re-clearance**: after a go-around (or touch-and-go) the next landing clearance
   waits until the aircraft has flown a crosswind/downwind/base leg (`flags.armed`).
 * **Untowered fields** (no TWR frequency): the same phases, driven by CTAF self-announcements
   ("Half Moon Bay traffic, Cessna 2FS, …, Half Moon Bay.") and the same geometry; nobody
   replies.
 * **Robustness**: liftoff from any ground phase → DEPARTING (or PATTERN for closed traffic);
-  touchdown from any airborne phase → LANDED at the nearest airport; a touch-and-go that stops
-  becomes a full stop; arrivals that turn away beyond 15 nm revert to ENROUTE.
+  touchdown from any airborne phase → LANDED at the airport within 3 nm (TAXI_IN without a
+  field when it is an off-field landing); a touch-and-go that stops becomes a full stop;
+  arrivals that turn away beyond 15 nm (or 5 nm beyond a farther destination picked from the
+  menu) revert to ENROUTE; leaving the pattern ends closed traffic; a start counts as holding
+  short only when lined up on the runway (not beside it); a later stop at another runway end
+  while holding short makes that the departure runway; a readback not given before the next
+  call is dropped; parking ends the exchange (the next call is a full-callsign initial contact)
+  and a reset forgets the ATIS letter heard.
 
 ## Phrases (examples from the KSFO test transcript)
 
@@ -105,6 +119,7 @@ P     San Francisco Tower, N172FS, holding short runway 28L, ready for departure
 TWR   Cessna 2FS, San Francisco Tower, wind 270 at 12 gusts 18, runway 28L, cleared for takeoff.
 TWR   Cessna 2FS, contact San Francisco Departure 120.9.
 DEP   Cessna 2FS, San Francisco Departure, squawk 3603, radar contact 2 miles northwest of San Francisco, altimeter 30.05, maintain VFR.
+P     San Francisco Departure, Cessna 2FS, request landing at San Francisco.
 DEP   Cessna 2FS, radar service terminated, squawk VFR, contact San Francisco Tower 120.5.
 P     San Francisco Tower, N172FS, 11 miles north, 3,000, inbound for landing, full stop, with information Uniform.
 TWR   Cessna 2FS, San Francisco Tower, enter right downwind runway 28R, report midfield downwind. Information Victor now current, altimeter 30.05.
@@ -117,9 +132,13 @@ CTAF  Half Moon Bay traffic, Cessna 2FS, turning left base runway 30, Half Moon 
 
 Conventions: callsign in full on first contact with each facility, abbreviated (type + last
 three) once the controller has abbreviated it; CTAF calls use the short form. Winds from ATIS
-and tower are **magnetic** (FAA practice; WMM declination at the field), the METAR line is true.
-Runway in use: nav `runwayInUse` (largest headwind, ties → longest), calm (< 3 kt) → longest
-runway; parallels are listed together and the arrival gets the one on its side. Pattern side:
+and tower are **magnetic** (FAA practice; WMM declination at the field, converted from the
+observed direction and rounded once), the METAR line is true. FAA JO 7110.65 §2-4-17 number
+forms: "wind two seven zero at one five gusts three five", frequencies spoken to two decimals
+("one three five point two seven" for 135.275; the subtitle keeps 135.275), "niner", runways
+without a leading zero (also in menu labels). Runway in use: nav `runwayInUse` (largest
+headwind, ties → longest); below 5 kt the calm-wind runway (the longest, §3-5-1; "wind calm"
+is reported below 3 kt); parallels are listed together and the arrival gets the one on its side. Pattern side:
 parallel runways use the outer side (L → left, R → right); otherwise towered fields assign
 the side the arrival is on and untowered fields use left traffic. Pattern altitude: field
 elevation + 1 000 ft. Facility names use the airport's municipality ("San Francisco Tower").
@@ -146,7 +165,7 @@ elevation + 1 000 ft. Facility names use the airport's municipality ("San Franci
 | Field | Default | Meaning |
 |---|---|---|
 | `handoffDistanceM` / `handoffHeightM` | 3 nm / 2 000 ft | tower → departure handoff |
-| `inboundRangeM` / `inboundCancelRangeM` | 12 nm / 15 nm | automatic INBOUND (closing > 10 m/s for 3 s) / abandon |
+| `inboundRangeM` / `inboundCancelRangeM` | 12 nm / 15 nm | automatic INBOUND (closing > 10 m/s for 3 s, track within 30° of the bearing) / abandon |
 | `landingClearanceRangeM` | 3.2 nm | landing clearance when established on final inside this |
 | `goAroundMaxHeightM` / `goAroundClimbMs` | 500 ft / 1.5 m/s | go-around detection |
 | `stoppedSpeedMs` | 0.5 m/s | "stopped" (hold short after 2 s, parked after 3 s engine off) |
@@ -173,6 +192,14 @@ the reciprocal), `FINAL_LIMITS` (±20° track, lateral max(75 m, 6°), height be
   re-clearance, frequencies, spelled-out speech.
 * `AtcController.flows.test.ts` — Half Moon Bay CTAF flow (no controller replies), spawn on
   the runway, airborne start, closed traffic with touch-and-go.
+* `AtcController.review.test.ts` — regressions from the adversarial review (each failed before
+  its fix): 7110.65 frequency/gust forms, menu destinations 15–30 nm away, off-field landing,
+  no unsolicited tower calls to a pilot off frequency, tower without ground frequency,
+  `select(NaN)`, full callsign after parking, ATIS heard reset, closed traffic ended by leaving
+  the pattern, glidepath correction ≠ go-around, label designators, parallel CTAF runway,
+  start beside the runway, magnetic wind rounding, readbacks (straight-in, closed-traffic
+  takeoff, stale ones dropped), flight following on arrival (no termination when passing a
+  field, "request landing", advisory frequency), hold-short re-targeting, 5 kt calm runway.
 
 ## Known limitations / proposed contract changes
 
@@ -186,3 +213,21 @@ the reciprocal), `FINAL_LIMITS` (±20° track, lateral max(75 m, 6°), height be
 * `src/core/types.ts`: `SimEvents['atc:message']` could carry `speech` and `voice` so the audio
   module can subscribe to the bus instead of a separate `speak` callback; `AudioMixer.speak`
   already accepts `'atc' | 'pilot'`.
+* Taxi phraseology predates the 2010 change (7110.65 §3-7-2 is "runway 28L, taxi via …"): with
+  no route data the clearance stays "taxi to runway 28L, hold short of runway 28L".
+* The controller abbreviates the callsign in its first reply (common US practice; 7110.65
+  §2-4-20 also allows replying with the form the pilot used). The pilot only abbreviates after
+  that, and goes back to the full callsign on every retune (including listening to ATIS).
+* Reply latency counts from the start of the pilot's transmission (speech duration is unknown
+  here); the audio queue plays the reply after the pilot's call.
+* TAXI_CLEARED / HOLDING_SHORT / CLEARED_TAKEOFF never return to PARKED by themselves (shutting
+  down at the hold-short line keeps the departure options; reset to start over).
+* Untowered touch-and-go has no menu option. A full-stop landing followed by a new takeoff goes
+  to DEPARTING, or to PATTERN if closed traffic was announced and not left.
+* The automatic INBOUND only picks the nearest towered field the aircraft heads for (±30°,
+  closing > 10 m/s for 3 s, ≤ 12 nm); untowered destinations are chosen from the menu.
+* App wiring (src/app/Simulator.ts, not this module): `plugins.atc.update` is fed `this.interp`,
+  which holds the replayed pose while the replay controller is active, so a replayed takeoff
+  or landing drives the state machine (and the jump back at the end of the replay looks like a
+  liftoff/teleport). Skip the ATC update while `replayer.active`. `dt` is the display-frame dt
+  (not scaled by time compression): radio latency stays in real seconds, which is intended.

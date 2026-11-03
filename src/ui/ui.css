@@ -145,7 +145,7 @@
 .fs-ui .seg:hover { background: var(--ui-bg-hover); color: var(--fg); }
 .fs-ui .seg.active { background: var(--accent-dim); color: var(--accent); }
 .fs-ui .segmented.stretch { display: flex; }
-.fs-ui .segmented.stretch .seg { flex: 1; }
+.fs-ui .segmented.stretch .seg { flex: 1 1 0; min-width: 0; padding-left: 6px; padding-right: 6px; overflow: hidden; text-overflow: ellipsis; }
 
 .fs-ui .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--ui-border); }
 .fs-ui .tab { padding: 10px 16px; background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--fg-dim); cursor: pointer; text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.78em; font-weight: 600; transition: color var(--t), border-color var(--t); display: inline-flex; align-items: center; gap: 8px; }

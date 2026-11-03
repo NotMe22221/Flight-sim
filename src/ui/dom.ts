@@ -176,7 +176,9 @@ export function arrowNavigation(root: HTMLElement, selector = 'button:not([disab
 
 /** Device badge icon for bindings. */
 export function deviceIcon(device: 'keyboard' | 'gamepad' | 'mouse' | 'none'): HTMLElement {
-  return icon(device === 'gamepad' ? 'gamepad' : device === 'mouse' ? 'mouse' : 'keyboard', 'device-icon');
+  const el = icon(device === 'gamepad' ? 'gamepad' : device === 'mouse' ? 'mouse' : 'keyboard', 'device-icon');
+  if (device === 'none') el.style.visibility = 'hidden'; // unbound: keep the column aligned, show no device
+  return el;
 }
 
 /** 'engineAutoStart' → 'Engine auto start' */

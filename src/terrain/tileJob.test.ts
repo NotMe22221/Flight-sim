@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { lonLatToTile } from '../geo/mercator';
 import { HeightField } from './heightfield';
 import type { LoadRequest, TileResponse } from './protocol';
@@ -132,5 +132,34 @@ describe('runTileJob network robustness', () => {
   it('404s are definitive: procedural fallback without a retry flag', async () => {
     const { response } = await runTileJob(req(15, 5246, 12684), new AbortController().signal, ctxWith(serve({})));
     expect((response as TileResponse).transientFailure).toBe(false);
+  });
+});
+
+describe('Cache API robustness', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('a cached tile that fails to decode is evicted, so the next load refetches real data', async () => {
+    const store = new Map<string, Response>();
+    vi.stubGlobal('caches', {
+      open: async () => ({
+        match: async (url: string) => store.get(url)?.clone(),
+        put: async (url: string, res: Response) => { store.set(url, res); },
+        delete: async (url: string) => store.delete(url),
+        keys: async () => [...store.keys()].map((u) => new Request(u)),
+      }),
+    });
+    const url = `${AWS}/15/5246/12684.png`;
+    store.set(url, new Response('<html>captive portal</html>', { status: 200 })); // poisoned entry
+    const log: string[] = [];
+    const ctx = (): TileJobContext => ({ cache: new TileCache('t', 100, serve({ [url]: z15 }, log), true), canDecodeBitmaps: false, procedural: createProceduralCache() });
+    const first = await runTileJob(req(15, 5246, 12684), new AbortController().signal, ctx());
+    expect(first.response.type).toBe('tile');
+    expect((first.response as TileResponse).elevationProviderId).toBe('procedural'); // the cached copy was unusable
+    expect(log).not.toContain(url); // it came from the cache, not the network
+    // the bad entry is gone: the next load fetches and decodes the real tile
+    const second = await runTileJob(req(15, 5246, 12684), new AbortController().signal, ctx());
+    expect((second.response as TileResponse).elevationZoom).toBe(15);
+    expect((second.response as TileResponse).elevationProviderId).toBe('aws-terrarium');
+    expect(log).toContain(url);
   });
 });

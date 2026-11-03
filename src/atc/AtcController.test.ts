@@ -137,7 +137,11 @@ describe('AtcController — towered round trip at KSFO', () => {
     h.move({ along: 17000, cross: 12700, h: 900 }, 50, false, 0.25);
     expect(h.atc.phase).toBe('INBOUND');
     expect(h.atc.airportIcao).toBe('KSFO');
-    expect(h.find(/radar service terminated/)?.text).toBe('Cessna 2FS, radar service terminated, squawk VFR, contact San Francisco Tower 120.5.');
+    // Heading for the field is not a request to land there: radar keeps the aircraft until asked.
+    expect(h.find(/radar service terminated/)).toBeUndefined();
+    delays.push(selectWithReply(h, /^Request landing at San Francisco \(Departure 120\.9\)/,
+      /^Cessna 2FS, radar service terminated, squawk VFR, contact San Francisco Tower 120\.5\.$/));
+    expect(h.messages.find((m) => m.from === 'pilot' && /request landing at/.test(m.text))?.text).toBe('San Francisco Departure, Cessna 2FS, request landing at San Francisco.');
     readBack(h, /^Acknowledge: squawk VFR/);
     expect(h.atc.frequencyMHz).toBe(120.5);
     expect(h.atc.squawk).toBe(1200);

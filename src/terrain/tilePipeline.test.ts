@@ -14,7 +14,7 @@ describe('tile pipeline', () => {
     const d = fixture('terrarium-15-5246-12684.png');
     const rw = { a: { lat: 37.613538, lon: -122.35716, elev: 3.96 }, b: { lat: 37.6100, lon: -122.3610, elev: 3.0 }, halfWidthM: 60, featherM: 150 };
     const out = runTilePipeline({ z: 15, x: 5246, y: 12684, heights: d.heights, width: 256, frame, quads: 64, skirt: 48, runways: [rw], fullHeights: true, water: true });
-    expect(out.mesh.vertexCount).toBe(65 * 65 + 4 * 65);
+    expect(out.mesh.vertexCount).toBe(65 * 65 + 6 * 65);
     expect(out.heightsWidth).toBe(256);
     expect(out.heights).toBe(d.heights);
     expect(out.waterFraction).toBeGreaterThan(0.05); // part of the bay is in this tile

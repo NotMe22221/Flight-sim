@@ -1,7 +1,8 @@
 /**
  * The per-tile CPU pipeline, pure so it runs identically in the worker and in Node tests:
- * decoded heights → runway flattening → terrain mesh → ocean patch → height grid for
- * collision (full for fine tiles, 4× box-downsampled for coarse ones).
+ * decoded heights → runway flattening → terrain mesh → ocean patch → the DEM grid (full for
+ * fine tiles, 4× box-downsampled for coarse ones). Collision samples the mesh's own vertex
+ * lattice (TileMeshBuffers.height), not this grid, so it matches the drawn triangles.
  */
 import type { LocalFrameInfo } from '../core/types';
 import { applyRunwayFlattening, type RunwayFlatteningSpec } from './runways';
@@ -26,7 +27,7 @@ export interface PipelineInput {
 export interface PipelineOutput {
   mesh: TileMeshBuffers;
   water: WaterPatchBuffers | null;
-  /** grid returned for the HeightField (full or downsampled) */
+  /** the flattened DEM grid (full or downsampled); collision uses the mesh vertex lattice instead */
   heights: Float32Array;
   heightsWidth: number;
   waterFraction: number;

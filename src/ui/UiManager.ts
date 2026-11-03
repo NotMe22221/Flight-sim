@@ -84,6 +84,11 @@ export class UiManager {
       toast: (text, kind) => this.toasts.push({ text, kind }),
       resetLayout: () => this.layout.reset(),
       startChallenge: (id) => { void this.launcher.startChallenge(id); },
+      resumeFlight: () => {
+        if (!this._inFlight) return;
+        this.navigate('flight');
+        if (this.flight.pause.visible) this.flight.closePause(true);
+      },
     };
 
     this.loading = new LoadingScreen();
@@ -283,7 +288,10 @@ export class UiManager {
     if (p.audio) safe('setAudio', () => this.host.setAudio({ ...s.audio }));
     if (p.units) safe('setUnits', () => this.host.setUnits({ ...s.units }));
     if (p.assists) safe('setAssists', () => this.host.setAssists({ ...s.assists }));
-    if (p.ui) this.applyInterface();
+    if (p.ui) {
+      this.applyInterface();
+      if (this.host.setInfoStrip) safe('setInfoStrip', () => this.host.setInfoStrip!(s.ui.infoStrip));
+    }
   }
 
   private applyInterface(): void { this.root.style.setProperty('--ui-scale', String(this.settings.ui.scale)); }

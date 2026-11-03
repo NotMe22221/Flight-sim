@@ -66,6 +66,26 @@ describe('resolveC172Layout', () => {
     expect(L.lights.navTail.z).toBeGreaterThan(5.5);
   });
 
+  it('cabin: the A-pillar is a slim post and the window tops sit just under the wing root', () => {
+    const ws = L.windows.find((w) => w.name === 'windscreen')!;
+    const door = L.windows.find((w) => w.name === 'doorLeft')!;
+    // pillar width along z between the windshield's side edge and the door window's front edge
+    expect(door.outline[0][0] - ws.outline[1][0]).toBeGreaterThan(0.05);
+    expect(door.outline[0][0] - ws.outline[1][0]).toBeLessThan(0.08);
+    expect(L.cabin.windowTopY).toBeLessThan(L.wing.sections[0].le.y);
+    expect(L.cabin.windowTopY).toBeGreaterThan(L.eye.y + 0.1);
+  });
+
+  it('nose inlets sit on the nose bowl face, clear of the spinner', () => {
+    const n = L.details.noseInlets;
+    const ring = L.fuselage.stations[0], bowl = L.fuselage.stations[1];
+    expect(n.x - n.r).toBeGreaterThan(ring.width / 2);
+    expect(n.x + n.r).toBeLessThan(bowl.width / 2);
+    expect(Math.abs(n.y - L.prop.hub.y)).toBeLessThan(0.1);
+    expect(L.details.exhaust.dir.y).toBeLessThan(0); // points down
+    expect(L.details.antenna.dir.z).toBeGreaterThan(0); // raked aft
+  });
+
   it('wing: 1.7° dihedral, hinge at 75 % chord, flaps inboard of the ailerons', () => {
     const s = L.wing.sections;
     const tip = s[s.length - 1];

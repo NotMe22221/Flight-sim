@@ -146,8 +146,12 @@ function withRunwayEnds(rw: Runway): RunwayRecord {
   return { ...rest, id: rw.ident, ends: runwayEnds(rw) };
 }
 
-/** Below this wind speed the longest runway is used (calm-wind runway), kt. */
-export const CALM_RUNWAY_KT = 3;
+/**
+ * Below this wind speed the longest runway is used (calm-wind runway), kt: FAA JO 7110.65
+ * §3-5-1 uses the runway most nearly aligned with the wind at 5 kt or more (research 05 §9.1).
+ * (Reporting "wind calm" is a different threshold, < 3 kt — phraseology `CALM_WIND_KT`.)
+ */
+export const CALM_RUNWAY_KT = 5;
 
 /**
  * Runways in use for a wind blowing FROM `windFromTrueDeg` at `windKt`. Uses the nav module's

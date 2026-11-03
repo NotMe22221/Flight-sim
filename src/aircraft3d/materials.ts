@@ -49,6 +49,11 @@ export interface ModelMaterials {
   knobRed: THREE.MeshStandardMaterial;
   /** daylight fill on the cabin materials, 0 (night) … 1 (day) */
   setCabinBounce(k: number): void;
+  /**
+   * Daylight 0 (night) … 1 (day): the cabin bounce fill, and the unlit (MeshBasic) prop blur
+   * disc, which would otherwise glow at night.
+   */
+  setDaylight(k: number): void;
   dispose(): void;
 }
 
@@ -89,7 +94,8 @@ export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials
   const bounce = new THREE.Color(0x2c2a26);
   const interior = new THREE.MeshStandardMaterial({ color: 0xa39f97, roughness: 0.9, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.35, emissive: bounce });
   const interiorDark = new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.9, metalness: 0, envMapIntensity: 0.35 });
-  const trimDark = new THREE.MeshStandardMaterial({ color: 0x1d1e20, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.3 });
+  // matte black padding: little sky reflection, or the grazing-angle Fresnel tints it blue
+  const trimDark = new THREE.MeshStandardMaterial({ color: 0x1d1e20, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.12 });
   const doorPanel = new THREE.MeshStandardMaterial({ color: 0x7b766d, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.3, emissive: bounce });
   const gasket = new THREE.MeshStandardMaterial({ color: 0x1a1b1c, roughness: 0.7, metalness: 0 });
   const cabinInner = new THREE.MeshStandardMaterial({ color: 0x1c1d1f, roughness: 1, metalness: 0, side: THREE.BackSide, envMapIntensity: 0.15 });
@@ -111,13 +117,20 @@ export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials
   const knobBlack = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
   const knobRed = new THREE.MeshStandardMaterial({ color: 0xc01818, roughness: 0.6 });
 
+  const setCabinBounce = (k: number): void => {
+    const v = Number.isFinite(k) ? Math.max(0, Math.min(1, k)) : 0;
+    interior.emissiveIntensity = v; doorPanel.emissiveIntensity = v; seat.emissiveIntensity = v;
+  };
+
   const all: THREE.Material[] = [paint, paintPlain, trim, glass, glassInterior, metal, rubber, hub, blade, interior, interiorDark, trimDark, doorPanel, gasket, cabinInner, seat, panelFrame, panel, panelG1000, propDisc, navRed, navGreen, navWhite, haloRed, haloGreen, haloWhite, knobBlack, knobRed];
   return {
     paint, paintPlain, trim, glass, glassInterior, metal, rubber, hub, blade, interior, interiorDark, trimDark, doorPanel, gasket, cabinInner, seat, panelFrame, panel, panelG1000, propDisc,
     navRed, navGreen, navWhite, haloRed, haloGreen, haloWhite, knobBlack, knobRed,
-    setCabinBounce(k: number) {
+    setCabinBounce,
+    setDaylight(k: number) {
       const v = Number.isFinite(k) ? Math.max(0, Math.min(1, k)) : 0;
-      interior.emissiveIntensity = v; doorPanel.emissiveIntensity = v; seat.emissiveIntensity = v;
+      setCabinBounce(v);
+      propDisc.color.setScalar(0.06 + 0.94 * v);
     },
     dispose() {
       for (const m of all) m.dispose();

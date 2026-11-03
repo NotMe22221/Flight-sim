@@ -189,15 +189,16 @@ export class AircraftModel {
 
   /**
    * Feed the sun elevation (rad): spotlights are also enabled in the cockpit view at night,
-   * and the cabin's bounce-light fill and the light on the (unlit) instrument faces follow the
-   * daylight (sun −6° … +15°); at night the panel needs `ControlInputs.lights.panel`.
+   * and the cabin's bounce-light fill, the unlit prop blur disc and the light on the (unlit)
+   * instrument faces follow the daylight (sun −6° … +15°); at night the panel needs
+   * `ControlInputs.lights.panel`.
    */
   setSunElevation(elevationRad: number): void {
     if (!Number.isFinite(elevationRad)) return;
     this.night = elevationRad < this.nightElevation;
     const t = Math.max(0, Math.min(1, (elevationRad / D2R + 6) / 21));
     this.daylight = t * t * (3 - 2 * t);
-    this.materials.setCabinBounce(this.daylight);
+    this.materials.setDaylight(this.daylight);
     this.cockpit.setPanelLighting(this.daylight, this.panelLight);
   }
 

@@ -368,6 +368,7 @@ export class TerrainSystem {
     }
     rec.failed = false;
     rec.haveVersion = rec.reqVersion;
+    const stale = rec.haveVersion < rec.wantVersion; // e.g. runways changed while this version loaded
     if (r.transientFailure && (standIn || rec.failures < MAX_DEGRADED_RETRIES)) {
       // a better source failed for a transient reason: keep this data, reload it later
       rec.failures++;
@@ -389,8 +390,13 @@ export class TerrainSystem {
     if (!rec.queued) { rec.queued = true; this.uploadQueue.push(rec); }
     // real data arrived: descendants showing synthetic stand-ins fall back to it right away
     if (!synthetic && this.degradedCount > 0) this.dropDegradedBelow(rec, now);
-    this.pinned.delete(rec.id);
-    this.resolveWaiters(rec.id);
+    // A prefetch target is done once nothing newer is coming: a stale answer (the runways
+    // changed meanwhile) re-requests the current version first, even without update().
+    if (stale && this.pinned.has(rec.id)) this.ensureRequested(rec, 100, now);
+    if (!rec.reqKey) {
+      this.pinned.delete(rec.id);
+      this.resolveWaiters(rec.id);
+    }
     this.loader.pump(now);
     this.checkIdle();
   }
@@ -630,20 +636,19 @@ export class TerrainSystem {
             const d = Math.hypot((cx + dx + 0.5 - t.x) * w, (y + 0.5 - t.y) * w);
             if (d > radiusM + 0.71 * w) continue;
             const rec = this.want(z, (((cx + dx) % n) + n) % n, y, now);
-            this.pinned.add(rec.id);
-            this.ensureRequested(rec, 100 - d / w, now);
+            this.pin(rec, 100 - d / w, now);
             if (z === this.maxZoom && dx === 0 && dy === 0) target = rec;
           }
         }
-        const anchor = this.wantAnchor(z, cx, cy, now);
-        if (anchor) {
-          this.pinned.add(anchor.id);
-          this.ensureRequested(anchor, 110, now);
-        }
+        const anchor = this.wantAnchor(z, ((cx % n) + n) % n, cy, now); // lon = 180 gives cx = n
+        if (anchor) this.pin(anchor, 110, now);
       }
       this.loader.pump(now);
       const tgt = target;
-      if (!tgt || tgt.gpu || tgt.pending || tgt.failed) return Promise.resolve();
+      // Done when nothing is outstanding for the target: its data is current (a resident tile
+      // with stale data, e.g. after setRunways, was re-requested above), or it failed and waits
+      // for a retry. Otherwise the answer to the outstanding request resolves it.
+      if (!tgt || !tgt.reqKey) { if (tgt) this.pinned.delete(tgt.id); return Promise.resolve(); }
       return new Promise<void>((resolve) => {
         const list = this.waiters.get(tgt.id);
         if (list) list.push(resolve); else this.waiters.set(tgt.id, [resolve]);
@@ -652,6 +657,17 @@ export class TerrainSystem {
       this.logError(err);
       return Promise.resolve();
     }
+  }
+
+  /**
+   * Keep a prefetch tile wanted until its request is answered. Tiles with nothing to load
+   * (already current, or waiting out a retry backoff) are not pinned: a pin is only released by
+   * an answer, so pinning them would exempt them from eviction for the rest of the session.
+   */
+  private pin(rec: TileRecord, priority: number, now: number): void {
+    this.ensureRequested(rec, priority, now);
+    if (rec.reqKey) this.pinned.add(rec.id);
+    else this.pinned.delete(rec.id);
   }
 
   /** Resolves when no tile request is outstanding (tests, loading screens). Uploads still need update(). */

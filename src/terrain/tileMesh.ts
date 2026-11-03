@@ -6,8 +6,9 @@
  * the tile centre. Earth curvature therefore falls out for free (−785 m at 100 km), and the
  * float32 values stay small (|p| ≲ tile half-diagonal) so GPU precision is never an issue.
  *
- * Vertex layout matches gridIndex.ts: (N+1)² grid vertices, then 4·(N+1) skirt vertices
- * (top, bottom, left, right edges) pushed down along the local geodetic vertical.
+ * Vertex layout matches gridIndex.ts: (N+1)² grid vertices, then 6·(N+1) skirt vertices
+ * (top, bottom, left, right edges, then the vertical and horizontal midlines) pushed down
+ * along the local geodetic vertical.
  */
 import { clamp } from '../core/math';
 import type { LocalFrameInfo, Vec3 } from '../core/types';
@@ -213,6 +214,10 @@ export function buildTileMesh(
     skirtVertex(G + 2 * W + j, 0, j);  // left (west)
     skirtVertex(G + 3 * W + j, N, j);  // right (east)
   }
+  // midline skirts: the interior borders of quadrants drawn as CDLOD parent patches
+  const half = N >> 1;
+  for (let j = 0; j < W; j++) skirtVertex(G + 4 * W + j, half, j); // vertical midline (i = N/2)
+  for (let i = 0; i < W; i++) skirtVertex(G + 5 * W + i, i, half); // horizontal midline (j = N/2)
 
   return { position, normal, uv, height, vertexCount: V, quads: N, centerEcef, centerThree, aabb, minH, maxH, skirtDepth };
 }

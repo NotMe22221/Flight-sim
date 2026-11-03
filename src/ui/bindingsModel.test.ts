@@ -32,13 +32,22 @@ describe('bindingConflicts', () => {
 });
 
 describe('bindingGroups', () => {
-  it('groups in first-appearance order with titles and flags', () => {
+  it('groups pilot-first (flight controls before engine before interface) with titles and flags', () => {
     const g = bindingGroups(rows);
-    expect(g.map((x) => x.group)).toEqual(['Engine', 'Flight controls', 'Interface']);
-    expect(g[0].rows[0].title).toBe('Engine auto start');
+    expect(g.map((x) => x.group)).toEqual(['Flight controls', 'Engine', 'Interface']);
+    expect(g[1].rows[0].title).toBe('Engine auto start');
     const unbound = g[2].rows.find((r) => r.info.action === 'screenshot')!;
     expect(unbound.unbound).toBe(true);
-    expect(g[1].rows.find((r) => r.info.action === 'gearToggle')!.conflictWith).toEqual(['flapsDown']);
+    expect(g[0].rows.find((r) => r.info.action === 'gearToggle')!.conflictWith).toEqual(['flapsDown']);
+  });
+  it('puts unknown groups after the known ones, in first-appearance order', () => {
+    const r: BindingInfo[] = [
+      { action: 'pause', label: 'P', device: 'keyboard', group: 'Zeta' },
+      { action: 'toggleMenu', label: 'Esc', device: 'keyboard', group: 'Interface' },
+      { action: 'screenshot', label: 'F12', device: 'keyboard', group: 'Alpha' },
+      { action: 'flapsUp', label: 'F6', device: 'keyboard', group: 'Flight controls' },
+    ];
+    expect(bindingGroups(r).map((x) => x.group)).toEqual(['Flight controls', 'Interface', 'Zeta', 'Alpha']);
   });
   it('filters by text and device', () => {
     expect(bindingGroups(rows, 'flaps').flatMap((x) => x.rows.map((r) => r.info.action))).toEqual(['flapsDown', 'flapsUp']);

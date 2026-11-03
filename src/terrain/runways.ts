@@ -4,8 +4,8 @@
  * No DEM is flat under a runway (−3 m at Sion, +2 m at Half Moon Bay against the published
  * thresholds), so inside a strip around the threshold-to-threshold centreline the heights
  * are replaced by the linear interpolation between the two threshold elevations and
- * feathered back into the DEM over `featherM`. The same modified grid is what the
- * HeightField samples, so wheels and pixels agree by construction.
+ * feathered back into the DEM over `featherM`. The mesh is built from the modified grid and
+ * the HeightField samples that mesh's vertex lattice, so wheels and pixels agree by construction.
  */
 import { smoothstep } from '../core/math';
 import type { Runway } from '../core/types';

@@ -44,3 +44,18 @@ describe('C172 checklist data', () => {
     expect(Object.keys(AUTO_CHECKS).length).toBe(AUTO_CHECK_IDS.length);
   });
 });
+
+describe('electrical auto-checks', () => {
+  const snap = (inputs: Record<string, unknown>) => ({ inputs } as never);
+  it('treats absent switches as ON (models without an electrical system)', () => {
+    expect(evalAutoCheck('masterOn', snap({}))).toBe(true);
+    expect(evalAutoCheck('avionicsOn', snap({}))).toBe(true);
+    expect(evalAutoCheck('masterOff', snap({}))).toBe(false);
+    expect(evalAutoCheck('avionicsOff', snap({}))).toBe(false);
+  });
+  it('follows the master and avionics switches', () => {
+    expect(evalAutoCheck('avionicsOff', snap({ avionicsMaster: false }))).toBe(true);
+    expect(evalAutoCheck('masterOn', snap({ masterBattery: true, masterAlternator: false }))).toBe(false);
+    expect(evalAutoCheck('masterOff', snap({ masterBattery: false, masterAlternator: false }))).toBe(true);
+  });
+});

@@ -43,6 +43,11 @@ export const AUTO_CHECKS: Record<AutoCheckId, (s: SimSnapshot) => boolean> = {
   climbSpeed: (s) => { const kt = s.aircraft.aero.ias * KT; return !s.aircraft.onGround && kt >= 68 && kt <= 86 && s.aircraft.verticalSpeedMs > 0.5; },
   altimeterSet: (s) => Math.abs(s.aircraft.qnhSetPa - s.weather.qnhPa) < 50, // within 0.5 hPa
   pitotHeatOn: (s) => s.inputs.pitotHeat,
+  // electrical switches: undefined = ON (flight models without an electrical system)
+  masterOn: (s) => s.inputs.masterBattery !== false && s.inputs.masterAlternator !== false,
+  masterOff: (s) => s.inputs.masterBattery === false && s.inputs.masterAlternator === false,
+  avionicsOn: (s) => s.inputs.avionicsMaster !== false,
+  avionicsOff: (s) => s.inputs.avionicsMaster === false,
 };
 
 export const AUTO_CHECK_IDS = Object.keys(AUTO_CHECKS) as AutoCheckId[];

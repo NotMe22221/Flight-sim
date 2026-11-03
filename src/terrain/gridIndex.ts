@@ -8,11 +8,16 @@
  *
  * Vertex layout (shared with tileMesh.ts): main grid vertex (i, j) → `j * (N+1) + i`,
  * i east (+x), j south (+z). Skirt vertices follow at `S = (N+1)²`: top edge (j = 0,
- * i = 0..N), bottom (j = N), left (i = 0, j = 0..N), right (i = N), each N+1 vertices.
+ * i = 0..N), bottom (j = N), left (i = 0, j = 0..N), right (i = N), then the two midlines
+ * (vertical i = N/2, j = 0..N; horizontal j = N/2, i = 0..N), each N+1 vertices.
  *
- * Index layout: grid (6·N² indices, Morton order), then the four skirt edges, each a run of
- * N quads (6·N indices) in edge order: top, bottom, left, right. Keeping the edges separate
- * lets a sub-square draw exactly the skirt segments on its own border.
+ * Index layout: grid (6·N² indices, Morton order), then the four edge skirts, each a run of
+ * N quads (6·N indices) in edge order: top, bottom, left, right — `tileIndexCount` ends here
+ * and is what a whole tile draws. After that come four midline skirt runs (N quads each):
+ * vertical midline facing east, facing west, horizontal midline facing south, facing north.
+ * A sub-square draws the skirt segments on its own border — tile edges and midlines — so a
+ * CDLOD parent patch (one quadrant of the parent mesh) has skirts on all four sides and no
+ * crack opens where the coarser parent surface lies above its finer neighbour's edge.
  */
 
 const cache = new Map<number, Uint16Array | Uint32Array>();
@@ -43,14 +48,16 @@ export function mortonDecode(code: number, out: Int32Array | number[]): void {
   out[1] = compact(code >>> 1);
 }
 
-/** Number of vertices in a tile mesh with `quads` quads per side (grid + skirt). */
-export const tileVertexCount = (quads: number): number => (quads + 1) * (quads + 1) + 4 * (quads + 1);
+/** Number of vertices in a tile mesh with `quads` quads per side (grid + edge and midline skirts). */
+export const tileVertexCount = (quads: number): number => (quads + 1) * (quads + 1) + 6 * (quads + 1);
 /** Number of vertices of the main grid only. */
 export const gridVertexCount = (quads: number): number => (quads + 1) * (quads + 1);
 /** Number of indices of the main grid (6 per quad). */
 export const gridIndexCount = (quads: number): number => 6 * quads * quads;
-/** Total index count including the skirt (4·N skirt quads). */
+/** Index count of a whole tile: grid + the four edge skirts (4·N skirt quads). */
 export const tileIndexCount = (quads: number): number => 6 * (quads * quads + 4 * quads);
+/** Length of the shared index buffer: whole tile + the four midline skirt runs (4·N quads). */
+export const fullIndexCount = (quads: number): number => 6 * (quads * quads + 8 * quads);
 
 function assertPow2(quads: number): void {
   if (quads < 2 || (quads & (quads - 1)) !== 0) throw new Error(`gridIndex: quads must be a power of two ≥ 2, got ${quads}`);
@@ -65,7 +72,7 @@ export function gridIndex(quads: number): Uint16Array | Uint32Array {
   const cached = cache.get(quads);
   if (cached) return cached;
   const N = quads, W = N + 1;
-  const count = tileIndexCount(N);
+  const count = fullIndexCount(N);
   const index = tileVertexCount(N) <= 65535 ? new Uint16Array(count) : new Uint32Array(count);
   const xy = new Int32Array(2);
   let k = 0;
@@ -105,6 +112,32 @@ export function gridIndex(quads: number): Uint16Array | Uint32Array {
     index[k++] = a; index[k++] = b; index[k++] = bs;
     index[k++] = a; index[k++] = bs; index[k++] = as;
   }
+  // Midline skirts, both facings (used by the sub-squares on either side of each line).
+  const half = N >> 1, vmid = S + 4 * W, hmid = S + 5 * W;
+  for (let j = 0; j < N; j++) {
+    // vertical midline (i = N/2) facing east (+x): border of the western sub-squares
+    const a = j * W + half, b = a + W, as = vmid + j, bs = vmid + j + 1;
+    index[k++] = a; index[k++] = b; index[k++] = bs;
+    index[k++] = a; index[k++] = bs; index[k++] = as;
+  }
+  for (let j = 0; j < N; j++) {
+    // vertical midline facing west (−x): border of the eastern sub-squares
+    const a = j * W + half, b = a + W, as = vmid + j, bs = vmid + j + 1;
+    index[k++] = a; index[k++] = bs; index[k++] = b;
+    index[k++] = a; index[k++] = as; index[k++] = bs;
+  }
+  for (let i = 0; i < N; i++) {
+    // horizontal midline (j = N/2) facing south (+z): border of the northern sub-squares
+    const a = half * W + i, b = a + 1, as = hmid + i, bs = hmid + i + 1;
+    index[k++] = a; index[k++] = bs; index[k++] = b;
+    index[k++] = a; index[k++] = as; index[k++] = bs;
+  }
+  for (let i = 0; i < N; i++) {
+    // horizontal midline facing north (−z): border of the southern sub-squares
+    const a = half * W + i, b = a + 1, as = hmid + i, bs = hmid + i + 1;
+    index[k++] = a; index[k++] = b; index[k++] = bs;
+    index[k++] = a; index[k++] = bs; index[k++] = as;
+  }
   cache.set(quads, index);
   return index;
 }
@@ -133,9 +166,9 @@ export function quadrantGridRange(quads: number, depth: number, code: number): I
 }
 
 /**
- * Skirt index ranges for the outer edges of the sub-square described by (depth, code):
- * the segments of the tile's own skirt that lie on the sub-square's border. Interior edges
- * (shared with sibling sub-squares) have no skirt. Returns 0–2 ranges (4 at depth 0).
+ * Skirt index ranges for the border of the sub-square described by (depth, code): the
+ * segments of the tile's edge skirts and midline skirts that lie on it. Borders on other
+ * interior lines have no skirt. Returns up to 4 ranges (a quadrant: two edge, two midline).
  */
 export function quadrantSkirtRanges(quads: number, depth: number, code: number, out: IndexRange[] = []): IndexRange[] {
   assertPow2(quads);
@@ -157,6 +190,13 @@ export function quadrantSkirtRanges(quads: number, depth: number, code: number, 
   if (j0 + side === N) out.push({ start: bottom + i0 * 6, count: side * 6 });
   if (i0 === 0) out.push({ start: left + j0 * 6, count: side * 6 });
   if (i0 + side === N) out.push({ start: right + j0 * 6, count: side * 6 });
+  if (c.depth > 0) {
+    const half = N >>> 1, mid = gridEnd + 24 * N;
+    if (i0 + side === half) out.push({ start: mid + j0 * 6, count: side * 6 });          // east border on the vertical midline
+    if (i0 === half) out.push({ start: mid + 6 * N + j0 * 6, count: side * 6 });         // west border on it
+    if (j0 + side === half) out.push({ start: mid + 12 * N + i0 * 6, count: side * 6 }); // south border on the horizontal midline
+    if (j0 === half) out.push({ start: mid + 18 * N + i0 * 6, count: side * 6 });        // north border on it
+  }
   return out;
 }
 
@@ -175,8 +215,9 @@ export function descendantCode(za: number, zc: number, xc: number, yc: number): 
  * Allocation-free form of `quadrantGridRange` + `quadrantSkirtRanges`: writes the index ranges
  * that draw sub-square (depth, code) of a `quads` tile as (start, count) pairs into `out`
  * (capacity ≥ 10) and returns the number of pairs. Depth 0 is the whole tile (one range,
- * grid and skirts together); deeper sub-squares give one grid range plus the tile-edge
- * skirt segments on their border (0–2, or 4 when the depth is clamped to a whole tile).
+ * grid and edge skirts together); deeper sub-squares give one grid range plus the skirt
+ * segments on their border that lie on a tile edge or a midline (at most 4; a quadrant gets
+ * all four sides). Borders on other interior lines (depth ≥ 2 stand-ins) have no skirt.
  */
 export function subSquareRanges(quads: number, depth: number, code: number, out: Int32Array): number {
   if (depth <= 0) { out[0] = 0; out[1] = tileIndexCount(quads); return 1; }
@@ -197,5 +238,11 @@ export function subSquareRanges(quads: number, depth: number, code: number, out:
   if (j0 + side === N) { out[2 * n] = gridEnd + 6 * N + i0 * 6; out[2 * n + 1] = run; n++; }
   if (i0 === 0) { out[2 * n] = gridEnd + 12 * N + j0 * 6; out[2 * n + 1] = run; n++; }
   if (i0 + side === N) { out[2 * n] = gridEnd + 18 * N + j0 * 6; out[2 * n + 1] = run; n++; }
+  // midline skirts (interior borders shared with sub-squares drawn by other tiles)
+  const half = N >>> 1, mid = gridEnd + 24 * N;
+  if (i0 + side === half) { out[2 * n] = mid + j0 * 6; out[2 * n + 1] = run; n++; }
+  if (i0 === half) { out[2 * n] = mid + 6 * N + j0 * 6; out[2 * n + 1] = run; n++; }
+  if (j0 + side === half) { out[2 * n] = mid + 12 * N + i0 * 6; out[2 * n + 1] = run; n++; }
+  if (j0 === half) { out[2 * n] = mid + 18 * N + i0 * 6; out[2 * n + 1] = run; n++; }
   return n;
 }

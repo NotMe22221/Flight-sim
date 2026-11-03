@@ -68,7 +68,7 @@ const u = ap.apply(effectiveControls);               // every frame; returns the
 | `rollCommandRad`, `pitchCommandRad`, `vsCommandMs` | Diagnostics: the commands fed to the inner loops |
 
 `state` (`GfcAutopilotState` ⊃ the contract's `AutopilotState`) adds `disconnectReason`
-(`pilot | override | stall | bank | overspeed | crash`), `disconnectT` and `modeChangeT` (autopilot
+(`pilot | override | stall | bank | overspeed | crash | power`), `disconnectT` and `modeChangeT` (autopilot
 clock, for the red "AP" flash / tone and the 10 s annunciator flash), `t`, `altAlert`
 (`none | approach | deviation`: 1 000 ft before the selected altitude, ±200 ft off a held one) and
 `lvl`. The contract has no LVL mode, so while `lvl` is set `lateral` reads `ROL` and `vertical`
@@ -123,6 +123,10 @@ yaw damper: rudder = −0.8 · washout(r, 2 s), ±0.3 (steady turn rate passes; 
   square made the loops sluggish at 70 kt and twitchy at 150 kt (`gains.qbarScheduleExponent`).
 * **Protections** (MSFS-like, `protections.*`): pilot stick > 0.5 for 0.5 s (`override`), the
   flight model's stall warning (`stall`), |φ| > 60° (`bank`), overspeed warning (`overspeed`), crash.
+* **Power**: the system runs off the avionics bus (`AircraftState.electrical.avionicsPowered`;
+  a flight model without `electrical` counts as powered). Down for more than 0.25 s → servos drop
+  (`power`), FD and YD go off, and engage / FD / YD / mode keys do nothing until it returns
+  (`isPowered`). The debounce also covers a flight model publishing its bus one step late.
 * **LVL** (`level()`, or `press('LVL')`): engages at any attitude, φc = 0 and ḣc = 0, all modes
   disarmed, the selected altitude untouched. While active the bank/overspeed/stall-warning
   disconnects are suspended and the roll command slews at 20°/s. *Unload, roll, then pull*: while
@@ -204,7 +208,7 @@ Acceptance on the test plant at 120 Hz (`Autopilot.test.ts`, `pid.test.ts`, `lev
 | NAV from 2 nm right: < 0.1 nm, intercept ≤ 45° | 134 s, 44.0° | 127 s, 44.4° |
 | APR/GS from 1 dot low at 6 nm: capture, track within 0.2 dot | capture 14.9 s, 0.16 dot | capture 14.7 s, 0.16 dot, CDI < 0.03 |
 | LOC capture from a 30° intercept, bank ≤ 22.5° | tested | — |
-| Disconnect on override (0.5 s), stall warning, bank > 60°, overspeed | tested | — |
+| Disconnect on override (0.5 s), stall warning, bank > 60°, overspeed, avionics power loss | tested | — |
 | Bumpless engage: elevator jump < 0.05 | 0.029 (pilot holding −0.22) | 0.008 |
 | FD bars equal the commands | exact (`toBeCloseTo(…, 12)`) | — |
 | Yaw damper washes out in a steady turn | 0.05 peak → 3·10⁻⁴ after 16 s at 3.6°/s | — |

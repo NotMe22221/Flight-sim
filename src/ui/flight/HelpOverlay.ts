@@ -1,6 +1,7 @@
 /** Keyboard cheat sheet from host.bindings(), grouped and searchable. */
 import type { BindingInfo } from '../UiHost';
-import { button, clear, deviceIcon, h, humanizeAction, icon } from '../dom';
+import { button, clear, deviceIcon, h, icon } from '../dom';
+import { bindingGroups } from '../bindingsModel';
 
 export class HelpOverlay {
   readonly el: HTMLElement;
@@ -35,22 +36,17 @@ export class HelpOverlay {
 
   private render(): void {
     clear(this.list);
-    const q = this.search.value.trim().toLowerCase();
-    const groups = new Map<string, BindingInfo[]>();
-    for (const b of this.bindings) {
-      if (b.device === 'none' && !q) continue;
-      const label = humanizeAction(b.action);
-      if (q && !label.toLowerCase().includes(q) && !b.label.toLowerCase().includes(q) && !b.group.toLowerCase().includes(q)) continue;
-      const g = groups.get(b.group) ?? [];
-      g.push(b);
-      groups.set(b.group, g);
-    }
-    if (groups.size === 0) { this.list.appendChild(h('div', { class: 'empty', text: this.bindings.length ? 'No matching bindings' : 'No bindings reported by the input module' })); return; }
-    for (const [group, items] of groups) {
+    const q = this.search.value.trim();
+    // same grouping and pilot-first order as Settings › Controls; unbound actions only when searching
+    const groups = bindingGroups(this.bindings, q)
+      .map((g) => ({ group: g.group, rows: q ? g.rows : g.rows.filter((r) => !r.unbound) }))
+      .filter((g) => g.rows.length > 0);
+    if (groups.length === 0) { this.list.appendChild(h('div', { class: 'empty', text: this.bindings.length ? 'No matching bindings' : 'No bindings reported by the input module' })); return; }
+    for (const { group, rows } of groups) {
       const g = h('div', { class: 'help-group' }, h('div', { class: 'section-label', text: group }));
-      for (const b of items) {
-        g.appendChild(h('div', { class: 'help-row' }, h('span', { text: humanizeAction(b.action) }),
-          h('span', { class: 'row', style: 'gap:6px' }, deviceIcon(b.device), h('span', { class: 'key', text: b.device === 'none' ? 'unbound' : b.label }))));
+      for (const r of rows) {
+        g.appendChild(h('div', { class: 'help-row' }, h('span', { text: r.title }),
+          h('span', { class: 'row', style: 'gap:6px' }, deviceIcon(r.info.device), h('span', { class: 'key', text: r.unbound ? 'unbound' : r.info.label }))));
       }
       this.list.appendChild(g);
     }

@@ -46,7 +46,7 @@ export interface AtisReport {
   metar: string;
   runways: readonly string[];
   obs: SurfaceObservation;
-  /** wind direction as broadcast (magnetic when `magVarDeg` was given), deg */
+  /** wind direction as broadcast before rounding to 10° (magnetic when `magVarDeg` was given), deg */
   windDirDeg: number;
 }
 

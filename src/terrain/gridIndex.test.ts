@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { descendantCode, gridIndex, gridIndexCount, mortonDecode, mortonEncode, quadrantGridRange, quadrantSkirtRanges, subSquareRanges, tileIndexCount, tileVertexCount } from './gridIndex';
+import { descendantCode, fullIndexCount, gridIndex, gridIndexCount, mortonDecode, mortonEncode, quadrantGridRange, quadrantSkirtRanges, subSquareRanges, tileIndexCount, tileVertexCount } from './gridIndex';
 
 describe('gridIndex', () => {
   it('morton round trip', () => {
@@ -9,15 +9,16 @@ describe('gridIndex', () => {
     expect(mortonEncode(0, 1)).toBe(2);
   });
 
-  it('64-quad index has 6·(64² + 4·64) entries referencing only valid vertices', () => {
+  it('64-quad index has 6·(64² + 8·64) entries (grid, edge and midline skirts) referencing only valid vertices', () => {
     const idx = gridIndex(64);
-    expect(idx.length).toBe(tileIndexCount(64));
-    expect(idx.length).toBe(2 * 3 * (64 * 64 + 4 * 64));
+    expect(idx.length).toBe(fullIndexCount(64));
+    expect(idx.length).toBe(2 * 3 * (64 * 64 + 8 * 64));
+    expect(tileIndexCount(64)).toBe(2 * 3 * (64 * 64 + 4 * 64)); // a whole tile draws grid + edge skirts
     expect(idx).toBeInstanceOf(Uint16Array);
     const V = tileVertexCount(64);
     for (let i = 0; i < idx.length; i++) expect(idx[i]).toBeLessThan(V);
     expect(gridIndex(64)).toBe(idx); // cached
-    expect(gridIndex(128)).toBeInstanceOf(Uint16Array); // 129² + 4·129 = 17157 fits
+    expect(gridIndex(128)).toBeInstanceOf(Uint16Array); // 129² + 6·129 = 17415 fits
     expect(gridIndex(256)).toBeInstanceOf(Uint32Array); // 257² > 65535
   });
 
@@ -41,12 +42,17 @@ describe('gridIndex', () => {
     expect(ranges.every((r) => r.count === 96)).toBe(true);
     const full = quadrantGridRange(N, 0, 0);
     expect(full).toEqual({ start: 0, count: gridIndexCount(N) });
-    // NW quadrant: top + left edges, each 4 quads of the 8-quad edge
+    // NW quadrant: top + left edges (4 quads of each 8-quad edge), then its east and south
+    // borders on the midlines (vertical midline facing east, horizontal facing south)
     const nw = quadrantSkirtRanges(N, 1, 0);
-    expect(nw).toEqual([{ start: 384, count: 24 }, { start: 384 + 96, count: 24 }]);
-    // SE quadrant: bottom + right edges, offset by 4 quads
+    const mid = 384 + 4 * 48;
+    expect(nw).toEqual([{ start: 384, count: 24 }, { start: 384 + 96, count: 24 }, { start: mid, count: 24 }, { start: mid + 96, count: 24 }]);
+    // SE quadrant: bottom + right edges offset by 4 quads, then its west / north borders on the midlines
     const se = quadrantSkirtRanges(N, 1, 3);
-    expect(se).toEqual([{ start: 384 + 48 + 24, count: 24 }, { start: 384 + 144 + 24, count: 24 }]);
+    expect(se).toEqual([
+      { start: 384 + 48 + 24, count: 24 }, { start: 384 + 144 + 24, count: 24 },
+      { start: mid + 48 + 24, count: 24 }, { start: mid + 144 + 24, count: 24 },
+    ]);
     expect(quadrantSkirtRanges(N, 0, 0).length).toBe(4);
     // depth beyond the grid resolution clamps to a single quad
     expect(quadrantGridRange(N, 5, 0b1111111111).count).toBe(6);

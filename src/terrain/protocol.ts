@@ -97,6 +97,10 @@ export interface TileResponse {
   elevationZoom: number;
   mesh: MeshPayload;
   water: WaterPayload | null;
+  /**
+   * The (flattened) DEM grid, full or 4× downsampled. Collision does not use it: TerrainSystem
+   * stores the mesh's own vertex lattice (`mesh.height`) so wheels rest on the drawn triangles.
+   */
   heights: Float32Array;
   heightsWidth: number;
   imagery: ImageryPayload;

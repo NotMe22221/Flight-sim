@@ -11,7 +11,8 @@ export type AutoCheckId =
   | 'fuelBoth' | 'fuelLeftOrRight'
   | 'flapsUp' | 'flaps10' | 'flapsTakeoff' | 'flapsFull' | 'flaps20orLess'
   | 'beaconOn' | 'navLightsOn' | 'strobeOn' | 'strobeOff' | 'landingLightOn' | 'landingLightOff' | 'taxiLightOn'
-  | 'autopilotOff' | 'trimTakeoff' | 'airborne' | 'onGround' | 'climbSpeed' | 'altimeterSet' | 'pitotHeatOn';
+  | 'autopilotOff' | 'trimTakeoff' | 'airborne' | 'onGround' | 'climbSpeed' | 'altimeterSet' | 'pitotHeatOn'
+  | 'masterOn' | 'masterOff' | 'avionicsOn' | 'avionicsOff';
 
 export interface ChecklistItem { text: string; response: string; auto?: AutoCheckId; note?: string }
 export interface ChecklistSection { id: string; title: string; phase: 'ground' | 'takeoff' | 'flight' | 'landing'; items: ChecklistItem[] }
@@ -27,7 +28,7 @@ export const C172_CHECKLISTS: ChecklistSection[] = [
       i('Brakes', 'TEST & SET', 'parkingBrakeSet'),
       i('Circuit breakers', 'CHECK IN'),
       i('Electrical equipment', 'OFF'),
-      i('Avionics (BUS 1 & 2)', 'OFF'),
+      i('Avionics (BUS 1 & 2)', 'OFF', 'avionicsOff'),
       i('Fuel selector', 'BOTH', 'fuelBoth'),
       i('Fuel shutoff valve', 'ON (push full in)'),
     ],
@@ -37,7 +38,7 @@ export const C172_CHECKLISTS: ChecklistSection[] = [
       i('Throttle', 'OPEN 1/4 in', 'throttleQuarter'),
       i('Mixture', 'IDLE CUT-OFF', 'mixtureCutoff'),
       i('Propeller area', 'CLEAR'),
-      i('Master (ALT & BAT)', 'ON'),
+      i('Master (ALT & BAT)', 'ON', 'masterOn'),
       i('Beacon', 'ON', 'beaconOn'),
       i('Aux fuel pump', 'ON'),
       i('Mixture', 'FULL RICH until fuel flow stable 3–5 s, then IDLE CUT-OFF'),
@@ -46,7 +47,7 @@ export const C172_CHECKLISTS: ChecklistSection[] = [
       i('Mixture', 'ADVANCE smoothly to RICH when engine fires', 'mixtureRich'),
       i('Oil pressure', 'CHECK (rise within 30 s, 60 s cold)', 'oilPressureOk'),
       i('Nav lights', 'ON as required', 'navLightsOn'),
-      i('Avionics (BUS 1 & 2)', 'ON'),
+      i('Avionics (BUS 1 & 2)', 'ON', 'avionicsOn'),
       i('Radios', 'ON'),
       i('Flaps', 'RETRACT', 'flapsUp'),
     ],
@@ -170,11 +171,11 @@ export const C172_CHECKLISTS: ChecklistSection[] = [
   {
     id: 'securing', title: 'Securing airplane', phase: 'ground', items: [
       i('Parking brake', 'SET', 'parkingBrakeSet'),
-      i('Avionics', 'OFF'),
+      i('Avionics', 'OFF', 'avionicsOff'),
       i('Electrical equipment, autopilot', 'OFF', 'autopilotOff'),
       i('Mixture', 'IDLE CUT-OFF (pull full out)', 'mixtureCutoff'),
       i('Ignition', 'OFF', 'magnetosOff'),
-      i('Master', 'OFF'),
+      i('Master', 'OFF', 'masterOff'),
       i('Control lock', 'INSTALL'),
       i('Fuel selector', 'LEFT or RIGHT (prevents cross-feeding)', 'fuelLeftOrRight'),
       i('Chocks / tie-downs', 'INSTALL'),

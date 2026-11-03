@@ -23,6 +23,8 @@ export interface ScreenContext {
   resetLayout?(): void;
   /** Activities: show the loading screen and start a landing challenge (host.startChallenge). */
   startChallenge?(id: string): void;
+  /** Main menu "Resume flight": back to the flight and out of the pause menu (Esc/back keeps it open). */
+  resumeFlight?(): void;
 }
 
 export abstract class Screen {

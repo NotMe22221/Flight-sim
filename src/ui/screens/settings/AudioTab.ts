@@ -25,7 +25,8 @@ export class AudioTab implements SettingsTabView {
       this.sliders.set(b.key, s);
       return s.el;
     });
-    this.el = h('div', { class: 'settings-grid' },
+    // one group: keep the sliders a comfortable length instead of spanning a wide window
+    this.el = h('div', { class: 'settings-grid', style: 'max-width:760px' },
       group('Volume', ...rows, h('div', { class: 'muted', style: 'font-size:.85em', text: 'Sound starts after your first click or key press (browser autoplay rules).' })));
   }
 

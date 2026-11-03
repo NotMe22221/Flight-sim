@@ -96,6 +96,15 @@ export class TileCache {
     }
   }
 
+  /**
+   * Drop the stored response for `url` (one that failed to decode — a corrupt entry or a 200
+   * error page) so the next request refetches it instead of failing forever. Never throws.
+   */
+  async evict(url: string): Promise<void> {
+    const cache = await this.open();
+    if (cache) await cache.delete(url).catch(() => false);
+  }
+
   /** Every 200 insertions, drop the oldest 10 % when over the cap (keys() preserves insertion order in practice). */
   private async afterPut(cache: Cache): Promise<void> {
     if (++this.puts % 200 !== 0) return;
@@ -130,5 +139,10 @@ export async function decodeElevationBlob(blob: Blob, format: 'png' | 'webp', ti
 /** Imagery as a transferable ImageBitmap, flipped so that v = 0 is the south edge (texture.flipY must be false). */
 export async function fetchImageryBitmap(cache: TileCache, url: string, signal: AbortSignal): Promise<ImageBitmap> {
   const blob = await cache.fetchBlob(url, signal);
-  return createImageBitmap(blob, { imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+  try {
+    return await createImageBitmap(blob, { imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+  } catch (err) {
+    void cache.evict(url); // undecodable bytes must not stay cached
+    throw err;
+  }
 }

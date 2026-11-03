@@ -288,7 +288,9 @@ describe('GfcAutopilot protections and servos', () => {
     sim.run(1);
     expect(sim.s.engaged).toBe(true);
     elec.avionicsPowered = false;
-    sim.frame();
+    sim.run(0.2);
+    expect(sim.s.engaged).toBe(true); // rides through a short drop-out
+    sim.run(0.1);
     expect(reasons).toEqual(['power']);
     expect(sim.s.engaged).toBe(false);
     expect(sim.s.flightDirector).toBe(false);

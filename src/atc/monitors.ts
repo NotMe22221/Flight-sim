@@ -4,9 +4,10 @@
  * clearance on final, go-around, runway exit and parking. Every unsolicited controller call is
  * guarded by a flag or a state change so it is made once, never every frame.
  */
+import { deltaDeg } from '../core/math';
 import { NM, RAD } from '../core/units';
 import { allRunwayRefs } from './field';
-import { greatCircleDistance } from '../geo/wgs84';
+import { greatCircleDistance, initialBearingDeg } from '../geo/wgs84';
 import {
   classifyPatternLeg, HOLD_SHORT_BOX, isAtHoldShort, isEstablishedOnFinal, isOnRunway, makeRelativeState, makeRunwayFrame, relativeTo,
   type RunwayFrame,
@@ -31,6 +32,8 @@ const PARK_IDLE_S = 60;
 const INBOUND_CLOSING_S = 3;
 /** Closing speed that counts as "heading for it", m/s. */
 const INBOUND_CLOSING_MS = 10;
+/** … with the ground track within this of the bearing to the field, deg (passing by is not inbound). */
+const INBOUND_HEADING_DEG = 30;
 /** Time outside the pattern area before reverting to en route, s. */
 const PATTERN_EXIT_S = 10;
 /** A touchdown farther than this from every airport is an off-field landing, nm. */
@@ -174,12 +177,15 @@ export function lineUpRunwayAt(s: AtcSession): RunwayFrame | null {
   return best;
 }
 
-/** Stopped near a runway end → HOLDING_SHORT (checked once per stop). */
+/**
+ * Stopped near a runway end → HOLDING_SHORT (checked once per stop). Also while holding short:
+ * a later stop at another runway end makes that the departure runway.
+ */
 function checkHoldShort(s: AtcSession, dt: number): void {
   if (s.stoppedS < HOLD_SHORT_STOP_S || s.stoppedS - dt >= HOLD_SHORT_STOP_S) return;
   const best = holdShortRunwayAt(s);
   if (!best) return;
-  s.runway = best;
+  if (best.ident !== s.runway?.ident) { s.runway = best; s.menuDirty = true; }
   s.setPhase('HOLDING_SHORT');
 }
 
@@ -224,16 +230,11 @@ function monitorEnroute(s: AtcSession, watch: InboundWatch, tickS: number): void
   if (watch.icao !== icao) { watch.icao = icao; watch.lastRangeM = rangeM; watch.closingS = 0; return; }
   const closing = (watch.lastRangeM - rangeM) / Math.max(tickS, 1e-3);
   watch.lastRangeM = rangeM;
-  watch.closingS = closing > INBOUND_CLOSING_MS ? watch.closingS + tickS : 0;
+  const headingFor = Math.abs(deltaDeg(ac.trackRad * RAD, initialBearingDeg(ac.geo, target.info.airport.position))) <= INBOUND_HEADING_DEG;
+  watch.closingS = closing > INBOUND_CLOSING_MS && headingFor ? watch.closingS + tickS : 0;
   if (watch.closingS < INBOUND_CLOSING_S || s.radio.busy) return;
-  const ff = s.flightFollowing;
-  const twr = target.info.tower;
-  if (ff && twr) {
-    s.atcCalls(ff, (cs) => atc.radarTerminated(cs, twr));
-    s.expectReadback(ff, `Acknowledge: squawk VFR, contact ${twr.name.text}`, (cs) => readback.squawkVfr(cs, twr), () => s.tune(twr));
-    s.flightFollowing = null;
-    s.squawk = 1200;
-  }
+  // Only the destination context changes: flight following stays until the pilot asks radar for
+  // the landing (INBOUND menu) — an aircraft heading for a towered field may be passing over it.
   s.field = s.fieldCtx(target.info.airport);
   s.inboundCancelM = s.tuning.inboundCancelRangeM;
   watch.icao = ''; watch.closingS = 0;
@@ -339,6 +340,9 @@ export function monitorPhase(s: AtcSession, dt: number, slowTickS: number, watch
         s.field = nearestField(s, 3);
         if (s.field) s.menuDirty = true;
       }
+      checkHoldShort(s, dt);
+      break;
+    case 'HOLDING_SHORT':
       checkHoldShort(s, dt);
       break;
     case 'DEPARTING':

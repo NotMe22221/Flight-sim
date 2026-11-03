@@ -78,7 +78,13 @@ async function loadElevation(req: LoadRequest, signal: AbortSignal, ctx: TileJob
         return { heights: t.heights, width: src.tileSize, providerId: src.providerId, zoom: req.z };
       }
       const blob = await ctx.cache.fetchBlob(src.url, signal);
-      const d = await decodeElevationBlob(blob, src.format, src.tileSize);
+      let d: Awaited<ReturnType<typeof decodeElevationBlob>>;
+      try {
+        d = await decodeElevationBlob(blob, src.format, src.tileSize);
+      } catch (err) {
+        await ctx.cache.evict(src.url); // a corrupt cached copy must not poison this tile forever
+        throw err;
+      }
       if (!src.sub) return { heights: d.heights, width: d.width, providerId: src.providerId, zoom: src.zoom };
       const heights = extractSubGrid(d.heights, d.width, src.sub.depth, src.sub.x, src.sub.y, d.width);
       return { heights, width: d.width, providerId: src.providerId, zoom: src.zoom };

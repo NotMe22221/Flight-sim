@@ -9,7 +9,7 @@ import type { NavDb } from '../nav';
 import { findRunwayEnd, magneticDeclinationDeg } from '../nav';
 import { buildAtis } from './atis';
 import { makeCallsign } from './callsign';
-import { allRunwayRefs } from './field';
+import { allRunwayRefs, runwaysInUse } from './field';
 import { makeRunwayFrame, relativeTo } from './geometry';
 import { readback } from './messages';
 import { frequency, wind } from './phraseology';
@@ -413,5 +413,85 @@ describe('more review findings', () => {
     h.wait(3);
     expect(h.find(/roger, report base/)).toBeDefined();
     expect(h.atc.options.some((o) => o.startsWith('Read back'))).toBe(false);
+  });
+});
+
+describe('holding short', () => {
+  it('stopping at another runway end after a first hold-short stop makes that the departure runway', () => {
+    const ksfo = airport('KSFO');
+    const h = new Harness(db, ksfoWeather(), frameOf(ksfo, '28R'), { along: 800, cross: -700, h: 0 }, UTC);
+    h.setEngine(true);
+    h.atc.reset(ksfo);
+    h.wait(1);
+    h.select(/^Request taxi for VFR departure/);
+    h.wait(3);
+    h.select(/^Read back: taxi/);
+    expect(h.atc.runwayIdent).toBe('28L');
+    // First stop: on the extended centreline just before the 19L threshold (28R frame: 1496, 944).
+    h.move({ along: 1496, cross: 1064, h: 0 }, 8, true);
+    h.wait(3);
+    expect(h.atc.phase).toBe('HOLDING_SHORT');
+    expect(h.atc.runwayIdent).toBe('19L');
+    // Then on to the assigned runway's hold-short point.
+    h.move({ along: 39, cross: -318, h: 0 }, 8, true);
+    h.wait(3);
+    expect(h.atc.runwayIdent).toBe('28L');
+    expect(h.atc.options[0]).toBe('Ready for departure, runway 28L (Tower 120.5)');
+  });
+});
+
+describe('runway selection', () => {
+  it('below 5 kt the calm-wind (longest) runway is used (FAA JO 7110.65 §3-5-1, research 05 §9.1)', () => {
+    const ksfo = airport('KSFO');
+    expect(runwaysInUse(ksfo, 30, 4)?.primary.ident).toBe('10L'); // longest runway, end most into the light wind
+    expect(runwaysInUse(ksfo, 30, 6)?.primary.ident).toBe('1R'); // ≥ 5 kt: most nearly aligned with the wind
+    expect(runwaysInUse(ksfo, 280, 12)?.all.map((r) => r.ident)).toEqual(['28L', '28R']);
+  });
+});
+
+describe('automatic inbound detection with flight following', () => {
+  it('closing on a towered field at an angle (passing by) neither makes it the destination nor ends radar service', () => {
+    const ksfo = airport('KSFO');
+    const r28R = allRunwayRefs(ksfo).find((r) => r.ident === '28R');
+    if (!r28R) throw new Error('28R missing');
+    const arp = relativeTo(makeRunwayFrame(ksfo, r28R), ksfo.position, 4, 0);
+    // 20 km (10.8 nm) out over the ocean, inside the 12 nm inbound range.
+    const p0: Point = { along: arp.alongM + 20000, cross: arp.crossM, h: 900 };
+    const h = new Harness(db, ksfoWeather(), frameOf(ksfo, '28R'), p0, UTC);
+    h.setMotion(50, 0, false);
+    h.atc.reset(null);
+    h.wait(2);
+    h.select(/^Request VFR flight following \(Departure [\d.]+\)/);
+    h.wait(3);
+    h.select(/^Read back squawk/);
+    const code = h.atc.squawk;
+    expect(code).not.toBe(1200);
+    // 60° off the bearing to the field: still closing at ~25 m/s, but not heading for it.
+    h.move({ along: p0.along - 1500, cross: p0.cross + 2598, h: 900 }, 50, false, 0.25);
+    expect(h.atc.phase).toBe('ENROUTE');
+    expect(h.atc.squawk).toBe(code);
+    expect(h.messages.some((m) => /radar service terminated/.test(m.text))).toBe(false);
+  });
+});
+
+describe('arrival at an untowered field on flight following', () => {
+  it('radar is asked for the landing and approves the change to the advisory frequency', () => {
+    const ksfo = airport('KSFO');
+    const h = new Harness(db, ksfoWeather(), frameOf(ksfo, '28R'), OFFSHORE, UTC);
+    h.setMotion(50, 0, false);
+    h.atc.reset(null);
+    h.wait(2);
+    h.select(/^Request VFR flight following \(Departure [\d.]+\)/);
+    h.wait(3);
+    h.select(/^Read back squawk/);
+    h.select(/^Prepare to land at Half Moon Bay \(KHAF\)/);
+    const i = h.select(/^Request landing at Half Moon Bay \(Departure [\d.]+\)/);
+    expect(h.messages[i].text).toMatch(/^.+ Departure, Cessna 2FS, request landing at Half Moon Bay\.$/);
+    h.wait(3);
+    expect(h.find(/radar service terminated/)?.text).toBe('Cessna 2FS, radar service terminated, squawk VFR, change to advisory frequency approved.');
+    expect(h.atc.squawk).toBe(1200);
+    h.select(/^Acknowledge: squawk VFR/);
+    expect(h.atc.frequencyMHz).toBe(122.9);
+    expect(h.atc.options.some((o) => o.startsWith('Announce inbound, full stop (CTAF 122.9)'))).toBe(true);
   });
 });

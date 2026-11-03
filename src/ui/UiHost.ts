@@ -64,4 +64,9 @@ export interface UiHost {
   startChallenge?(id: string): Promise<void>;
   /** COM1 active/standby frequencies, MHz: the ATC panel header shows the tuned station. */
   comRadio?(): { activeMHz: number; standbyMHz: number } | null;
+  /**
+   * Settings › General › "Flight info strip" (pushed at startup and on change). Lets a host that
+   * draws its own speed/altitude/heading strip (an instruments HUD replacing the UI's) honour it.
+   */
+  setInfoStrip?(visible: boolean): void;
 }

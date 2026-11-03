@@ -217,6 +217,24 @@ describe('TerrainSystem (in-thread, injected fetch)', () => {
     ts.dispose();
   });
 
+  it('prefetch waits for the current data version: runways set on resident tiles are flattened before it resolves', async () => {
+    const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0));
+    await settle(ts, clock, cameraAt(0, 300, 0)); // resident, unflattened
+    expect(Math.abs(ts.heightAt(KSFO.lat, KSFO.lon)! - 3.96)).toBeLessThan(0.5);
+    const end = { lat: 37.62873, lon: -122.39320, alt: 3.4 };
+    ts.setRunways([{ a: { lat: KSFO.lat, lon: KSFO.lon, alt: 6.5 }, b: end, widthM: 61 }]);
+    await ts.prefetch(KSFO.lat, KSFO.lon, 500); // a respawn: no update() in between
+    expect(ts.heightAt(KSFO.lat, KSFO.lon)!).toBeCloseTo(6.5, 1);
+    // and when the runways change while the spawn tile is still loading, the stale answer does not resolve it
+    const fresh = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0));
+    const p = fresh.ts.prefetch(KSFO.lat, KSFO.lon, 500);
+    fresh.ts.setRunways([{ a: { lat: KSFO.lat, lon: KSFO.lon, alt: 6.5 }, b: end, widthM: 61 }]);
+    await p;
+    expect(fresh.ts.heightAt(KSFO.lat, KSFO.lon)!).toBeCloseTo(6.5, 1);
+    ts.dispose();
+    fresh.ts.dispose();
+  });
+
   it('network errors never throw: a rejecting fetch degrades to procedural terrain', async () => {
     const failing: FetchFn = async () => { throw new TypeError('Failed to fetch'); };
     const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0), { fetch: failing });
@@ -309,6 +327,16 @@ describe('TerrainSystem (in-thread, injected fetch)', () => {
     expect(ts.stats().resident).toBe(0);
     expect(ts.heightAt(KSFO.lat, KSFO.lon)).toBeNull();
     ts.update(new Vector3(), cameraAt(0, 300, 0), 0.016); // no-op after dispose
+  });
+
+  it('prefetch over resident tiles does not pin them forever: they are still evicted after flying away', async () => {
+    const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0), { maxResidentTiles: 10 });
+    await settle(ts, clock, cameraAt(0, 300, 0));
+    await ts.prefetch(KSFO.lat, KSFO.lon, 1500); // respawn at the same airport: everything is already loaded
+    await settle(ts, clock, cameraAt(40_000, 300, 0));
+    expect(ts.heightAt(KSFO.lat, KSFO.lon)).toBeNull();
+    expect(ts.stats().resident).toBeLessThanOrEqual(40);
+    ts.dispose();
   });
 
   it('setSun / setFog write the shared uniforms', () => {

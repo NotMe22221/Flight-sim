@@ -61,6 +61,7 @@ export const pilot = {
   flightFollowing: (f: Facility, cs: Spoken, type: string, where: Spoken, altFt: number): Spoken =>
     say`${f.name}, ${cs}, ${type}, ${where}, ${altitude(altFt)}, request VFR flight following.`,
   cancelFlightFollowing: (f: Facility, cs: Spoken): Spoken => say`${f.name}, ${cs}, cancel flight following.`,
+  requestLanding: (f: Facility, cs: Spoken, field: string): Spoken => say`${f.name}, ${cs}, request landing at ${field}.`,
   inbound: (f: Facility, cs: Spoken, where: Spoken, altFt: number, intent: LandingIntent, letter: string | null): Spoken =>
     say`${f.name}, ${cs}, ${where}, ${altitude(altFt)}, inbound for landing, ${intentWords(intent)}${withInfo(letter)}.`,
   positionReport: (f: Facility, cs: Spoken, leg: PatternLeg, side: TrafficSide, rwy: string): Spoken =>
@@ -103,9 +104,10 @@ export const atc = {
   closedTraffic: (cs: Spoken, side: TrafficSide, rwy: string): Spoken => say`${cs}, make ${side} closed traffic runway ${runway(rwy)}, report downwind.`,
   radarContact: (cs: Spoken, f: Facility, code: number, where: Spoken, inHg: number): Spoken =>
     say`${cs}, ${f.name}, squawk ${squawk(code)}, radar contact ${where}, altimeter ${altimeter(inHg)}, maintain VFR.`,
-  radarTerminated: (cs: Spoken, next: Facility | null): Spoken =>
+  /** `advisory`: to an untowered field ("change to advisory frequency approved"). */
+  radarTerminated: (cs: Spoken, next: Facility | null, advisory = false): Spoken =>
     next ? say`${cs}, radar service terminated, squawk VFR, contact ${next.name} ${frequency(next.mhz)}.`
-      : say`${cs}, radar service terminated, squawk VFR, frequency change approved.`,
+      : say`${cs}, radar service terminated, squawk VFR, ${advisory ? 'change to advisory frequency approved' : 'frequency change approved'}.`,
   patternEntry: (cs: Spoken, f: Facility, entry: PatternEntry, side: TrafficSide, rwy: string, extra: Spoken): Spoken =>
     say`${cs}, ${f.name}, ${entryPhrase(entry, side, rwy)}, report ${entryReport(entry)}. ${extra}`,
   roger: (cs: Spoken, next: Spoken | null): Spoken => say`${cs}, roger${next ? say`, report ${next}` : EMPTY}.`,

@@ -187,6 +187,24 @@ export function cancelFlightFollowing(s: AtcSession): void {
   });
 }
 
+/**
+ * Arrival on flight following: ask the radar controller for the landing at `ctx` — radar service
+ * terminated, squawk VFR, and a handoff to the tower (or the CTAF at an untowered field).
+ */
+export function requestLandingFromRadar(s: AtcSession, ctx: FieldCtx): void {
+  const ff = s.flightFollowing;
+  if (!ff) return;
+  const twr = ctx.info.tower ?? null;
+  s.pilotSays(ff, (cs) => pilot.requestLanding(ff, cs, ctx.info.shortName));
+  s.atcReplies(ff, (cs) => atc.radarTerminated(cs, twr, !twr), () => {
+    s.flightFollowing = null;
+    s.squawk = 1200;
+    const next = twr ?? ctx.info.ctaf;
+    s.expectReadback(ff, twr ? `Acknowledge: squawk VFR, contact ${twr.name.text}` : 'Acknowledge: squawk VFR',
+      (cs) => readback.squawkVfr(cs, twr), () => s.tune(next));
+  });
+}
+
 // ───────────────────────────── Arrival ─────────────────────────────
 
 /** Extra range beyond a menu-picked destination's distance before the arrival is abandoned, m. */

@@ -16,11 +16,11 @@ describe('tileMesh', () => {
     const dem = ksfoTile();
     const skirt = skirtDepthFor(15, 37.6);
     const m = buildTileMesh(15, 5246, 12684, dem.heights, 256, frame, 64, skirt);
-    expect(m.vertexCount).toBe(65 * 65 + 4 * 65);
+    expect(m.vertexCount).toBe(65 * 65 + 6 * 65); // grid + 4 edge skirts + 2 midline skirts
     expect(m.vertexCount).toBe(tileVertexCount(64));
     expect(m.position.length).toBe(m.vertexCount * 3);
-    expect(gridIndex(64).length).toBe(2 * 3 * (64 * 64 + 4 * 64));
-    expect(tileIndexCount(64)).toBe(26112);
+    expect(gridIndex(64).length).toBe(2 * 3 * (64 * 64 + 8 * 64));
+    expect(tileIndexCount(64)).toBe(26112); // a whole tile: grid + edge skirts
     const halfDiag = (tileWidthMeters(37.6, 15) * Math.SQRT2) / 2;
     for (let k = 0; k < m.vertexCount; k++) {
       const x = m.position[k * 3], y = m.position[k * 3 + 1], z = m.position[k * 3 + 2];

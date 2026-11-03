@@ -7,7 +7,7 @@ import type { Airport } from '../core/types';
 import { NM } from '../core/units';
 import {
   callInbound, cancelFlightFollowing, cancelInbound, cancelTakeoff, departureRunway, listenAtis, readBack, readyForDeparture, requestClearance,
-  requestClosedTraffic, requestFlightFollowing, requestFrequencyChange, requestTaxi, selectDestination, announceInbound,
+  requestClosedTraffic, requestFlightFollowing, requestFrequencyChange, requestLandingFromRadar, requestTaxi, selectDestination, announceInbound,
 } from './actions';
 import type { Facility, FacilityKind } from './field';
 import { legPhrase } from './messages';
@@ -98,7 +98,10 @@ function inboundItems(s: AtcSession, ctx: FieldCtx, out: MenuItem[]): void {
   const atis = atisItem(s, ctx, true);
   if (atis) out.push(atis);
   const ff = s.flightFollowing;
-  if (ff) out.push({ label: `Cancel flight following${via(ff)}`, run: () => cancelFlightFollowing(s) });
+  if (ff) {
+    out.push({ label: `Request landing at ${ctx.info.shortName}${via(ff)}`, run: () => requestLandingFromRadar(s, ctx) });
+    out.push({ label: `Cancel flight following${via(ff)}`, run: () => cancelFlightFollowing(s) });
+  }
   const twr = ctx.info.tower;
   if (twr) {
     out.push({ label: `Inbound for landing, full stop${via(twr)}`, run: () => callInbound(s, ctx, 'full-stop') });

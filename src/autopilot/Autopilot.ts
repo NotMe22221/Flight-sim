@@ -124,6 +124,7 @@ export class GfcAutopilot implements Autopilot {
   private lvlUnloading = false;
   /** avionics bus powered (from `AircraftState.electrical`; flight models without one count as powered) */
   private powered = true;
+  private unpoweredT = 0;
 
   constructor(opts: GfcAutopilotOptions = {}) {
     this.config = mergeConfig(defaultAutopilotConfig(), opts.config);
@@ -268,7 +269,7 @@ export class GfcAutopilot implements Autopilot {
     this.rollPid.reset(); this.pitchPid.reset(); this.vsPid.reset(); this.flcPid.reset();
     this.ydWashout.reset(); this.lateralDotsRate.reset();
     this.locIntegral = 0; this.gsIntegral = 0; this.overrideTimer = 0; this.trimTimer = 0; this.trimRunning = false; this.sourceLostTimer = 0; this.gsLostTimer = 0;
-    this.lastAc = null; this.lastNav = null; this.pendingEngageSync = false; this.lvlUnloading = false; this.powered = true;
+    this.lastAc = null; this.lastNav = null; this.pendingEngageSync = false; this.lvlUnloading = false; this.powered = true; this.unpoweredT = 0;
   }
 
   // ───────────────────────────── mode selection ─────────────────────────────
@@ -405,8 +406,11 @@ export class GfcAutopilot implements Autopilot {
     this.lastAc = ac;
     this.lastNav = nav;
 
-    // The GFC 700 runs off the avionics bus: losing it drops the servos, the FD and the YD.
-    this.powered = !ac.electrical || ac.electrical.avionicsPowered;
+    // The GFC 700 runs off the avionics bus: losing it drops the servos, the FD and the YD. A short
+    // debounce rides through a flight model publishing its bus a step late (e.g. right after reset).
+    const busOk = !ac.electrical || ac.electrical.avionicsPowered;
+    this.unpoweredT = busOk ? 0 : this.unpoweredT + dt;
+    this.powered = this.unpoweredT < p.powerLossS;
     if (!this.powered) {
       if (s.engaged) this.disconnect('power');
       if (s.flightDirector) this.setFlightDirector(false);
