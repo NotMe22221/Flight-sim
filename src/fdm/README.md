@@ -91,9 +91,10 @@ restoring into a fresh instance, non-finite inputs and time steps, and the stall
 - Nose-wheel castering beyond the steering range is not modelled.
 - The drag polar is JSBSim's, so best glide L/D is slightly below the POH figure.
 - `trim()` trims pitch only (α, elevator, throttle) at the current flap angle; ailerons and rudder
-  stay neutral, and nothing models the factory rigging, so hands-off in cruise the engine torque
-  rolls the aircraft left at ≈ 1°/s (≈ 0.2° of right aileron, `aileronTrim` ≈ +0.03, holds it).
-  Set the flaps (and let the flap motor finish) before calling `trim()`.
+  sit at their rigged neutral. The config's `aileron.rigNorm` / `rudder.rigNorm` model the
+  ground-adjusted tabs: the C172S is rigged for hands-off flight at 105 KCAS (wings level, ball
+  centred; `rigging.test.ts`). Climb power still needs right rudder and idle a little left.
+  Call `snapControls(inputs)` after `reset()` to put the flaps at their detent before `trim()`.
 - The spiral mode is divergent at low speed (T₂ ≈ 20 s at 70 KCAS, faster to the right) because
   the reference data's Clr grows with α; it is neutral in cruise.
 - Full brake uses the tyre's static friction (JSBSim's anti-skid assumption), so the landing roll
