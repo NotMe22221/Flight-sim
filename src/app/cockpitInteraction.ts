@@ -105,6 +105,8 @@ export class CockpitInteraction {
     if (!s.inFlight || s.cameras.state.mode !== 'cockpit' || s.panelVariant !== 'g1000' || s.input.isCaptured) return;
     const g = s.plugins.g1000?.interactive?.g1000;
     if (!g || !g.wantsKeyboard) return;
+    // the numpad flies the aircraft (Num 0 / Num Enter are the rudder): never route it to the G1000
+    if (e.code.startsWith('Numpad')) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (g.keyboard(e.key)) { e.preventDefault(); e.stopPropagation(); }

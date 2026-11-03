@@ -7,6 +7,7 @@ import { loadTestNav, makeRig } from '../testing/g1000Rig';
 import { mockCanvas } from '../testing/mockCanvas';
 import { destinationPoint } from '../../geo/wgs84';
 import { drawNavStatus } from './afcsBox';
+import { BEZEL, bezelRegions, controlKey, drawBezel } from './bezel';
 import { DirectToWindow } from './directTo';
 import { IdentField, type WindowDrawData } from './fmsCore';
 import { FplWindow } from './fplWindow';
@@ -200,5 +201,28 @@ describe('PROC LOAD routing', () => {
     w2.focus = 0; r2.type('mfd', 'KOAK'); r2.btn('mfd', 'ENT');
     r2.btn('mfd', 'ENT'); r2.btn('mfd', 'ENT');
     expect(r2.planner.waypoints.map((x) => x.id)).toEqual(['KSFO', 'KOAK', 'KHWD', `FF${a.runway}`, `RW${a.runway}`]);
+  });
+});
+
+describe('bezel drawing vs hit regions', () => {
+  it('every knob is drawn on its hit circle (and inner ring) and every key cap fills its hit rectangle', () => {
+    // the region tests only hit-test the regions against themselves; this ties them to the pixels drawn
+    const { ctx, ctx2d } = mockCanvas(BEZEL.width, BEZEL.height);
+    drawBezel(ctx2d, 'mfd', null);
+    const arcs = ctx.calls.filter((c) => c.name === 'arc').map((c) => c.args as number[]);
+    const rects = ctx.calls.filter((c) => c.name === 'fillRect').map((c) => c.args as number[]);
+    const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+    for (const g of bezelRegions(BEZEL.width, BEZEL.height)) {
+      const key = controlKey(g.control);
+      if (g.shape === 'circle') {
+        expect(arcs.some(([x, y, r]) => near(x, g.cx) && near(y, g.cy) && near(r, g.r)), key).toBe(true);
+        if (g.rInner > 0) expect(arcs.some(([x, y, r]) => near(x, g.cx) && near(y, g.cy) && near(r, g.rInner)), key).toBe(true);
+      } else if (g.control.kind === 'button') {
+        expect(rects.some(([x, y, w, h]) => near(x, g.x) && near(y, g.y) && near(w, g.w) && near(h, g.h)), key).toBe(true);
+      } else {
+        // softkey: the physical key cap lies inside the region, below the screen
+        expect(rects.some(([x, y, w, h]) => x >= g.x && x + w <= g.x + g.w && y >= BEZEL.screenY + BEZEL.screenH && y + h <= g.y + g.h && w > g.w / 2), key).toBe(true);
+      }
+    }
   });
 });
