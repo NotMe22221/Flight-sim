@@ -16,6 +16,8 @@ import { sunEvents, sunPosition } from '../geo/solar';
 import { LocalFrame, nedToThree } from '../geo/wgs84';
 import { World } from '../world/World';
 import { LandingGuide } from '../world/LandingGuide';
+import { ActivityRunner, ProgressStore } from '../activities';
+import { makeActivityHost } from './activityHost';
 import { TerrainSystem } from '../terrain/TerrainSystem';
 import { SkySystem, WeatherSystem } from '../sky';
 import { AircraftModel, bodyQuatToThree } from '../aircraft3d';
@@ -135,6 +137,11 @@ export class Simulator {
   readonly plugins: SimPlugins = {};
   /** landing-path assist gates */
   readonly landingGuide = new LandingGuide();
+  /** lessons and bush-trip legs (src/activities); progress persists per browser */
+  readonly activityProgress = new ProgressStore();
+  readonly activities: ActivityRunner;
+  /** instructor voice (the audio plugin sets it: text is already spelled out for speech) */
+  speakInstructor?: (text: string) => void;
   /** slew mode pose and motion (active while `slew` is true) */
   readonly slewCtl = new SlewController();
   /** effective controls after assists and autopilot, fed to the flight model */
@@ -194,6 +201,7 @@ export class Simulator {
     this.flightAssists = new FlightAssists({ antiStall: { stallAlphaRad: stallAlphaFromConfig(this.config) } });
     this.navIn = { nav1: this.radios.nav1, nav2: this.radios.nav2, plan: null };
     this.touchdown = new TouchdownDetector(this.events, { airports: () => this.nearbyAirports });
+    this.activities = new ActivityRunner({ host: makeActivityHost(this, (t) => this.speakInstructor?.(t)), events: this.events, progress: this.activityProgress });
     this.steam = new SteamPanel({});
     this.steamTex = new THREE.CanvasTexture(this.steam.canvas as HTMLCanvasElement);
     this.steamTex.colorSpace = THREE.SRGBColorSpace;
@@ -364,6 +372,8 @@ export class Simulator {
       if (why) this.fdm.failStructure(why);
     }
     this.touchdown.step(h, s);
+    // activity objectives see the pilot's own inputs (hands-off checks must not see the autopilot)
+    this.activities.update(h, s, this.input.controls);
     this.replay.record(h, s, this.effective);
     const t = this.world.maybeRebase(s.posNED);
     if (t) this.applyRebase(t);
@@ -619,6 +629,8 @@ export class Simulator {
     if (Number.isFinite(pick)) this.time.utcMs = pick;
     else this.setLocalHour({ dawn: 6, morning: 9, noon: 12, afternoon: 15, dusk: 18, night: 22 }[p]);
     this.sky.resetAdaptation();
+    // a jump to dusk/night (e.g. an activity setting its time after the spawn) brings the panel lights on
+    this.applyPanelLightsForDaylight(lat, lon);
     this.events.emit('time:changed', { state: this.time });
   }
 

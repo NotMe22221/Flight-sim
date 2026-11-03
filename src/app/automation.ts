@@ -6,6 +6,7 @@ import type { CameraMode, ControlInputs, WeatherPresetId } from '../core/types';
 import * as THREE from 'three';
 import { C172_STEAM_LAYOUT } from '../instruments/SteamPanel';
 import type { Simulator } from './Simulator';
+import { bushLegActivity, lessonById, tripById } from '../activities';
 
 export interface SimAutomation {
   ready: boolean;
@@ -26,6 +27,9 @@ export interface SimAutomation {
   displayState(): unknown;
   /** enter / leave slew mode, as the Y key does */
   setSlew(on: boolean): void;
+  /** start a lesson / bush-trip leg (src/activities) */
+  startLesson(id: string): Promise<void>;
+  startBushLeg(tripId: string, legIndex: number): Promise<void>;
   terrainReady(): number;
   /** screen-space (CSS px) centre of a steam-panel instrument, e.g. 'alt', or null if off-screen */
   panelPoint(id: string): { x: number; y: number } | null;
@@ -82,6 +86,8 @@ export function installAutomation(sim: Simulator): SimAutomation {
     state: () => JSON.parse(JSON.stringify(sim.aircraft)),
     displayState: () => JSON.parse(JSON.stringify(sim.snapshot.aircraft)),
     setSlew: (on) => sim.setSlew(on),
+    startLesson: async (id) => { const d = lessonById(id); if (!d) throw new Error(`unknown lesson ${id}`); await sim.activities.start(d); },
+    startBushLeg: async (tripId, i) => { const t = tripById(tripId); if (!t) throw new Error(`unknown trip ${tripId}`); await sim.activities.start(bushLegActivity(t, i)); },
     terrainReady: () => sim.snapshot.terrainReady,
     look: (y, p) => { sim.cameras.state.lookYaw = y; sim.cameras.state.lookPitch = p; },
     panelPoint: (id) => {

@@ -9,6 +9,7 @@ import { fetchOpenMeteo, OPEN_METEO_ATTRIBUTION, weatherFromPreset } from '../sk
 import type { AudioSettings, BindingInfo, GraphicsSettings, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
 import type { Simulator } from './Simulator';
 import { magneticDeclinationDeg } from '../geo/magvar';
+import { bushLegActivity, lessonById, tripById, type ActivityRunner, type ProgressStore } from '../activities';
 
 const CREDITS = [
   'Terrain: Mapzen/Tilezen Terrain Tiles on AWS Open Data — 3DEP, GMTED2010 and SRTM courtesy of the U.S. Geological Survey; ETOPO1 © NOAA; EU-DEM produced using Copernicus data; © offene Daten Österreichs – DGM; © Kartverket; LINZ; Geoscience Australia; INEGI; ArcticDEM (NSF).',
@@ -47,6 +48,29 @@ export class SimUiHost implements UiHost {
   }
 
   startChallenge(id: string): Promise<void> { return this.sim.startChallenge(id); }
+
+  // ── activities (src/activities): lessons and bush-trip legs ──
+  /** Start a lesson by id (LESSONS in src/activities). */
+  async startLesson(id: string): Promise<void> {
+    const def = lessonById(id);
+    if (!def) throw new Error(`unknown lesson ${id}`);
+    await this.sim.activities.start(def);
+  }
+  /** Start leg `legIndex` of a bush trip (BUSH_TRIPS); fuel carries over from the previous leg when recorded. */
+  async startBushLeg(tripId: string, legIndex: number): Promise<void> {
+    const trip = tripById(tripId);
+    if (!trip) throw new Error(`unknown bush trip ${tripId}`);
+    const prevFuel = legIndex > 0 ? this.sim.activityProgress.leg(trip.id, legIndex - 1)?.fuelKg : undefined;
+    const usable = this.sim.config.mass.tanks.reduce((a, t) => a + t.usableKg, 0);
+    const fuelFraction = prevFuel != null && usable > 0 ? Math.min(1, Math.max(0.1, prevFuel / usable)) : undefined;
+    await this.sim.activities.start(bushLegActivity(trip, legIndex, fuelFraction !== undefined ? { fuelFraction } : {}));
+  }
+  abortActivity(): void { this.sim.activities.abort(); }
+  restartActivity(): Promise<void> { return this.sim.activities.restart(); }
+  restartActivityStep(): void { this.sim.activities.restartStep(); }
+  /** The runner (phase, objectives, liveHint, result) and the persisted progress, read-only for the UI. */
+  get activityRunner(): ActivityRunner { return this.sim.activities; }
+  get activityProgress(): ProgressStore { return this.sim.activityProgress; }
 
   /** In flight the weather blends over 30 s; `immediate` (a new flight starting) applies it at once. */
   setWeatherPreset(id: WeatherPresetId, opts?: { immediate?: boolean }): void { this.sim.setWeatherPreset(id, this.sim.inFlight && !opts?.immediate ? 30 : 0); }

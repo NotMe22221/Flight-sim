@@ -93,6 +93,7 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
       },
       setMarker: (m) => audio!.setMarker?.(m as 'outer' | 'middle' | 'inner' | null),
     };
+    sim.speakInstructor = (t) => audio?.speak?.(t, 'copilot');
     host ??= new SimUiHost(sim);
     host.onAudioSettings = (a) => {
       audio?.setMasterVolume?.(a.master);
