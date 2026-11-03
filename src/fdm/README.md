@@ -32,6 +32,7 @@ fdm.setAltimeter(pa); fdm.bestPowerMixture(); fdm.clearCrash();
 | `massProps.ts` | Composite mass, CG and inertia from empty airframe, stations and tanks (every step) |
 | `fdm.ts` | State vector, RK4, actuators (lags, rate limits, flap motor, trim tab), input sanitising, wind/turbulence sampling, fuel burn, engine temperatures, trim (Newton with the throttle stops as an active set), ground settling, rebase, serialisation, AircraftState outputs and warnings |
 | `grid.ts` | Allocation-free bilinear table used in the hot path |
+| `electrical.ts` | C172S 28 V system: 24 V 12.75 Ah battery (open-circuit voltage from charge, ohmic + polarisation sag), 60 A alternator (field excitation needs BAT, output falls below ~1700 rpm), split master BAT/ALT, avionics master, switched loads, LOW VOLTS below 24.5 V. The starter cranks only as hard as the battery terminal voltage allows (a flat battery will not start the engine; the master must be on). `AircraftState.electrical` publishes it; `ControlInputs.masterBattery / masterAlternator / avionicsMaster / fuelPump` drive it (undefined = on, on, on, off) |
 
 Conventions: SI, NED world frame, FRD body frame, JSBSim control signs (see `docs/DESIGN.md`).
 The integrated attitude is the body→NED quaternion; `AircraftState.qNB` is its conjugate.

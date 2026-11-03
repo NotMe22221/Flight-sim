@@ -71,6 +71,14 @@ export interface ControlInputs {
   lights: { nav: boolean; beacon: boolean; strobe: boolean; landing: boolean; taxi: boolean; panel: number };
   pitotHeat: boolean;
   carbHeat: boolean;
+  /** master switch BAT half; undefined = on */
+  masterBattery?: boolean;
+  /** master switch ALT half; undefined = on */
+  masterAlternator?: boolean;
+  /** avionics master; undefined = on */
+  avionicsMaster?: boolean;
+  /** auxiliary electric fuel pump; undefined = off */
+  fuelPump?: boolean;
 }
 
 export const defaultControlInputs = (): ControlInputs => ({
@@ -343,6 +351,27 @@ export interface AircraftState {
   cgM: Vec3;
   /** wind velocity NED at the aircraft, m/s, incl. turbulence */ windNED: Vec3;
   warnings: { stall: boolean; overspeed: boolean; overG: boolean; gearOverspeed: boolean; flapOverspeed: boolean; lowFuel: boolean };
+  /** electrical system (flight models that simulate one) */
+  electrical?: ElectricalState;
+}
+
+/** Aircraft electrical system outputs (C172S: 28 V bus, battery, alternator, avionics bus). */
+export interface ElectricalState {
+  /** main bus volts (0 when unpowered) */
+  busVolts: number;
+  /** avionics bus powered: avionics master on and the bus above the drop-out voltage */
+  avionicsPowered: boolean;
+  /** main bus above the drop-out voltage of electrically powered instruments */
+  mainPowered: boolean;
+  /** + charging, − discharging, A */
+  batteryAmps: number;
+  alternatorAmps: number;
+  /** total bus load, A */
+  loadAmps: number;
+  /** battery state of charge 0..1 */
+  batteryCharge: number;
+  /** LOW VOLTS annunciator */
+  lowVoltage: boolean;
 }
 
 export interface FlightModel {

@@ -30,6 +30,8 @@ export interface PropulsionControls {
   mixture: number;
   magnetos: 0 | 1 | 2 | 3;
   starter: boolean;
+  /** starter supply 0..1 (battery terminal voltage while cranking); undefined = full */
+  starterFactor?: number;
   fuelAvailable: boolean;
 }
 
@@ -171,7 +173,8 @@ export class PistonPropulsion {
     const dp = air.pAmb - map;
     const qPump = ((dp > 0 ? dp : 0) * e.displacementM3) / (4 * Math.PI) * spin;
     const crankMax = (450 * TWO_PI) / 60;
-    const qStart = c.starter ? e.starterTorqueNm * Math.max(0, 1 - w / crankMax) : 0;
+    const sf = c.starterFactor ?? 1;
+    const qStart = c.starter && sf > 0 ? e.starterTorqueNm * sf * Math.max(0, 1 - (w / crankMax) / Math.max(sf, 0.05)) : 0;
 
     // ── Propeller ────────────────────────────────────────────────────────────
     const D = pr.diameterM;

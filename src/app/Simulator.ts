@@ -279,11 +279,14 @@ export class Simulator {
     if (this.autoStartT >= 0) {
       this.autoStartT += dt;
       this.effective.mixture = 1; this.effective.magnetos = 3; this.effective.fuelSelector = 'both';
+      this.effective.masterBattery = true; this.effective.masterAlternator = true;
+      this.input.controls.masterBattery = true; this.input.controls.masterAlternator = true;
       this.effective.throttle = Math.max(this.effective.throttle, 0.12);
       this.effective.starter = this.autoStartT > 0.6 && !s.engine.running;
       if (s.engine.running && this.autoStartT > 1.5) {
         this.autoStartT = -1;
         this.input.controls.mixture = 1; this.input.controls.magnetos = 3; this.input.controls.fuelSelector = 'both';
+        this.input.controls.avionicsMaster = true;
         this.events.emit('engine:started', {});
       } else if (this.autoStartT > 12) this.autoStartT = -1;
     }
@@ -638,6 +641,8 @@ export class Simulator {
     c.parkingBrake = spawn.onGround;
     c.magnetos = spawn.engineRunning ? 3 : 0;
     c.mixture = spawn.engineRunning ? 1 : 0;
+    // cold & dark: master and avionics off (the engine-running spawns have everything on)
+    c.masterBattery = spawn.engineRunning; c.masterAlternator = spawn.engineRunning; c.avionicsMaster = spawn.engineRunning; c.fuelPump = false;
     c.flapsIndex = opts.flapsIndex ?? 0;
     c.lights = { nav: true, beacon: spawn.engineRunning, strobe: !spawn.onGround, landing: !spawn.onGround, taxi: spawn.onGround && spawn.engineRunning, panel: 0 };
     this.fdm.clearCrash();

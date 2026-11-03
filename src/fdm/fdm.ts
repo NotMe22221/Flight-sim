@@ -19,6 +19,7 @@ import { computeMassProperties, type MassProperties } from './massProps';
 import { PistonPropulsion, newPropulsionOutput, type PropulsionControls } from './propulsion';
 import { createAircraftState } from './state';
 import { DrydenTurbulence, Rng } from './turbulence';
+import { ElectricalSystem, type ElectricalLoads, type ElectricalSwitches } from './electrical';
 
 const NS = 15; // pos 0-2, vel 3-5, quat 6-9, rates 10-12, crank ω 13, MAP 14
 const G = 9.80665;
@@ -140,6 +141,10 @@ export class Fdm implements FlightModel {
   private readonly propAir = { rho: 1.225, pAmb: P0, tAmb: 288.15, u: 0, v: 0, w: 0 };
   /** sanitised copy of the current step's inputs */
   private readonly uSafe: ControlInputs = defaultControlInputs();
+  /** C172S 28 V electrical system (battery, alternator, buses) */
+  readonly electrical = new ElectricalSystem();
+  private readonly elecSw: ElectricalSwitches = { battery: true, alternator: true, avionics: true };
+  private readonly elecLoads: ElectricalLoads = { nav: false, beacon: false, strobe: false, landing: false, taxi: false, panel: 0, pitotHeat: false, fuelPump: false, starter: false };
   private ailCmdL = 0;
   private ailCmdR = 0;
 
@@ -159,6 +164,7 @@ export class Fdm implements FlightModel {
     this.mp = computeMassProperties(config, this.stationKg, this.tankKg);
     this.fuelAtMassCalc = this.totalFuel();
     this.state = createAircraftState(config);
+    this.state.electrical = this.electrical.state;
     this.wheelZ = Math.max(...config.gear.filter((g) => g.type === 'wheel').map((g) => g.pos[2]));
     this.y[6] = 1;
     this.y[14] = P0;
@@ -219,6 +225,7 @@ export class Fdm implements FlightModel {
     this.alphaPrevValid = false;
     this.turb.reset();
     this.gear.releaseAnchors();
+    this.electrical.setCharge(1);
     this.trimResult = null;
     this.state.t = 0;
     this.recomputeMass();
@@ -414,6 +421,7 @@ export class Fdm implements FlightModel {
       crashed: this.crashed, crashReason: this.crashReason, qnhSet: this.state.qnhSetPa, utc: this.utcMs,
       // air data of the last evaluation: the next step's turbulence filter runs on this airspeed
       air: [this.air.u, this.air.v, this.air.w, this.air.V, this.air.alpha, this.air.beta],
+      elec: this.electrical.serialize(),
     });
   }
 
@@ -421,8 +429,9 @@ export class Fdm implements FlightModel {
     const s = JSON.parse(json) as {
       y: number[]; t: number; act: number[]; eng: number[]; hyst: number; alphaDot: number; alphaPrev: number; alphaPrevValid: boolean;
       stations: number[]; tanks: number[]; anchors: { a: number[]; n: number[]; e: number[] }; turb: number[]; turbVel: number[]; turbPqr: number[]; rng: number;
-      crashed: boolean; crashReason: string; qnhSet: number; utc: number; air?: number[];
+      crashed: boolean; crashReason: string; qnhSet: number; utc: number; air?: number[]; elec?: { chargeAh: number; excited: boolean };
     };
+    if (s.elec) this.electrical.deserialize(s.elec);
     this.y.set(s.y);
     this.state.t = s.t;
     [this.de, this.daL, this.daR, this.dr, this.flapDeg, this.trimDe, this.steer, this.brakeL, this.brakeR] = s.act;
@@ -489,6 +498,7 @@ export class Fdm implements FlightModel {
     s.brakeLeft = fin(u.brakeLeft, 0); s.brakeRight = fin(u.brakeRight, 0);
     s.parkingBrake = u.parkingBrake; s.magnetos = u.magnetos; s.starter = u.starter; s.fuelSelector = u.fuelSelector;
     s.gearDown = u.gearDown; s.lights = u.lights; s.pitotHeat = u.pitotHeat; s.carbHeat = u.carbHeat;
+    s.masterBattery = u.masterBattery; s.masterAlternator = u.masterAlternator; s.avionicsMaster = u.avionicsMaster; s.fuelPump = u.fuelPump;
     return s;
   }
 
@@ -586,8 +596,15 @@ export class Fdm implements FlightModel {
     this.ctl.throttle = clamp(u.throttle, 0, 1);
     this.ctl.mixture = clamp(u.mixture, 0, 1);
     this.ctl.magnetos = u.magnetos;
-    this.ctl.starter = u.starter;
     this.ctl.fuelAvailable = this.fuelAvailable(u.fuelSelector);
+    // electrical system: the starter cranks only as hard as the battery can drive it
+    const el = this.elecSw, ld = this.elecLoads;
+    el.battery = u.masterBattery ?? true; el.alternator = u.masterAlternator ?? true; el.avionics = u.avionicsMaster ?? true;
+    ld.nav = u.lights.nav; ld.beacon = u.lights.beacon; ld.strobe = u.lights.strobe; ld.landing = u.lights.landing; ld.taxi = u.lights.taxi;
+    ld.panel = u.lights.panel; ld.pitotHeat = u.pitotHeat; ld.fuelPump = u.fuelPump ?? false; ld.starter = u.starter;
+    this.electrical.step(dt, el, ld, (this.y[13] * 60) / TWO_PI);
+    this.ctl.starter = u.starter && el.battery;
+    this.ctl.starterFactor = this.electrical.starterFactor();
   }
 
   private fuelAvailable(sel: ControlInputs['fuelSelector']): boolean {
