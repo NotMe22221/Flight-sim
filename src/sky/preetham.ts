@@ -76,7 +76,7 @@ export const TWILIGHT_BAND_SCALE_HEIGHT = 0.2;
 /** Twilight radiance at full strength (linear, dome scale): the deep-blue dome … */
 export const TWILIGHT_ZENITH: Vec3 = [0.004, 0.01, 0.03];
 /** … and the warm band at the horizon toward the sun (× azimuth weight × height falloff). */
-export const TWILIGHT_BAND: Vec3 = [0.3, 0.15, 0.05];
+export const TWILIGHT_BAND: Vec3 = [0.26, 0.13, 0.045];
 /** The twilight term and the night glow fade out over these (apparent) sun elevations (deg): none by day. */
 export const SKY_EXTRA_DAY_FADE_DEG: readonly [number, number] = [5, 15];
 
@@ -103,12 +103,12 @@ export function twilightColors(sunElDeg: number, zenith: Vec3 = [0, 0, 0], band:
   return { zenith, band };
 }
 
-/** Azimuth weight of the twilight band: 1 toward the sun, ≈ 0.23 at 90°, 0.12 opposite. */
+/** Azimuth weight of the twilight band: 1 toward the sun, ≈ 0.16 at 90°, 0.1 opposite. */
 export function twilightAzimuthWeight(dir: Vec3, sunDir: Vec3): number {
   const ls = Math.hypot(sunDir[0], sunDir[2]), ld = Math.hypot(dir[0], dir[2]);
   const c = ls > 1e-4 && ld > 1e-4 ? (sunDir[0] * dir[0] + sunDir[2] * dir[2]) / (ls * ld) : 0;
-  const a = 0.5 + 0.5 * c;
-  return 0.12 + 0.88 * a * a * a;
+  const a = 0.5 + 0.5 * c, a2 = a * a;
+  return 0.1 + 0.9 * a2 * a2;
 }
 
 /** Smooth maximum (p = 4) of two non-negative radiances: the twin of GLSL `skyLitMax`. */
@@ -127,8 +127,8 @@ uniform vec3 twilightBand;
 vec3 skyTwilight( vec3 dir, vec3 sunDir ) {
   float ls = length( sunDir.xz ), ld = length( dir.xz );
   float c = ( ls > 1e-4 && ld > 1e-4 ) ? dot( sunDir.xz, dir.xz ) / ( ls * ld ) : 0.0;
-  float a = 0.5 + 0.5 * c;
-  return twilightZenith + twilightBand * ( exp( - max( dir.y, 0.0 ) / ${TWILIGHT_BAND_SCALE_HEIGHT.toFixed(3)} ) * ( 0.12 + 0.88 * a * a * a ) );
+  float a = 0.5 + 0.5 * c; a *= a;
+  return twilightZenith + twilightBand * ( exp( - max( dir.y, 0.0 ) / ${TWILIGHT_BAND_SCALE_HEIGHT.toFixed(3)} ) * ( 0.1 + 0.9 * a * a ) );
 }
 vec3 skyLitMax( vec3 a, vec3 b ) {
   vec3 a2 = max( a, vec3( 0.0 ) ); a2 *= a2;
