@@ -41,6 +41,12 @@ export interface ActivityHost {
   loadRoute(waypoints: Waypoint[]): void;
   /** remove the activity's route (called when an activity with a route ends) */
   clearRoute?(): void;
+  /**
+   * Fly the aircraft the activity is written for (`ActivityDef.aircraft`, a catalog id or family such
+   * as 'c172' or 'pa18-150'), called before the spawn; undefined = the activity has none. Hosts keep
+   * the current aircraft when it belongs to the family.
+   */
+  useAircraft?(family: string | undefined): void | Promise<void>;
   /** speak an instructor line (TTS); the runner also emits 'activity:instruction' */
   speak?(text: string): void;
 }

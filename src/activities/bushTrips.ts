@@ -50,6 +50,7 @@ export interface BushTrip {
   title: string;
   region: string;
   description: string;
+  /** the aircraft every leg is flown in: a catalog id or family ('pa18-150', 'c172'), as `ActivityDef.aircraft` */
   aircraft: string;
   airports: Record<string, TripAirport>;
   legs: BushLeg[];
@@ -64,8 +65,9 @@ export const PACIFIC_COAST: BushTrip = {
   id: 'pacific-coast',
   title: 'Pacific Coast: Half Moon Bay to Santa Barbara',
   region: 'California, USA',
-  description: 'Eight legs from Half Moon Bay to Santa Barbara in the 172: the San Andreas Fault lakes, the Santa Cruz Mountains, Monterey Bay, the Salinas Valley missions, Lake Nacimiento, Morro Rock, the Guadalupe dunes and Point Conception.',
-  aircraft: 'c172',
+  description: 'Eight legs from Half Moon Bay to Santa Barbara in the Super Cub: the San Andreas Fault lakes, the Santa Cruz Mountains, Monterey Bay, the Salinas Valley missions, Lake Nacimiento, Morro Rock, the Guadalupe dunes and Point Conception.',
+  // bush trips fly a fixed aircraft (as in MSFS): this one the Super Cub, low and slow along the coast
+  aircraft: 'pa18-150',
   airports: {
     KHAF: ap('KHAF', 'Half Moon Bay', 37.513401, -122.500999, 20.1),
     KRHV: ap('KRHV', 'Reid-Hillview (San Jose)', 37.332901, -121.819, 41.1),

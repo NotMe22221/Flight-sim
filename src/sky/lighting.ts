@@ -71,8 +71,8 @@ export const adaptExposure = (current: number, target: number, dt: number, tauS:
 /**
  * Sun DirectionalLight intensity at the zenith before atmospheric extinction (three's light units, the
  * scale of the sky dome's irradiance). Calibrated against the dome: the direct sun on a horizontal surface
- * is ≈ 5 × the dome's skylight at a 40° sun and stays within 3.5–5.5 × from 20° to 76° (clear air; real
- * clear skies: ≈ 3 at 20°, ≈ 6 at 40°, ≈ 8 at 75°). The pre-calibration value 3 left the sky radiance
+ * is ≈ 5.1 × the dome's skylight at a 76° sun, ≈ 4.7 × at 40° and ≈ 3 × at 20° (clear air; real clear
+ * skies: ≈ 8 at 75°, ≈ 6 at 40°, ≈ 3 at 20°). The pre-calibration value 3 left the sky radiance
  * brighter than sunlit white paint (real: the sky is 3–5 × darker), see README "Calibration".
  */
 export const SUN_INTENSITY_BASE = 12;

@@ -4,8 +4,10 @@
  */
 import type { CameraMode, ControlInputs, WeatherPresetId } from '../core/types';
 import * as THREE from 'three';
-import { C172_STEAM_LAYOUT } from '../instruments/SteamPanel';
+import { itemHeight } from '../instruments/SteamPanel';
+import { isTailDragger } from '../autopilot';
 import type { Simulator } from './Simulator';
+import { AIRCRAFT } from './aircraftCatalog';
 import { bushLegActivity, lessonById, tripById } from '../activities';
 
 export interface SimAutomation {
@@ -20,8 +22,17 @@ export interface SimAutomation {
   setInputs(partial: Partial<ControlInputs>): void;
   clearInputs(): void;
   advance(seconds: number): Promise<void>;
-  /** Scripted pilot: full-power takeoff from the current runway position and climb-out. */
+  /**
+   * Scripted pilot: full-power takeoff from the current runway position and climb-out (rotates at the
+   * aircraft's Vr; a tail-dragger first raises the tail with forward stick).
+   */
   flyScriptedTakeoff(seconds: number): Promise<unknown>;
+  /** catalog ids of the selectable aircraft ('c172s', 'c172s-g1000', 'pa18-150') */
+  aircraftIds(): string[];
+  /** the current aircraft's catalog id */
+  aircraftId(): string;
+  /** switch aircraft (rebuilds the flight model, 3D model, panel …) and restart the flight at its spawn when one is in progress */
+  setAircraft(id: string): Promise<boolean>;
   state(): unknown;
   /** the pose being displayed (interpolated, or the slew pose), as the instruments see it */
   displayState(): unknown;
@@ -31,7 +42,7 @@ export interface SimAutomation {
   startLesson(id: string): Promise<void>;
   startBushLeg(tripId: string, legIndex: number): Promise<void>;
   terrainReady(): number;
-  /** screen-space (CSS px) centre of a steam-panel instrument, e.g. 'alt', or null if off-screen */
+  /** screen-space (CSS px) centre of a steam-panel instrument of the current layout, e.g. 'alt', or null if off-screen */
   panelPoint(id: string): { x: number; y: number } | null;
   /** set the cockpit free-look offsets (rad) for screenshots */
   look(yawRad: number, pitchRad: number): void;
@@ -54,12 +65,16 @@ export function installAutomation(sim: Simulator): SimAutomation {
     setInputs: (partial) => { Object.assign(sim.overrides, partial); },
     clearInputs: () => { for (const k of Object.keys(sim.overrides)) delete (sim.overrides as Record<string, unknown>)[k]; },
     advance: async (s) => { sim.advance(s); },
+    aircraftIds: () => AIRCRAFT.map((a) => a.id),
+    aircraftId: () => sim.config.id,
+    setAircraft: (id) => sim.setAircraft(id),
     flyScriptedTakeoff: async (seconds) => {
       const dt = 1 / 120;
-      const s = sim.aircraft;
-      const hdg = s.headingTrueRad;
+      const hdg = sim.aircraft.headingTrueRad;
       const o = sim.overrides;
+      const vr = sim.config.limits.VrKt, tail = isTailDragger(sim.config);
       Object.assign(o, { parkingBrake: false, throttle: 1, flapsIndex: 1, mixture: 1, magnetos: 3, pitch: 0, roll: 0, yaw: 0 });
+      const s = sim.aircraft;
       let liftoffM = NaN;
       const start = [s.posNED[0], s.posNED[1]];
       for (let i = 0; i < seconds / dt && !s.crashed; i++) {
@@ -69,7 +84,9 @@ export function installAutomation(sim: Simulator): SimAutomation {
         const kias = s.aero.ias / 0.514444;
         if (s.onGround) {
           o.yaw = Math.max(-1, Math.min(1, 3 * e - 0.8 * s.rates[2]));
-          o.pitch = kias >= 55 ? 0.4 : 0;
+          // tail-dragger: forward stick raises the tail (≈ 2° nose-up) above 15 kt, then rotate at Vr
+          if (tail && kias >= 15 && kias < vr) o.pitch = Math.max(-1, Math.min(1, (2.5 * (0.035 - s.euler[1])) / 0.175 - 0.4 * s.rates[1]));
+          else o.pitch = kias >= vr ? 0.4 : 0;
           o.roll = 0;
         } else {
           if (Number.isNaN(liftoffM)) liftoffM = Math.hypot(s.posNED[0] - start[0], s.posNED[1] - start[1]);
@@ -91,12 +108,13 @@ export function installAutomation(sim: Simulator): SimAutomation {
     terrainReady: () => sim.snapshot.terrainReady,
     look: (y, p) => { sim.cameras.state.lookYaw = y; sim.cameras.state.lookPitch = p; },
     panelPoint: (id) => {
-      const it = C172_STEAM_LAYOUT.items.find((i) => i.id === id);
+      const L = sim.panelLayout;
+      const it = L.items.find((i) => i.id === id);
       if (!it) return null;
       const mesh = sim.model.panelMesh;
       const g = mesh.geometry as THREE.PlaneGeometry;
       const w = g.parameters.width, h = g.parameters.height;
-      const u = (it.x + it.size / 2) / C172_STEAM_LAYOUT.width, v = 1 - (it.y + it.size / 2) / C172_STEAM_LAYOUT.height;
+      const u = (it.x + it.size / 2) / L.width, v = 1 - (it.y + itemHeight(it) / 2) / L.height;
       const p = new THREE.Vector3((u - 0.5) * w, (v - 0.5) * h, 0).applyMatrix4(mesh.matrixWorld).project(sim.cameras.camera);
       if (p.z > 1 || Math.abs(p.x) > 1 || Math.abs(p.y) > 1) return null;
       const r = sim.gfx.renderer.domElement.getBoundingClientRect();

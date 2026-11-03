@@ -3,8 +3,7 @@
  * internals; everything goes through these methods.
  */
 import type { AircraftConfig, AssistanceOptions, CameraMode, SimAction, SimSnapshot, Waypoint, WeatherPresetId, WeatherState } from '../core/types';
-import { C172S } from '../fdm/aircraft/c172';
-import { AIRCRAFT, C172S_G1000 } from './aircraftCatalog';
+import { AIRCRAFT, aircraftForActivity } from './aircraftCatalog';
 import { fetchOpenMeteo, OPEN_METEO_ATTRIBUTION, weatherFromPreset } from '../sky';
 import type { AudioSettings, BindingInfo, GraphicsSettings, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
 import type { Simulator } from './Simulator';
@@ -17,7 +16,7 @@ const CREDITS = [
   'Airports, runways, navaids and frequencies: OurAirports (public domain). ILS data is synthesized.',
   'Magnetic variation: World Magnetic Model 2025, NOAA NCEI and BGS (public domain).',
   OPEN_METEO_ATTRIBUTION,
-  'Flight model reference data: JSBSim and FlightGear c172p (reference numbers only), NACA Report 640, MIL-F-8785C, Cessna 172S POH figures.',
+  'Flight model reference data: JSBSim and FlightGear c172p and J3Cub (reference numbers only), NACA Report 640, NACA TR 315, USAF DATCOM methods, MIL-F-8785C, Cessna 172S POH and Piper PA-18-150 owner\'s handbook / TCDS 1A2 figures.',
   'Built with Three.js (MIT).',
 ];
 
@@ -32,7 +31,8 @@ export class SimUiHost implements UiHost {
   get nav() { return this.sim.nav; }
   snapshot(): SimSnapshot { return this.sim.snapshot; }
   aircraftList(): AircraftConfig[] { return [...AIRCRAFT]; }
-  currentAircraft(): AircraftConfig { return this.sim.panelVariant === 'g1000' ? C172S_G1000 : C172S; }
+  /** the aircraft being flown (its catalog entry: 172S, 172S G1000 or the Super Cub) */
+  currentAircraft(): AircraftConfig { return this.sim.config; }
 
   dispatch(action: SimAction): void {
     // Same path as a key press: the input layer applies control actions (flaps, gear, lights …)
@@ -42,7 +42,8 @@ export class SimUiHost implements UiHost {
   }
 
   async spawn(choice: SpawnChoice, aircraftId: string, options: { fuelFraction: number; payloadKg: number }): Promise<void> {
-    this.sim.setPanel(aircraftId === C172S_G1000.id ? 'g1000' : 'steam');
+    // a new airframe rebuilds the flight model, 3D model and panel before the spawn (unknown ids keep the current one)
+    this.sim.selectAircraft(aircraftId);
     if (!choice.runwayEnd) await this.sim.spawnAtParking(choice.airport, { fuelFraction: options.fuelFraction, payloadKg: options.payloadKg });
     else await this.sim.spawnAtRunway(choice.airport, choice.runwayEnd.endIdent, { coldAndDark: choice.coldAndDark, fuelFraction: options.fuelFraction, payloadKg: options.payloadKg });
   }
@@ -61,7 +62,8 @@ export class SimUiHost implements UiHost {
     const trip = tripById(tripId);
     if (!trip) throw new Error(`unknown bush trip ${tripId}`);
     const prevFuel = legIndex > 0 ? this.sim.activityProgress.leg(trip.id, legIndex - 1)?.fuelKg : undefined;
-    const usable = this.sim.config.mass.tanks.reduce((a, t) => a + t.usableKg, 0);
+    // the trip's own aircraft (the Pacific Coast trip flies the Super Cub): fuel as a fraction of its tanks
+    const usable = aircraftForActivity(trip.aircraft, this.sim.config).mass.tanks.reduce((a, t) => a + t.usableKg, 0);
     const fuelFraction = prevFuel != null && usable > 0 ? Math.min(1, Math.max(0.1, prevFuel / usable)) : undefined;
     await this.sim.activities.start(bushLegActivity(trip, legIndex, fuelFraction !== undefined ? { fuelFraction } : {}));
   }

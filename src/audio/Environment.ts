@@ -222,6 +222,8 @@ export class EnvironmentSynth {
   private updateFlapMotor(dt: number, flapDeg: number, now: number): void {
     const prev = this.lastFlapDeg;
     this.lastFlapDeg = flapDeg;
+    // a manual flap handle (Super Cub) has no motor to hear
+    if (this.profile.electricFlaps === false) return;
     if (!(dt > 0) || !Number.isFinite(prev)) return;
     const rate = Math.abs(flapDeg - prev) / dt;
     if (rate > FLAP.movingDegS) {

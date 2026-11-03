@@ -82,7 +82,7 @@ export class BushTripsTab implements ActivityTabView {
         onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.openTrip(t.id); } },
       },
       h('div', { class: 'row' }, h('span', { class: 'act-title', text: vm.title }), h('span', { class: 'spacer' }), h('span', { class: 'badge', text: vm.region })),
-      h('div', { class: 'act-meta', text: `${vm.ends} · ${vm.legCount} legs · ${nmText(vm.totalNm, this.units)}` }),
+      h('div', { class: 'act-meta', text: [vm.ends, `${vm.legCount} legs`, nmText(vm.totalNm, this.units), aircraftName(this.ctx, t.aircraft)].filter(Boolean).join(' · ') }),
       h('div', { class: 'act-desc', text: vm.description }),
       this.progressBar(vm));
       card.classList.toggle('selected', t.id === this.selectedTripId);
@@ -147,7 +147,7 @@ export class BushTripsTab implements ActivityTabView {
     const head = h('div', { class: 'trip-head' },
       h('div', { class: 'row' },
         this.trips().length > 1 ? button('', () => { this.openTripId = null; this.render(); }, { icon: 'back', cls: 'btn-ghost btn-icon', title: 'All trips', aria: { label: 'All trips' } }) : null,
-        h('div', { class: 'trip-head-title' }, h('div', { class: 'act-title', text: vm.title }), h('div', { class: 'act-meta', text: `${vm.region} · ${vm.ends} · ${nmText(vm.totalNm, this.units)}` })),
+        h('div', { class: 'trip-head-title' }, h('div', { class: 'act-title', text: vm.title }), h('div', { class: 'act-meta', text: [vm.region, vm.ends, nmText(vm.totalNm, this.units), aircraftName(this.ctx, t.aircraft)].filter(Boolean).join(' · ') })),
         h('span', { class: 'spacer' }),
         resume),
       h('div', { class: 'row trip-head-progress' }, this.progressBar(vm), this.resetControl(t, vm)));
@@ -241,6 +241,7 @@ export class BushTripsTab implements ActivityTabView {
     let magVar: number | null = null;
     try { magVar = dep && this.ctx.host.magneticVariationDeg ? this.ctx.host.magneticVariationDeg(dep.lat, dep.lon) : null; } catch { magVar = null; }
     const r = legRow(t, i, this.progress, this.units, magVar);
+    const plane = aircraftName(this.ctx, t.aircraft);
     const startable = this.canStart && r.unlocked;
     this.primaryBtn = this.gate.add(button(r.completed ? 'Fly again' : 'Start', () => this.startLeg(t, i), { primary: true, big: true, icon: r.unlocked ? 'play' : 'lock', title: !this.canStart ? 'Not available in this build' : r.unlocked ? `Fly leg ${i + 1}` : r.statusText }), startable);
     const statusBadge = r.status === 'completed' ? h('span', { class: 'badge badge-ok' }, icon('check'), ' Completed')
@@ -256,6 +257,7 @@ export class BushTripsTab implements ActivityTabView {
       h('p', { class: 'muted act-briefing', text: r.briefing }),
       h('div', { class: 'section-label', text: 'Flight plan' }),
       h('div', { class: 'kv' },
+        plane ? h('span', { class: 'kv-k', text: 'Aircraft' }) : null, plane ? h('span', { class: 'kv-v', text: plane }) : null,
         h('span', { class: 'kv-k', text: 'Departure' }), h('span', { class: 'kv-v', text: `${r.from} runway ${r.departureRunway}` }),
         h('span', { class: 'kv-k', text: 'Cruise' }), h('span', { class: 'kv-v', text: r.cruise }),
         h('span', { class: 'kv-k', text: 'Distance' }), h('span', { class: 'kv-v', text: r.distance }),

@@ -138,7 +138,10 @@ export class FakeHost implements ActivityHost {
   lastAirSpawn: { lat: number; lon: number; altM: number; headingDeg: number; iasMs: number; opts?: AirSpawnOptions } | null = null;
   lastRunwaySpawn: { icao: string; runway: string; opts?: RunwaySpawnOptions } | null = null;
   lastRoute: unknown[] | null = null;
+  /** aircraft families requested by `useAircraft`, with the number of `calls` recorded before each request */
+  readonly aircraft: { family: string | undefined; atCall: number }[] = [];
   constructor(private readonly onSpawn?: () => void | Promise<void>) {}
+  useAircraft(family: string | undefined): void { this.aircraft.push({ family, atCall: this.calls.length }); }
   async spawnAtRunway(icao: string, runway: string, opts?: RunwaySpawnOptions): Promise<void> {
     this.calls.push(`spawnAtRunway ${icao} ${runway}`);
     this.lastRunwaySpawn = { icao, runway, opts };

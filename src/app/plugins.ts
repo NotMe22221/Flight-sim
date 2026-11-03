@@ -3,17 +3,18 @@
  * Modules are loaded with import.meta.glob so the build works whether or not each exists;
  * adapters use only each module's documented public API (checked at runtime).
  */
-import type { AircraftState, Airport, SimAction, SimSnapshot } from '../core/types';
+import type { AircraftConfig, AircraftState, Airport, SimAction, SimSnapshot } from '../core/types';
 import * as THREE from 'three';
 import type { LocalFrame } from '../geo/wgs84';
 import type { G1000PanelLike, SceneryLike, Simulator } from './Simulator';
 import { SimUiHost } from './uiHost';
+import { radioCallsign } from './aircraftCatalog';
 
 type Ctor<T> = new (...args: never[]) => T;
 const ctor = <T>(mod: Record<string, unknown>, name: string): Ctor<T> | null => (typeof mod[name] === 'function' ? (mod[name] as Ctor<T>) : null);
 
 interface UiManagerLike { update(s: SimSnapshot, dt: number): void; show(screen: string): void; onStart?(cb: () => void): void; handleAction?(a: SimAction): boolean; readonly coversView?: boolean }
-interface AudioLike { resume(): Promise<void>; update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; updateSnapshot?(dt: number, s: SimSnapshot): void; setSurface?(s: string): void; setListener?(posNED: [number, number, number] | null, velNED?: [number, number, number]): void; onTouchdown?(vs: number, drift?: number): void; setMarker?(m: 'outer' | 'middle' | 'inner' | null): void; setVolume?(bus: string, v: number): void; setMasterVolume?(v: number): void; speak?(text: string, voice?: string): void; playUi?(s: string): void }
+interface AudioLike { resume(): Promise<void>; setAircraft?(config: AircraftConfig): void; update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; updateSnapshot?(dt: number, s: SimSnapshot): void; setSurface?(s: string): void; setListener?(posNED: [number, number, number] | null, velNED?: [number, number, number]): void; onTouchdown?(vs: number, drift?: number): void; setMarker?(m: 'outer' | 'middle' | 'inner' | null): void; setVolume?(bus: string, v: number): void; setMasterVolume?(v: number): void; speak?(text: string, voice?: string): void; playUi?(s: string): void }
 interface HudLike { readonly canvas: HTMLCanvasElement; resize(w: number, h: number, dpr: number): void; update(s: SimSnapshot, dt: number): void; reset?(): void }
 interface G1000Like { readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; update(s: SimSnapshot, dt: number): boolean; reset(s: SimSnapshot): void; setNearestAirports(l: readonly Airport[]): void }
 type G1000Full = G1000Like & { readonly mfdCanvas: HTMLCanvasElement | OffscreenCanvas; readonly com1: { activeKHz: number; standbyKHz: number } };
@@ -100,6 +101,8 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
         else a.update(dt, sim.snapshot.aircraft, sim.snapshot.camera, sim.snapshot.weather);
       },
       setMarker: (m) => audio!.setMarker?.(m as 'outer' | 'middle' | 'inner' | null),
+      // engine, propeller, gear and stall-horn sounds follow the aircraft (audioProfileFromConfig)
+      setAircraft: (cfg) => audio!.setAircraft?.(cfg),
     };
     sim.speakInstructor = (t) => audio?.speak?.(t, 'copilot');
     host ??= new SimUiHost(sim);
@@ -178,13 +181,21 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
   if (path.endsWith('/AtcController.ts')) {
     const AtcController = ctor<AtcLike>(mod, 'AtcController');
     if (!AtcController) return;
-    const atc = new (AtcController as unknown as new (o: object) => AtcLike)({
-      callsign: 'N172FS',
-      aircraftType: 'Cessna',
+    // the callsign is part of the controller's session: a new aircraft (N172FS Cessna / N18FS Super Cub) gets a new one
+    const make = (cfg: AircraftConfig): AtcLike => new (AtcController as unknown as new (o: object) => AtcLike)({
+      ...radioCallsign(cfg),
       nav: sim.nav,
       speak: (text: string, voice: 'atc' | 'pilot') => audio?.speak?.(text, voice),
       emit: (m: { from: 'atc' | 'pilot'; text: string; frequencyMHz?: number }) => sim.events.emit('atc:message', m),
       emitOptions: (options: string[]) => sim.events.emit('atc:options', { options }),
+    });
+    let atc = make(sim.config);
+    let callsign = radioCallsign(sim.config).callsign;
+    sim.onAircraftChange((cfg) => {
+      const next = radioCallsign(cfg).callsign;
+      if (next === callsign) return;
+      callsign = next;
+      atc = make(cfg);
     });
     // pass the world clock so ATIS reports the simulated Zulu time
     sim.plugins.atc = { update: (dt, ac, w) => atc.update(dt, ac, w, sim.time.utcMs), select: (i) => atc.select(i), reset: (a) => atc.reset(a) };

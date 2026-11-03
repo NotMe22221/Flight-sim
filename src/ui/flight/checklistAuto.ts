@@ -48,6 +48,10 @@ export const AUTO_CHECKS: Record<AutoCheckId, (s: SimSnapshot) => boolean> = {
   masterOff: (s) => s.inputs.masterBattery === false && s.inputs.masterAlternator === false,
   avionicsOn: (s) => s.inputs.avionicsMaster !== false,
   avionicsOff: (s) => s.inputs.avionicsMaster === false,
+  carbHeatOn: (s) => s.inputs.carbHeat,
+  carbHeatOff: (s) => !s.inputs.carbHeat,
+  flapsSecondNotch: (s) => s.inputs.flapsIndex >= 2,
+  cubClimbSpeed: (s) => { const kt = s.aircraft.aero.ias * KT; return !s.aircraft.onGround && kt >= 55 && kt <= 72 && s.aircraft.verticalSpeedMs > 0.5; },
 };
 
 export const AUTO_CHECK_IDS = Object.keys(AUTO_CHECKS) as AutoCheckId[];

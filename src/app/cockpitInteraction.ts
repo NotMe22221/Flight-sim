@@ -1,7 +1,8 @@
 /**
  * Clickable cockpit (MSFS-style): hovering an instrument on the steam panel shows a tooltip
  * with its live value, the mouse wheel turns its knob and a click operates it. Picks are made
- * by ray-casting the panel mesh and mapping the hit UV into the panel layout.
+ * by ray-casting the panel mesh and mapping the hit UV into the current aircraft's panel layout
+ * (`sim.panelLayout`: the C172S six-pack or the Super Cub panel, `hitTestPanel` in instruments).
  *
  * Wheel events over a knob are captured on the container before the input layer's canvas
  * listener sees them, so the camera does not zoom while a knob is being turned.
@@ -13,23 +14,29 @@
  */
 import * as THREE from 'three';
 import type { SimAction } from '../core/types';
-import { FPM, FT, INHG, KT, RAD } from '../core/units';
-import { C172_STEAM_LAYOUT } from '../instruments/SteamPanel';
+import { AVGAS_KG_PER_GAL, FPM, FT, INHG, KT, RAD } from '../core/units';
+import { hitTestPanel, type GaugeId, type PanelLayout } from '../instruments/SteamPanel';
 import type { G1000PanelLike, Simulator } from './Simulator';
 
-interface Knob {
+export interface Knob {
   id: string;
   title: string;
   /** current value as text */
   value: (sim: Simulator) => string;
-  /** action for wheel up / down (one notch) */
-  wheel?: [SimAction, SimAction];
-  /** action on click (left button); optional upper/lower halves for two-way switches */
-  click?: SimAction | ((v: number) => SimAction);
-  hint: string;
+  /** action for wheel up / down (one notch); a function picks by the position `v` (0 top … 1 bottom) in the item */
+  wheel?: [SimAction, SimAction] | ((v: number) => [SimAction, SimAction] | null);
+  /** direct handler for one wheel notch (+1 up / −1 down) when no action exists (COM standby tuning) */
+  wheelFn?: (sim: Simulator, dir: 1 | -1, v: number) => void;
+  /** action on click (left button); a function picks by the position in the item (v 0 top … 1 bottom, u 0 left … 1 right) */
+  click?: SimAction | ((v: number, u: number) => SimAction);
+  hint: string | ((v: number) => string);
 }
 
-const KNOBS: Record<string, Knob> = {
+const MAG_NAMES = ['OFF', 'R', 'L', 'BOTH'] as const;
+const onOff = (b: boolean | undefined) => (b !== false ? 'ON' : 'OFF');
+const freq = (mhz: number) => mhz.toFixed(3);
+
+export const KNOBS: Partial<Record<GaugeId, Knob>> = {
   alt: { id: 'alt', title: 'Altimeter', value: (s) => `${Math.round(s.snapshot.aircraft.altitudeIndicatedM / FT).toLocaleString()} ft · ${(s.aircraft.qnhSetPa / INHG).toFixed(2)} inHg`, wheel: ['altimeterInc', 'altimeterDec'], click: 'altimeterStd', hint: 'Scroll: Kollsman setting · Click: set local QNH' },
   hi: { id: 'hi', title: 'Heading indicator', value: (s) => `HDG ${pad3(Math.round(s.snapshot.aircraft.headingMagRad * RAD))}° · bug ${pad3(Math.round(s.autopilot.state.headingBugDeg))}°`, wheel: ['headingBugInc', 'headingBugDec'], click: 'apHdgSync', hint: 'Scroll: heading bug · Click: sync bug to heading' },
   asi: { id: 'asi', title: 'Airspeed indicator', value: (s) => `${Math.round(s.snapshot.aircraft.aero.ias / KT)} KIAS`, hint: 'Indicated airspeed' },
@@ -42,13 +49,42 @@ const KNOBS: Record<string, Knob> = {
   radios: { id: 'radios', title: 'NAV 1', value: (s) => `${(s.radios.tuning[0].activeKHz / 1000).toFixed(2)} ↔ ${(s.radios.tuning[0].standbyKHz / 1000).toFixed(2)} · OBS ${pad3(Math.round(s.radios.tuning[0].obsDeg))}°`, wheel: ['nav1Inc', 'nav1Dec'], click: 'nav1Swap', hint: 'Scroll: standby frequency · Click: swap' },
   compass: { id: 'compass', title: 'Magnetic compass', value: (s) => `${pad3(Math.round(s.snapshot.aircraft.headingMagRad * RAD))}°`, hint: 'Wet compass (turning and acceleration errors)' },
   clock: { id: 'clock', title: 'Clock / OAT', value: (s) => `${new Date(s.time.utcMs).toISOString().slice(11, 16)}Z · ${(s.aircraft.atmosphere.temperatureK - 273.15).toFixed(0)} °C`, hint: 'UTC time and outside air temperature' },
-  fuelL: { id: 'fuelL', title: 'Fuel left', value: (s) => `${(s.aircraft.fuelKg[0] / 2.725).toFixed(1)} gal`, hint: 'Usable fuel in the left tank' },
-  fuelR: { id: 'fuelR', title: 'Fuel right', value: (s) => `${(s.aircraft.fuelKg[1] / 2.725).toFixed(1)} gal`, hint: 'Usable fuel in the right tank' },
+  fuelL: { id: 'fuelL', title: 'Fuel left', value: (s) => `${(s.aircraft.fuelKg[0] / AVGAS_KG_PER_GAL).toFixed(1)} gal`, hint: 'Fuel in the left tank' },
+  fuelR: { id: 'fuelR', title: 'Fuel right', value: (s) => `${(s.aircraft.fuelKg[1] / AVGAS_KG_PER_GAL).toFixed(1)} gal`, hint: 'Fuel in the right tank' },
   ff: { id: 'ff', title: 'Fuel flow', value: (s) => `${((s.aircraft.engine.fuelFlowKgS * 3600) / 2.725).toFixed(1)} gph`, wheel: ['mixtureInc', 'mixtureDec'], hint: 'Scroll: mixture' },
   egt: { id: 'egt', title: 'EGT', value: (s) => `${Math.round((s.aircraft.engine.egtK - 273.15) * 1.8 + 32)} °F`, wheel: ['mixtureInc', 'mixtureDec'], hint: 'Lean for peak EGT, then enrich slightly' },
   oilT: { id: 'oilT', title: 'Oil temperature', value: (s) => `${Math.round((s.aircraft.engine.oilTempK - 273.15) * 1.8 + 32)} °F`, hint: '' },
   oilP: { id: 'oilP', title: 'Oil pressure', value: (s) => `${Math.round(s.aircraft.engine.oilPressurePa / 6894.76)} psi`, hint: '' },
+  // ── Super Cub panel
+  navcom: {
+    id: 'navcom', title: 'NAV/COM',
+    value: (s) => { const c = s.radios.state.com1, n = s.radios.tuning[0]; return `COM ${freq(c.activeMHz)} ↔ ${freq(c.standbyMHz)} · NAV ${(n.activeKHz / 1000).toFixed(2)} ↔ ${(n.standbyKHz / 1000).toFixed(2)}`; },
+    wheel: (v) => (v < 0.5 ? null : ['nav1Inc', 'nav1Dec']),
+    wheelFn: (s, dir, v) => { if (v < 0.5) s.radios.stepComStandby(dir); },
+    click: (v) => (v < 0.5 ? 'com1Swap' : 'nav1Swap'),
+    hint: (v) => (v < 0.5 ? 'COM row · Scroll: standby frequency · Click: swap (ATC uses COM1)' : 'NAV row · Scroll: standby frequency · Click: swap'),
+  },
+  xpdr: { id: 'xpdr', title: 'Transponder', value: (s) => `${String(s.steam.squawk).padStart(4, '0')} · ${s.steam.xpdrMode}`, hint: 'Mode C altitude reporting (1200 = VFR)' },
+  volts: { id: 'volts', title: 'Voltmeter', value: (s) => `${s.steam.model.readings.voltsV.toFixed(1)} V${s.steam.model.readings.annunciators.lowVolts ? ' · LOW VOLTS' : ''}`, hint: 'Bus voltage: about 14 V with the alternator charging, 12 V on the battery' },
+  warn: { id: 'warn', title: 'Warning lights', value: (s) => { const a = s.steam.model.readings.annunciators; return [a.lowVolts ? 'LOW VOLTS' : '', a.stallWarn ? 'STALL' : ''].filter(Boolean).join(' · ') || 'all out'; }, hint: 'LOW VOLTS: alternator not charging · STALL: stall warning' },
+  mags: {
+    id: 'mags', title: 'Magneto switch', value: (s) => (s.input.controls.starter ? 'START' : MAG_NAMES[s.input.controls.magnetos] ?? 'BOTH'),
+    wheel: ['magnetosNext', 'magnetosPrev'], click: 'engineAutoStart', hint: 'Scroll: OFF · R · L · BOTH · Click: start the engine (Ctrl+E)',
+  },
+  master: {
+    id: 'master', title: 'Master / radio switches', value: (s) => `MASTER ${onOff(s.input.controls.masterBattery)} · RADIO ${onOff(s.input.controls.avionicsMaster)}`,
+    click: (_v, u) => (u < 0.5 ? 'masterToggle' : 'avionicsMasterToggle'), hint: 'Click the left rocker: master switch · the right rocker: radio master',
+  },
+  carbHeat: { id: 'carbHeat', title: 'Carburettor heat', value: (s) => (s.input.controls.carbHeat ? 'ON (pulled)' : 'OFF'), click: 'carbHeat', hint: 'Click: pull / push (H)' },
+  primer: { id: 'primer', title: 'Primer', value: () => 'locked', hint: 'Engine start (Ctrl+E) primes the engine for you' },
 };
+
+/** The layout item and knob under a design-pixel point of a panel layout, or null. */
+export function pickPanelKnob(layout: PanelLayout, px: number, py: number): { knob: Knob; v: number; u: number } | null {
+  const hit = hitTestPanel(layout, px, py);
+  const knob = hit ? KNOBS[hit.item.id] : undefined;
+  return hit && knob ? { knob, v: hit.v, u: hit.u } : null;
+}
 
 const pad3 = (n: number) => String(((n % 360) + 360) % 360).padStart(3, '0');
 
@@ -56,7 +92,7 @@ export class CockpitInteraction {
   private readonly ray = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
   private readonly tip: HTMLDivElement;
-  private hover: { knob: Knob; v: number } | null = null;
+  private hover: { knob: Knob; v: number; u: number } | null = null;
   private lastMove = { x: 0, y: 0, valid: false };
   private glassTip = false;
 
@@ -117,7 +153,7 @@ export class CockpitInteraction {
     return s.inFlight && s.cameras.state.mode === 'cockpit' && s.panelVariant === 'steam' && !s.input.isCaptured && document.pointerLockElement === null;
   }
 
-  private pick(clientX: number, clientY: number): { knob: Knob; v: number } | null {
+  private pick(clientX: number, clientY: number): { knob: Knob; v: number; u: number } | null {
     if (!this.active()) return null;
     const canvas = this.sim.gfx.renderer.domElement;
     const r = canvas.getBoundingClientRect();
@@ -125,15 +161,8 @@ export class CockpitInteraction {
     this.ray.setFromCamera(this.ndc, this.sim.cameras.camera);
     const hit = this.ray.intersectObject(this.sim.model.panelMesh, false)[0];
     if (!hit || !hit.uv) return null;
-    const L = C172_STEAM_LAYOUT;
-    const px = hit.uv.x * L.width, py = (1 - hit.uv.y) * L.height;
-    for (const it of L.items) {
-      if (px >= it.x && px <= it.x + it.size && py >= it.y && py <= it.y + it.size) {
-        const knob = KNOBS[it.id];
-        if (knob) return { knob, v: (py - it.y) / it.size };
-      }
-    }
-    return null;
+    const L = this.sim.panelLayout;
+    return pickPanelKnob(L, hit.uv.x * L.width, (1 - hit.uv.y) * L.height);
   }
 
   /** Only events aimed at the 3D view: UI panels floating over the instrument panel keep theirs. */
@@ -171,12 +200,17 @@ export class CockpitInteraction {
       return;
     }
     const h = this.pick(e.clientX, e.clientY);
-    if (!h || !h.knob.wheel) return;
+    if (!h || (!h.knob.wheel && !h.knob.wheelFn)) return;
     e.preventDefault();
     e.stopPropagation();
     const steps = Math.max(1, Math.min(10, Math.round(Math.abs(e.deltaY) / 50)));
-    const a = e.deltaY < 0 ? h.knob.wheel[0] : h.knob.wheel[1];
-    for (let i = 0; i < steps; i++) this.sim.input.applyAction(a as never);
+    const pair = typeof h.knob.wheel === 'function' ? h.knob.wheel(h.v) : h.knob.wheel;
+    if (pair) {
+      const a = e.deltaY < 0 ? pair[0] : pair[1];
+      for (let i = 0; i < steps; i++) this.sim.input.applyAction(a as never);
+    } else if (h.knob.wheelFn) {
+      for (let i = 0; i < steps; i++) h.knob.wheelFn(this.sim, e.deltaY < 0 ? 1 : -1, h.v);
+    }
     this.hover = h;
     this.render(e.clientX, e.clientY);
   };
@@ -192,7 +226,7 @@ export class CockpitInteraction {
     const h = this.pick(e.clientX, e.clientY);
     if (!h || !h.knob.click) return;
     e.stopPropagation();
-    const a = typeof h.knob.click === 'function' ? h.knob.click(h.v) : h.knob.click;
+    const a = typeof h.knob.click === 'function' ? h.knob.click(h.v, h.u) : h.knob.click;
     this.sim.input.applyAction(a as never);
   };
 
@@ -207,7 +241,8 @@ export class CockpitInteraction {
   private render(x: number, y: number): void {
     const h = this.hover;
     if (!h) { this.tip.style.display = 'none'; return; }
-    this.show(x, y, h.knob.title, h.knob.value(this.sim), h.knob.hint);
+    const hint = typeof h.knob.hint === 'function' ? h.knob.hint(h.v) : h.knob.hint;
+    this.show(x, y, h.knob.title, h.knob.value(this.sim), hint);
   }
 
   private show(x: number, y: number, title: string, value: string, hint: string): void {

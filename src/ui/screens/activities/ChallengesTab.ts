@@ -11,6 +11,10 @@ import {
 import { scoreBand } from '../../landingReportModel';
 import { formatDateUtc } from '../../format';
 import { StartGate, type ActivityTabView } from './types';
+import { aircraftName } from './TrainingTab';
+
+/** Landing challenges are flown in the 172 (the simulator switches to it from the Super Cub). */
+const CHALLENGE_AIRCRAFT = 'c172';
 
 export class ChallengesTab implements ActivityTabView {
   readonly el: HTMLElement;
@@ -106,6 +110,11 @@ export class ChallengesTab implements ActivityTabView {
     if (isNarrowScreen()) this.detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  private aircraftRow(): HTMLElement[] {
+    const plane = aircraftName(this.ctx, CHALLENGE_AIRCRAFT);
+    return plane ? [h('span', { class: 'kv-k', text: 'Aircraft' }), h('span', { class: 'kv-v', text: plane })] : [];
+  }
+
   private renderDetail(): void {
     clear(this.detail);
     this.startBtn = null;
@@ -127,7 +136,8 @@ export class ChallengesTab implements ActivityTabView {
         h('span', { class: 'kv-k', text: 'Approach' }), h('span', { class: 'kv-v', text: b.approach }),
         h('span', { class: 'kv-k', text: 'Weather' }), h('span', { class: 'kv-v', text: b.weather }),
         h('span', { class: 'kv-k', text: 'Wind' }), h('span', { class: 'kv-v mono', text: b.wind }),
-        h('span', { class: 'kv-k', text: 'Time' }), h('span', { class: 'kv-v', text: b.time })),
+        h('span', { class: 'kv-k', text: 'Time' }), h('span', { class: 'kv-v', text: b.time }),
+        ...this.aircraftRow()),
       h('div', { class: 'section-label', text: 'Scoring' }),
       h('div', { class: 'muted', style: 'font-size:.85em', text: 'Touchdown rate 35 % · centreline 30 % · stopping distance 20 % · aim point 15 %.' }),
       h('div', { class: 'act-best big' }, icon('trophy'),

@@ -124,7 +124,7 @@ export const isTailDragger = (config: AircraftConfig): boolean =>
 
 /**
  * Assists tuning for an aircraft: the stall α from its CL table; for a light tail-dragger (Super
- * Cub) also the anti-stall speed floor at Vs1 (fading in from 1.3 Vs1, 1.5 s speed-trend lead) and
+ * Cub) also the anti-stall speed floor at Vs1 (fading in from 1.3 Vs1, 3 s speed-trend lead) and
  * protection down to 12 kt. Its strong elevator would otherwise zoom it to 50° nose-up with α held
  * below the stall until the airspeed was gone (an α limiter cannot stop that). The take-off heading
  * hold's C172 gains already hold the Cub's runway heading within 3° through tail-up and lift-off
@@ -134,7 +134,7 @@ export function assistsConfigFor(config: AircraftConfig): DeepPartial<AssistsCon
   const stallAlphaRad = stallAlphaFromConfig(config);
   if (!isTailDragger(config)) return { antiStall: { stallAlphaRad } };
   const vs1 = config.limits.Vs1Kt * KT;
-  return { antiStall: { stallAlphaRad, minIasMs: 12 * KT, speedFloorMs: vs1, speedStartMs: 1.3 * vs1, speedLeadS: 1.5, speedPushPerMs: 0.05 } };
+  return { antiStall: { stallAlphaRad, minIasMs: 12 * KT, speedFloorMs: vs1, speedStartMs: 1.3 * vs1, speedLeadS: 3, speedPushPerMs: 0.05 } };
 }
 
 /**

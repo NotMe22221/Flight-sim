@@ -146,6 +146,9 @@ export class ActivityRunner {
     const s = def.setup;
     this.expectingReset = true;
     try {
+      // the activity's aircraft first: the spawn (fuel, flaps, trim) is for that aircraft
+      if (def.aircraft) await this.host.useAircraft?.(def.aircraft);
+      if (token !== this.token) return; // aborted or superseded meanwhile
       if (s.weather) this.host.setWeatherPreset(s.weather);
       if (s.spawn === 'runway') {
         await this.host.spawnAtRunway(s.icao, s.runway, { coldAndDark: s.coldAndDark, fuelFraction: s.fuelFraction, parkingBrake: s.parkingBrake });

@@ -188,15 +188,18 @@ frame snaps). `targetExposure` (elevation curve) remains exported.
 profile β(h) = β0·e^(−h/H) above the ground under the aircraft; H = 300–8000 m from visibility, or the
 fog-layer depth when `fogTopM > 0`, so a ground-fog layer thins out above its top and still hides the
 ground from above. Inside cloud the profile flattens and β at the camera blends to `inCloudBeta`
-(0.03 m⁻¹ ≈ 130 m visibility) — the fly-through fog. The haze colour is not the horizon sky: distant
+(0.03 m⁻¹ ≈ 130 m visibility) — the fly-through fog, near-neutral grey (the zenith/horizon mix at
+`IN_CLOUD_SATURATION` 0.15: droplets scatter all colours alike). The haze colour is not the horizon sky: distant
 ground fades to the light the haze itself scatters, `hazeColor` = ω·[ms·E☉c☉·P(θ) + (E_sky + ρ_g·E_ground)/2π]
 (P = Rayleigh + Henyey–Greenstein g 0.7, weighted by the aerosol share of β; ms = 2.6 for multiple
-scattering), in the same light units as the terrain's shading, capped at 0.8 × the sky behind it (the
+scattering), in the same light units as the terrain's shading, capped at 0.8 × the sky behind it (since the calibration
+the cap is what applies by day: the calibrated sun and skylight put the uncapped haze above the sky) (the
 horizon 90° from the sun for `fogColor`, the sun-ward horizon for `sunGlowColor`; at night the glow band).
 `fogColor` is that colour at 90° from the sun, `sunGlowColor` looking at the sun; shaders mix between them
-with `hazeSunLobe(cos θ)` (`HAZE_LOBE_GLSL`, exact HG shape). Result at noon / 40 km: a blue-grey ≈ 0.6
-display value over ground at ≈ 0.25, below a ≈ 0.78 horizon — ridgelines read at 10–20 km and the horizon
-line shows. Cloud planes fade to `skyFogColor` (the horizon sky, the haze under a closing deck) instead.
+with `hazeSunLobe(cos θ)` (`HAZE_LOBE_GLSL`, exact HG shape). Result at noon / 40 km (before the
+calibration): a blue-grey ≈ 0.6 display value over ground at ≈ 0.25, below a ≈ 0.78 horizon; measured since
+(clear noon, 50 km): distant terrain 141–174 / 255 under a 186–188 horizon — ridgelines read and the
+horizon line shows. Cloud planes fade to `skyFogColor` (the horizon sky, the haze under a closing deck) instead.
 Custom shaders use `HEIGHT_FOG_GLSL` (closed-form optical depth, finite for any input). Built-in materials
 get the identical height fog (`builtinFog.ts`: the `fog_*` chunks are patched once; three shared
 `Float32Array` uniforms carry β0/falloff/ground y, the sun direction and the encoded sun-ward colour; the
@@ -275,6 +278,24 @@ medians, before → after):
 | golden hour: sky 45°; exposure | 14/65/126; 1.07 | 32/89/157; 1.61 (night bound) |
 | civil dusk (−3.5°): paint / markings | 77/70/81 / 104/101/105 | 79/77/85 / 114/111/116 |
 | civil dusk: exposure | 1.39 | 1.61 |
+| night (−25°): paint / markings / sky at the horizon | 67/76/112 / 66/77/111 / 58/55/65 | 61/71/106 / 67/77/110 / 58/55/65 |
+
+| Clouds | before | after |
+|---|---|---|
+| noon overcast: paint top / shaded side; exposure | 153/155/156 / 126/129/132; 0.67 | 223/223/221 / 203/203/203; 0.82 |
+| noon overcast: the deck at 20° / 45° | 186/190/193 / 191/194/197 | 198/205/211 / 202/207/211 |
+| golden-hour overcast: paint top / deck at 45°; exposure | 136/137/141 / 80/75/73; 0.81 | 188/187/187 / 127/121/117; 1.61 |
+| on top of the noon overcast (2100 m): sunlit paint; exposure | 208/206/202; 0.67 | 239/238/235; 0.50 (the cover-dimmed exposure would be 0.82: clipped) |
+| inside the noon overcast: exposure; fog colour (linear) | 0.76; 0.81/1.16/1.73 (sky-blue) | 0.93; near-neutral grey (`IN_CLOUD_SATURATION` 0.15) |
+| scattered noon from 2600 m: lit cumulus tops | 231/233/235; 0.60 | 226/229/230; 0.50 |
+| exposure climbing through the scattered layer | 0.60 constant (global cover) | 0.56 → 0.52, monotonic, no reversal |
+| exposure after a jump into the overcast | 0.67 → 0.75 in ≈ 12 s, monotonic | 0.82 → 0.92 in ≈ 12 s, monotonic |
+
+The cockpit panel is unlit (`MeshBasicMaterial`, not tone mapped): its brightness is the same before and
+after (mean ≈ 49 at noon, ≈ 37 at night with the panel lights on); the cabin around it is brighter by day
+(glare shield ≈ 49 → 91 at noon), because three r187 ignores `material.envMapIntensity` for materials lit by
+`scene.environment` (it uses `scene.environmentIntensity`, now ≈ 1 by day instead of ≈ 0.25), so the cabin's
+0.35 sky fill is not applied — an `aircraft3d` follow-up.
 
 The partial calibration found on disk (sun 12 and exposure 0.5 with the old skylight curve, the
 environment's ground hemisphere left at MeshBasicMaterial's default white) measured: noon shade
@@ -327,6 +348,17 @@ depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app
   markings (0xf2f2ea ≈ 0.89) at the paint's level. Proposed numbers are in the look-calibration review.
   `environmentIntensity` still scales diffuse and specular alike, and the environment's lower hemisphere is
   the lit ground even on top of a cloud deck (where it should be the bright deck).
+
+- **Civil-dusk sky.** Sky.js's sun term is cut off once the sun is ≈ 1.3° below the horizon and the night glow
+  only fades in below −3°, so between ≈ −2° and −6° the dome is black (sRGB ≈ 0–4 at the night exposure)
+  — darker than the moonlit night sky at −25° (horizon ≈ 56). The app's "dusk" preset (sunset − 20 min,
+  sun ≈ +3°) avoids it; flying through dusk does not. Needs a twilight term (blue zenith, warm band toward
+  the sun) decaying from the sunset dome to the night glow, mirrored in `PreethamSky`.
+- **Overcast residual sun.** Under a full deck the cloud-shadow floor (`uCloudShadowFloor` 0.15) keeps 15 % of
+  the direct sun, now ≈ 1.5 light units against a skylight of ≈ 2.6: sunlit white paint (223) reads a little
+  brighter than the deck behind it (198–211), where a white surface under a uniform overcast is ≈ 0.85 × the
+  deck's radiance. A floor that falls toward ≈ 0.05 as cover → 1, with the skylight under a deck set to
+  π × the deck's radiance (what the environment's overcast shell already shows), would fix it.
 
 - Tier A planes are 2-D slabs: weak look at the layer altitude, no cumulus towers, no earth curvature
   (≈ 0.8 km drop at the 100 km plane edge). Inside a cloud the fog is global, so rays leaving the cloud stay

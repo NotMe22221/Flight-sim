@@ -38,6 +38,18 @@ export class RadioStack {
     this.lookupTimer = Infinity;
   }
 
+  /**
+   * Step the COM1 standby frequency by `steps` 25 kHz channels within 118.000–136.975 MHz (wrapping),
+   * as the inner knob of a NAV/COM does (cockpit clicks on the Super Cub's radio).
+   */
+  stepComStandby(steps: number): void {
+    const c = this.state.com1;
+    const lo = 118000, n = (137000 - lo) / 25;
+    const ch = Math.round((Math.round(c.standbyMHz * 1000) - lo) / 25);
+    const next = ((ch + Math.round(steps)) % n + n) % n;
+    c.standbyMHz = (lo + next * 25) / 1000;
+  }
+
   /** Radio-related actions from the input layer. Returns true when handled. */
   handleAction(a: SimAction): boolean {
     const t1 = this.tuning[0];

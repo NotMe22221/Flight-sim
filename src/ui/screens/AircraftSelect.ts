@@ -1,11 +1,18 @@
-/** Aircraft cards from host.aircraftList() with fuel and payload sliders. */
+/** Aircraft cards from host.aircraftList() (gear, panel, power, seats, V-speeds) with fuel and payload sliders. */
 import type { AircraftConfig } from '../../core/types';
 import { Screen, screenHeader, type ScreenContext } from './Screen';
 import { button, clear, h, icon, slider, type SliderHandle } from '../dom';
 import { formatFuel, formatFuelQuantity, formatMass, formatSpeed, KT_PER_MS } from '../format';
 import { aircraftDisplayName } from '../selection';
+import { aircraftBlurb, gearKind, hasAutopilot, panelKind, seatCount } from '../aircraftInfo';
 
 const CATEGORY_LABEL: Record<AircraftConfig['category'], string> = { 'ga-piston': 'Propeller', turboprop: 'Turboprop', jet: 'Jet', airliner: 'Airliner' };
+
+/** '150 hp' (piston) or '120 kN' (turbofan). */
+const enginePower = (a: AircraftConfig): string => {
+  const e = a.propulsion.engine;
+  return e.type === 'piston' ? `${Math.round(e.ratedPowerW / 745.7)} hp` : `${Math.round(e.ratedThrustN / 1000)} kN`;
+};
 
 export class AircraftSelect extends Screen {
   private grid: HTMLElement;
@@ -43,12 +50,14 @@ export class AircraftSelect extends Screen {
         onClick: () => this.select(a.id), onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.select(a.id); } } },
         h('div', { class: 'silhouette' }, icon('plane')),
         h('div', { class: 'aircraft-name', text: a.name }),
-        h('div', { class: 'aircraft-manu', text: `${a.manufacturer} · ${CATEGORY_LABEL[a.category] ?? a.category} · ${a.panel.includes('g1000') ? 'G1000' : a.panel.includes('pfd') ? 'Glass' : 'Steam gauges'}` }),
+        h('div', { class: 'aircraft-manu', text: `${a.manufacturer} · ${CATEGORY_LABEL[a.category] ?? a.category} · ${gearKind(a)} · ${panelKind(a)}` }),
         h('div', { class: 'spec-grid' },
           h('span', { class: 'spec-k', text: 'Vne' }), h('span', { text: formatSpeed(a.limits.VneKt / KT_PER_MS, u) }),
           h('span', { class: 'spec-k', text: 'Vs0' }), h('span', { text: formatSpeed(a.limits.VsoKt / KT_PER_MS, u) }),
           h('span', { class: 'spec-k', text: 'Vy' }), h('span', { text: formatSpeed(a.limits.VyKt / KT_PER_MS, u) }),
-          h('span', { class: 'spec-k', text: 'MTOW' }), h('span', { text: formatMass(a.mass.maxTakeoffKg, u) })));
+          h('span', { class: 'spec-k', text: 'MTOW' }), h('span', { text: formatMass(a.mass.maxTakeoffKg, u) }),
+          h('span', { class: 'spec-k', text: 'Power' }), h('span', { text: enginePower(a) }),
+          h('span', { class: 'spec-k', text: 'Seats' }), h('span', { text: String(seatCount(a)) })));
       this.cards.set(a.id, card);
       this.grid.appendChild(card);
     }
@@ -92,12 +101,17 @@ export class AircraftSelect extends Screen {
     updateFuel(sel.fuelFraction); updatePayload(Math.min(payloadMaxKg, sel.payloadKg));
     this.side.append(
       h('div', { class: 'panel' }, h('div', { class: 'section-label', text: 'Selected' }), this.selectedName,
+        h('p', { class: 'muted aircraft-blurb', style: 'margin:6px 0 0;font-size:.9em', text: aircraftBlurb(a) }),
         h('div', { class: 'kv', style: 'margin-top:8px' },
           h('span', { class: 'kv-k', text: 'Category' }), h('span', { class: 'kv-v', text: CATEGORY_LABEL[a.category] ?? a.category }),
+          h('span', { class: 'kv-k', text: 'Landing gear' }), h('span', { class: 'kv-v', text: gearKind(a) }),
+          h('span', { class: 'kv-k', text: 'Panel' }), h('span', { class: 'kv-v', text: panelKind(a) }),
+          h('span', { class: 'kv-k', text: 'Autopilot' }), h('span', { class: 'kv-v', text: hasAutopilot(a) ? (a.panel.includes('g1000') ? 'GFC 700' : 'Yes (KAP 140-style)') : 'None' }),
+          h('span', { class: 'kv-k', text: 'Seats' }), h('span', { class: 'kv-v', text: String(seatCount(a)) }),
           h('span', { class: 'kv-k', text: 'Empty' }), h('span', { class: 'kv-v', text: formatMass(a.mass.emptyMassKg, u) }),
           h('span', { class: 'kv-k', text: 'MTOW' }), h('span', { class: 'kv-v', text: formatMass(a.mass.maxTakeoffKg, u) }),
           h('span', { class: 'kv-k', text: 'Fuel cap.' }), h('span', { class: 'kv-v', text: `${formatFuel(capKg, u.altitude === 'ft' ? 'gal' : 'l')} (${a.mass.tanks.length} tanks)` }),
-          h('span', { class: 'kv-k', text: 'Engine' }), h('span', { class: 'kv-v', text: a.propulsion.engine.type === 'piston' ? `Piston ${Math.round(a.propulsion.engine.ratedPowerW / 745.7)} hp` : `Turbofan ${Math.round(a.propulsion.engine.ratedThrustN / 1000)} kN` }),
+          h('span', { class: 'kv-k', text: 'Engine' }), h('span', { class: 'kv-v', text: a.propulsion.engine.type === 'piston' ? `Piston ${enginePower(a)}` : `Turbofan ${enginePower(a)}` }),
           h('span', { class: 'kv-k', text: 'Licence' }), h('span', { class: 'kv-v muted', text: a.meta.license }))),
       h('div', { class: 'panel' }, h('div', { class: 'section-label' }, icon('fuel'), ' Fuel & payload'), this.fuel.el, this.fuelInfo, h('div', { style: 'height:8px' }), this.payload.el, this.payloadInfo));
   }

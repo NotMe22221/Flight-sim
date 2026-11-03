@@ -12,7 +12,9 @@ export type AutoCheckId =
   | 'flapsUp' | 'flaps10' | 'flapsTakeoff' | 'flapsFull' | 'flaps20orLess'
   | 'beaconOn' | 'navLightsOn' | 'strobeOn' | 'strobeOff' | 'landingLightOn' | 'landingLightOff' | 'taxiLightOn'
   | 'autopilotOff' | 'trimTakeoff' | 'airborne' | 'onGround' | 'climbSpeed' | 'altimeterSet' | 'pitotHeatOn'
-  | 'masterOn' | 'masterOff' | 'avionicsOn' | 'avionicsOff';
+  | 'masterOn' | 'masterOff' | 'avionicsOn' | 'avionicsOff'
+  /** Super Cub (cubChecklists.ts): carburettor heat, the last flap notch of a three-position handle, climb at Vy 61 */
+  | 'carbHeatOn' | 'carbHeatOff' | 'flapsSecondNotch' | 'cubClimbSpeed';
 
 export interface ChecklistItem { text: string; response: string; auto?: AutoCheckId; note?: string }
 export interface ChecklistSection { id: string; title: string; phase: 'ground' | 'takeoff' | 'flight' | 'landing'; items: ChecklistItem[] }

@@ -20,6 +20,8 @@ export function makeActivityHost(sim: Simulator, speak?: (text: string) => void)
     setTimePreset: (p) => sim.setTimePreset(p),
     loadRoute: (wps) => sim.planner.setWaypoints(wps),
     clearRoute: () => sim.planner.clear(),
+    // an activity flies its own aircraft: lessons the 172 (the pilot's steam / G1000 choice is kept), the Pacific Coast trip the Super Cub
+    useAircraft: (family) => { sim.useAircraftFor(family); },
     speak,
   };
 }

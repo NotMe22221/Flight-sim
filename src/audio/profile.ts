@@ -22,6 +22,8 @@ export interface AudioProfile {
   refThrustN: number;
   /** representative flap transit time per detent, s */
   flapTransitS: number;
+  /** electric flap motor (whine while the flaps move); false for a manual flap handle. Undefined = true */
+  electricFlaps?: boolean;
   /** main-gear tyre radius (wheel-rotation bumps), m */
   mainTyreRadiusM: number;
   /** angle of attack where the stall horn sounds at minimum / full intensity, rad */
@@ -73,6 +75,8 @@ export function audioProfileFromConfig(cfg: AircraftConfig): AudioProfile {
   if (prop) { p.propBlades = prop.blades; p.propDiameterM = prop.diameterM; }
   const tr = cfg.controls.flaps.transitS;
   if (tr.length) p.flapTransitS = tr.reduce((a, b) => a + b, 0) / tr.length;
+  // the Super Cub's flaps are on a hand lever (about 1 s per notch): no motor
+  p.electricFlaps = !(cfg.airframe === 'cub' || (tr.length > 0 && p.flapTransitS <= 1.2));
   const mains = cfg.gear.filter((g) => g.type === 'wheel' && g.brakeGroup !== 'none');
   if (mains.length) p.mainTyreRadiusM = mains[0].tyreRadius;
   p.overspeedClacker = cfg.category === 'jet' || cfg.category === 'airliner';

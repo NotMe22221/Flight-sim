@@ -154,6 +154,15 @@ describe('exposure follows the light where the camera is (review)', () => {
     for (const s of [clear, above, below]) s.dispose();
   });
 
+  it('inside a cloud the fog is near-neutral grey like the deck it is in, not sky-blue', () => {
+    const sky = settled(timeForElevation('noon'), weatherFromPreset('overcast', 4), 1000); // deck 504–1504 m MSL
+    expect(sky.lighting.inCloud).toBeGreaterThan(0.5);
+    const f = sky.lighting.fogColor;
+    expect(spreadPct([f.r, f.g, f.b])).toBeLessThan(20); // the zenith-blue mix measured b/r ≈ 2.1 (spread 53 %)
+    expect(f.b).toBeGreaterThanOrEqual(f.r); // still a touch cool, never warm at noon
+    sky.dispose();
+  });
+
   it('settles without overshoot after a step and never pumps on a steady scene', () => {
     const noon = timeForElevation('noon');
     const sky = settled(noon, weatherFromPreset('clear', 4));

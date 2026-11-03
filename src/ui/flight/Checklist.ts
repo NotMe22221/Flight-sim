@@ -1,4 +1,7 @@
-/** Interactive C172 checklist with per-section progress and auto-completion from the sim state. */
+/**
+ * Interactive checklist (C172 by default, the Super Cub's with `setSections`) with per-section
+ * progress and auto-completion from the sim state.
+ */
 import type { SimSnapshot } from '../../core/types';
 import { Cls, button, h, icon, select, toggle } from '../dom';
 import { C172_CHECKLISTS, type ChecklistSection } from '../data/c172Checklists';
@@ -17,8 +20,8 @@ export class Checklist {
   private lastAutoEval = 0;
   private state = new Map<string, boolean[]>(); // section id → checked
 
-  constructor(container: HTMLElement, private readonly sections: ChecklistSection[] = C172_CHECKLISTS) {
-    this.sectionSelect = select(sections.map((s) => ({ value: s.id, label: s.title })), sections[0].id, (id) => this.goTo(sections.findIndex((s) => s.id === id)), 'select-sm');
+  constructor(container: HTMLElement, private sections: ChecklistSection[] = C172_CHECKLISTS) {
+    this.sectionSelect = select(sections.map((s) => ({ value: s.id, label: s.title })), sections[0].id, (id) => this.goTo(this.sections.findIndex((s) => s.id === id)), 'select-sm');
     this.list = h('div', { class: 'cl-items scroll' });
     this.progress = h('span', { class: 'muted tnum' });
     const auto = toggle('Auto-complete', this.autoComplete, (v) => { this.autoComplete = v; });
@@ -49,6 +52,19 @@ export class Checklist {
 
   /** New flight: every section unchecked, back to the first one. */
   resetAll(): void { this.state.clear(); this.goTo(0); }
+
+  /** The checklists shown (another aircraft's); unchanged sections keep their progress. */
+  get sectionList(): readonly ChecklistSection[] { return this.sections; }
+
+  /** Show another aircraft's checklists (all unchecked, first section). No-op for the same list. */
+  setSections(sections: ChecklistSection[]): void {
+    if (sections === this.sections || !sections.length) return;
+    this.sections = sections;
+    this.sectionSelect.replaceChildren(...sections.map((s) => h('option', { value: s.id, text: s.title })));
+    this.state.clear();
+    this.sectionIdx = 0;
+    this.goTo(0);
+  }
 
   private render(): void {
     const s = this.section;

@@ -8,6 +8,7 @@ import type { ScreenContext } from '../screens/Screen';
 import { WeatherPanel } from '../screens/WeatherPanel';
 import { AtcWindow } from './AtcWindow';
 import { Checklist } from './Checklist';
+import { checklistsFor } from '../aircraftInfo';
 import { FloatingPanel, type LayoutStore } from './FloatingPanel';
 import { NavLog } from './NavLog';
 import { ObjectivesPanel } from './ObjectivesPanel';
@@ -135,8 +136,11 @@ export class FlightPanels {
   /** Keeps panels on screen after a window resize. */
   clampAll(): void { for (const p of this.panels.values()) if (p.visible) p.clampToViewport(); }
 
-  /** New flight: fresh checklist, empty ATC transcript. */
+  /** New flight: fresh checklist (the current aircraft's: 172 or Super Cub), empty ATC transcript. */
   reset(): void {
+    let ac = null;
+    try { ac = this.d.host.currentAircraft(); } catch { ac = null; }
+    this.checklist.setSections(checklistsFor(ac));
     this.checklist.resetAll();
     this.atc.reset();
     this.lastAtc = -Infinity;

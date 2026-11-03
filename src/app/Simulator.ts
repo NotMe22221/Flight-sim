@@ -24,8 +24,10 @@ import { SkySystem, WeatherSystem } from '../sky';
 import { AircraftModel, bodyQuatToThree } from '../aircraft3d';
 import { CameraController } from '../camera';
 import { InputManager } from '../input/InputManager';
-import { FlightAssists, GfcAutopilot, stallAlphaFromConfig, type NavInputs } from '../autopilot';
-import { SteamPanel } from '../instruments/SteamPanel';
+import { FlightAssists, GfcAutopilot, assistsConfigFor, type NavInputs } from '../autopilot';
+import { SteamPanel, type PanelLayout } from '../instruments/SteamPanel';
+import { hasAutopilot, panelSpecFor, steamLayoutFor } from '../instruments/panels';
+import { C172S_G1000, aircraftById, aircraftForActivity, sameAirframe } from './aircraftCatalog';
 import { TouchdownDetector } from '../activities/TouchdownDetector';
 import { ReplayRecorder } from '../activities/ReplayRecorder';
 import { LANDING_CHALLENGES } from '../activities/landingChallenges';
@@ -89,7 +91,7 @@ export interface SimPlugins {
   ui?: { update(s: SimSnapshot, dt: number): void; handleAction?(a: SimAction): boolean; coversView?(): boolean };
   g1000?: { update(s: SimSnapshot, dt: number): boolean; reset?(s: SimSnapshot): void; readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; readonly interactive?: G1000PanelLike };
   hud?: { update(s: SimSnapshot, dt: number): void; reset?(): void; resize(w: number, h: number, dpr: number): void; readonly canvas: HTMLCanvasElement | OffscreenCanvas };
-  audio?: { update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; onTouchdown?(vsMs: number, lateralDriftMs?: number): void; setMarker?(m: string | null): void };
+  audio?: { update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; onTouchdown?(vsMs: number, lateralDriftMs?: number): void; setMarker?(m: string | null): void; setAircraft?(config: AircraftConfig): void };
   atc?: { update(dt: number, ac: AircraftState, w: SimSnapshot['weather']): void; select(i: number): void; reset(a: Airport | null): void };
 }
 
@@ -100,6 +102,16 @@ export const DEFAULT_ASSISTS: AssistanceOptions = {
 };
 
 const SPAWN_ROLL_OFFSET_M = 40;
+
+/** Aircraft family the landing challenges are written for (approach speeds, flaps 2 of 4). */
+const LANDING_CHALLENGE_AIRCRAFT = 'c172';
+
+/** Autopilot / flight-director / heading-bug actions: ignored when the aircraft has no autopilot. */
+const AP_ACTIONS: ReadonlySet<SimAction> = new Set<SimAction>([
+  'apToggle', 'apHdg', 'apNav', 'apApr', 'apAlt', 'apVs', 'apFlc', 'apLvl', 'fdToggle', 'yawDamper',
+  'apHdgInc', 'apHdgDec', 'apAltInc', 'apAltDec', 'apVsInc', 'apVsDec', 'apIasInc', 'apIasDec', 'apHdgSync', 'apAltSync',
+  'headingBugInc', 'headingBugDec',
+]);
 const NO_ROTATION: [number, number, number, number] = [1, 0, 0, 0];
 
 export class Simulator {
@@ -115,21 +127,24 @@ export class Simulator {
   /** smoothed milliseconds per frame phase (for profiling and the stats overlay) */
   readonly timings = { input: 0, physics: 0, world: 0, sky: 0, instruments: 0, render: 0 };
 
-  readonly config: AircraftConfig = C172S;
+  /** the aircraft being flown: its catalog entry (aircraftCatalog.ts; the 172S G1000 has its own). Change it with `selectAircraft` / `setAircraft`. */
+  config: AircraftConfig = C172S;
   readonly nav: NavDb;
-  readonly fdm: Fdm;
+  /** the flight model of the current aircraft (replaced when the airframe changes) */
+  fdm: Fdm;
   readonly weather: WeatherSystem;
   readonly world: World;
   readonly terrain: TerrainSystem | null;
   readonly scene = new THREE.Scene();
   readonly gfx: RendererBundle;
   readonly sky: SkySystem;
-  readonly model: AircraftModel;
+  /** the 3D airframe and cockpit of the current aircraft (rebuilt, the old one disposed, when the airframe changes) */
+  model: AircraftModel;
   readonly cameras: CameraController;
   readonly input: InputManager;
   readonly autopilot: GfcAutopilot;
-  /** auto-rudder, assisted take-off heading hold and anti-stall (MSFS assistance options) */
-  readonly flightAssists: FlightAssists;
+  /** auto-rudder, assisted take-off heading hold and anti-stall (MSFS assistance options), tuned for the aircraft */
+  flightAssists: FlightAssists;
   private readonly navIn: NavInputs;
   readonly radios: RadioStack;
   readonly planner = new FlightPlanner();
@@ -138,7 +153,8 @@ export class Simulator {
   readonly replayer = new ReplayController(this.replay);
   private replayBar: ReplayBar | null = null;
   private cockpitUi: CockpitInteraction | null = null;
-  readonly steam: SteamPanel;
+  /** the steam panel of the current aircraft (C172S six-pack or the Super Cub panel) */
+  steam: SteamPanel;
   readonly plugins: SimPlugins = {};
   /** landing-path assist gates */
   readonly landingGuide = new LandingGuide();
@@ -159,10 +175,11 @@ export class Simulator {
   weatherPreset: WeatherPresetId = 'few';
 
   private readonly loop = new FixedStepLoop(PHYSICS_DT);
-  private readonly prev: AircraftState;
-  private readonly interp: AircraftState;
+  private prev: AircraftState;
+  private interp: AircraftState;
   private plan: FlightPlanEx | null = null;
-  private readonly steamTex: THREE.CanvasTexture;
+  private steamTex: THREE.CanvasTexture;
+  private readonly aircraftListeners: ((config: AircraftConfig) => void)[] = [];
   private g1000Tex: THREE.CanvasTexture | null = null;
   private lastMs = 0;
   private fpsAcc = 0;
@@ -208,16 +225,12 @@ export class Simulator {
     this.input = new InputManager(this.gfx.renderer.domElement, { flapDetents: this.config.controls.flaps.detentsDeg.length });
     this.autopilot = new GfcAutopilot({ events: this.events });
     this.radios = new RadioStack(this.nav);
-    this.flightAssists = new FlightAssists({ antiStall: { stallAlphaRad: stallAlphaFromConfig(this.config) } });
+    this.flightAssists = new FlightAssists(assistsConfigFor(this.config));
     this.navIn = { nav1: this.radios.nav1, nav2: this.radios.nav2, plan: null };
     this.touchdown = new TouchdownDetector(this.events, { airports: () => this.nearbyAirports });
     this.activities = new ActivityRunner({ host: makeActivityHost(this, (t) => this.speakInstructor?.(t)), events: this.events, progress: this.activityProgress });
-    this.steam = new SteamPanel({});
-    this.steamTex = new THREE.CanvasTexture(this.steam.canvas as HTMLCanvasElement);
-    this.steamTex.colorSpace = THREE.SRGBColorSpace;
-    this.steamTex.anisotropy = Math.min(8, this.gfx.maxAnisotropy);
-    this.model.panelMesh.material.map = this.steamTex;
-    this.model.panelMesh.material.needsUpdate = true;
+    this.steam = new SteamPanel({ layout: steamLayoutFor(this.config), spec: panelSpecFor(this.config) });
+    this.steamTex = this.makeSteamTexture();
     this.prev = structuredClone(this.fdm.state);
     this.interp = structuredClone(this.fdm.state);
     this.snapshot = this.buildSnapshot();
@@ -248,18 +261,23 @@ export class Simulator {
     this.g1000Tex.colorSpace = THREE.SRGBColorSpace;
   }
 
-  /** Swap the cockpit panel between steam gauges and the G1000 (falls back to steam if no G1000 is attached). */
+  /**
+   * Swap the cockpit panel between steam gauges and the G1000 (falls back to steam if no G1000 is
+   * attached, and on airframes without a glass cockpit: the Super Cub). The 172S catalog entry follows
+   * the panel shown (`config` becomes the 172S G1000 with the glass panel, the 172S without).
+   */
   setPanel(variant: 'steam' | 'g1000'): void {
-    const next = variant === 'g1000' && this.g1000Tex ? 'g1000' : 'steam';
+    const glass = variant === 'g1000' && !!this.g1000Tex && this.model.airframe === 'c172';
+    const next = glass ? 'g1000' : 'steam';
     // the newly shown panel has not been stepped while hidden: start it from the current state
     if (next !== this.panelVariant) {
       const snap = this.refreshSnapshot();
       if (next === 'steam') this.steam.reset(snap); else this.plugins.g1000?.reset?.(snap);
     }
     this.panelVariant = next;
-    if (variant === 'g1000' && this.g1000Tex) {
+    if (glass && this.g1000Tex) {
       this.model.setPanelVariant('g1000');
-      const mesh = (this.model as unknown as { cockpit: { panelMeshG1000: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> } }).cockpit.panelMeshG1000;
+      const mesh = this.model.panelMeshG1000;
       mesh.material.map = this.g1000Tex;
       mesh.material.needsUpdate = true;
     } else {
@@ -267,6 +285,100 @@ export class Simulator {
       // the G1000's CDI source steers the autopilot's NAV/APR; the steam panel has no CDI key
       this.autopilot.setNavSource('auto');
     }
+    const entry = glass ? C172S_G1000 : C172S;
+    if (entry !== this.config && sameAirframe(entry, this.config)) this.config = entry;
+  }
+
+  // ─────────────────────────────── aircraft ───────────────────────────────
+
+  /** The steam panel's layout for the current aircraft (cockpit hit-testing, automation). */
+  get panelLayout(): PanelLayout { return this.steam.layout; }
+
+  /** The current aircraft has an autopilot (the Super Cub has none: AP keys do nothing). */
+  get hasAutopilot(): boolean { return hasAutopilot(this.config); }
+
+  /** Called after the aircraft changed (plugins rebuild what depends on it, e.g. the ATC callsign). */
+  onAircraftChange(cb: (config: AircraftConfig) => void): () => void {
+    this.aircraftListeners.push(cb);
+    return () => { const i = this.aircraftListeners.indexOf(cb); if (i >= 0) this.aircraftListeners.splice(i, 1); };
+  }
+
+  /**
+   * Switch aircraft by catalog id ('c172s', 'c172s-g1000', 'pa18-150'; a family prefix such as 'pa18'
+   * picks its first entry). A different airframe gets a new flight model, 3D model (the old one is
+   * disposed), steam panel and texture, flap detents, assists tuning and audio profile; the 172S ↔
+   * 172S G1000 switch only swaps the panel. The flight is not restarted: spawn afterwards (the UI's
+   * spawn and the activities do), or use `setAircraft`. Returns false for an unknown id.
+   */
+  selectAircraft(id: string): boolean {
+    const next = aircraftById(id);
+    if (!next) return false;
+    const before = this.config;
+    if (!sameAirframe(before, next)) this.rebuildAirframe(next);
+    this.config = next;
+    // the catalog entry decides the panel (the Cub has only its steam panel)
+    this.setPanel(next.panel === 'c172-g1000' ? 'g1000' : 'steam');
+    if (!this.hasAutopilot) this.autopilot.reset();
+    if (this.config !== before) for (const cb of [...this.aircraftListeners]) cb(this.config);
+    return true;
+  }
+
+  /**
+   * Fly an aircraft of `family` (an activity's `aircraft`, e.g. 'c172' or 'pa18-150'): keeps the
+   * current one when it belongs to the family (a 172 lesson keeps the G1000 when that is selected),
+   * else selects the family's first catalog entry. No family: no change.
+   */
+  useAircraftFor(family: string | undefined): void {
+    const next = aircraftForActivity(family, this.config);
+    if (next !== this.config) this.selectAircraft(next.id);
+  }
+
+  /** `selectAircraft`, then restart the flight at the last spawn when one is in progress (automation, `__sim.setAircraft`). */
+  async setAircraft(id: string): Promise<boolean> {
+    const before = this.config;
+    if (!this.selectAircraft(id)) return false;
+    if (this.config !== before && this.lastSpawn) await this.respawn();
+    return true;
+  }
+
+  private makeSteamTexture(): THREE.CanvasTexture {
+    const tex = new THREE.CanvasTexture(this.steam.canvas as HTMLCanvasElement);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = Math.min(8, this.gfx.maxAnisotropy);
+    this.model.panelMesh.material.map = tex;
+    this.model.panelMesh.material.needsUpdate = true;
+    return tex;
+  }
+
+  /** New airframe: rebuild everything that is built from the aircraft configuration. */
+  private rebuildAirframe(next: AircraftConfig): void {
+    // replayed frames, the slew pose and an engine start belong to the old airframe
+    if (this.replayer.active) this.replayer.exit();
+    this.replay.clear();
+    if (this.slew) { this.slew = false; this.slewCtl.exit(); }
+    this.autoStartT = -1;
+    this.fdm = new Fdm(next, { seed: 1 });
+    this.fdm.setFuelFraction(1);
+    this.prev = structuredClone(this.fdm.state);
+    this.interp = structuredClone(this.fdm.state);
+    this.snapshot.aircraft = this.interp;
+    this.scene.remove(this.model.root);
+    this.model.dispose();
+    this.model = new AircraftModel(next);
+    this.scene.add(this.model.root);
+    this.steam.dispose();
+    this.steamTex.dispose();
+    this.steam = new SteamPanel({ layout: steamLayoutFor(next), spec: panelSpecFor(next) });
+    this.steamTex = this.makeSteamTexture();
+    // the new model's G1000 plane (C172) gets the glass texture again in setPanel
+    this.panelVariant = 'steam';
+    this.input.setFlapDetents(next.controls.flaps.detentsDeg.length);
+    this.flightAssists = new FlightAssists(assistsConfigFor(next));
+    this.autopilot.reset();
+    this.stress.reset();
+    this.crashReported = false;
+    this.touchdown.reset(true);
+    this.plugins.audio?.setAircraft?.(next);
   }
 
   start(): void {
@@ -349,12 +461,15 @@ export class Simulator {
       } else if (this.autoStartT > 12) this.autoStartT = -1;
     }
     this.navIn.plan = this.plan;
-    this.autopilot.update(simDt, s, this.navIn);
-    const ap = this.autopilot.apply(this.effective);
-    if (ap !== this.effective) Object.assign(this.effective, ap);
-    // persist the auto-trim: `effective` is rebuilt from input.controls every frame, so without this
-    // the trim would snap back to the pilot's old setting when the autopilot disconnects
-    if (this.autopilot.state.engaged) this.input.controls.pitchTrim = this.autopilot.state.trimCommand;
+    // no autopilot fitted (Super Cub): it stays reset (off, nothing armed, no altitude alerter)
+    if (this.hasAutopilot) {
+      this.autopilot.update(simDt, s, this.navIn);
+      const ap = this.autopilot.apply(this.effective);
+      if (ap !== this.effective) Object.assign(this.effective, ap);
+      // persist the auto-trim: `effective` is rebuilt from input.controls every frame, so without this
+      // the trim would snap back to the pilot's old setting when the autopilot disconnects
+      if (this.autopilot.state.engaged) this.input.controls.pitchTrim = this.autopilot.state.trimCommand;
+    }
     // assists act on what the flight model flies, after the autopilot (auto-rudder sees its aileron)
     this.flightAssists.apply(this.effective, s, simDt, this.assists);
   }
@@ -543,6 +658,8 @@ export class Simulator {
   handleAction(a: SimAction): void {
     if (this.radios.handleAction(a)) return;
     if (this.plugins.ui?.handleAction?.(a)) return;
+    // AP keys and the heading bug do nothing in an aircraft without an autopilot (and directional gyro)
+    if (!this.hasAutopilot && AP_ACTIONS.has(a)) return;
     const ap = this.autopilot, aps = ap.state, s = this.fdm.state;
     switch (a) {
       case 'pause': this.setPaused(!this.paused); break;
@@ -702,6 +819,8 @@ export class Simulator {
   async startChallenge(id: string): Promise<void> {
     const c = LANDING_CHALLENGES.find((x) => x.id === id);
     if (!c) throw new Error(`unknown challenge ${id}`);
+    // landing challenges are flown in the 172 (speeds, flap setting and scoring are written for it)
+    this.useAircraftFor(LANDING_CHALLENGE_AIRCRAFT);
     await this.nav.load();
     const ap = this.nav.getAirport(c.icao);
     if (!ap) throw new Error(`airport ${c.icao} not in the database`);

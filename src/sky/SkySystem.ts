@@ -46,6 +46,8 @@ const HEMI_SHARE_FOREIGN_ENV = 0.25;
  * skylight (`skylightBalance`), but reflections are never brighter than the sky they mirror.
  */
 const ENV_MAP_INTENSITY_MAX = 1;
+/** saturation kept in the in-cloud fog colour (luminance-preserving; 1 = the zenith/horizon sky mix) */
+const IN_CLOUD_SATURATION = 0.15;
 /** the dome's own skylight fades in over these sun elevations (deg): below, Sky.js's constant floor is not twilight */
 const DOME_SKYLIGHT_FADE_DEG: readonly [number, number] = [-4, 2];
 
@@ -540,6 +542,9 @@ export class SkySystem {
     this.cloudGrey[0] = this.cloudGrey[0] * 0.9 + L.sunRadiance.r * 0.08;
     this.cloudGrey[1] = this.cloudGrey[1] * 0.9 + L.sunRadiance.g * 0.08;
     this.cloudGrey[2] = this.cloudGrey[2] * 0.9 + L.sunRadiance.b * 0.08;
+    // inside a cloud the light is scattered many times by droplets (no colour preference): near-neutral grey,
+    // like the planes' skylight under a closing deck (clouds.ts) — the zenith-blue mix read sky-blue (b/r ≈ 2)
+    saturateColor(this.cloudGrey, IN_CLOUD_SATURATION, this.cloudGrey);
     mixVec3(this.haze, this.cloudGrey, inCloud, this.tmpC);
     L.fogColor.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
     mixVec3(this.hazeSun, this.cloudGrey, inCloud, this.tmpC);
