@@ -70,7 +70,7 @@ export const PAVEMENT_FEATHER_MAX_M = 160;
 export const PAVEMENT_MAX_BANK_SLOPE = 0.25;
 /** Tiles coarser than this skip pavement flattening (pixels ≥ 75 m: pavement is sub-pixel there). */
 export const PAVEMENT_MIN_ZOOM = 11;
-/** Long edges are split into pieces of at most this length (m) so splatting stays local. */
+/** Long edges are split into pieces of at most this length (m) so the per-block bounds stay tight. */
 const PIECE_M = 64;
 
 export interface PavementGeometry {

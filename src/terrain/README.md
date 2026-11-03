@@ -109,10 +109,13 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   80 m for small differences, widening with the height difference up to 160 m so the bank stays
   ≤ 25 % (`1.5·|Δ| / width`): a deep cut or fill on rough ground becomes an embankment, not a
   cliff (the procedural fallback around KSFO differs from the airport by up to ±45 m).
-  Implementation: per area, a scanline even-odd fill marks the interior and every edge (split
-  into ≤ 64 m pieces) splats its distance into the pixels within its reach (bounding-box ranges
-  found by binary search); per pixel the nearest area wins, so pieces of one apron clipped to
-  neighbouring scenery tiles join without a seam (distance to a union = minimum distance).
+  Implementation: per area, a scanline even-odd fill marks the interior; every edge and centre
+  line is split into ≤ 64 m pieces, bucketed into 8×8-pixel blocks within its reach, and each
+  pixel takes the nearest piece (candidates sorted per block by a bounding-box lower bound, the
+  search stops at the first that cannot win); per pixel the nearest area wins, so pieces of one
+  apron clipped to neighbouring scenery tiles join without a seam (distance to a union = minimum
+  distance). A dense synthetic airport tile (350 areas, 4000 edge pieces in 2 km²) takes
+  0.4–0.7 s on this heavily loaded build machine, the synthetic KSFO tiles a few ms.
   Tiles coarser than z11 skip it (pavement is sub-pixel there). The planes come from
   `src/world/pavement.ts` (one per airport, through its runway thresholds).
 * **Collision = drawn surface** (§8.1): the HeightField stores each tile's mesh vertex lattice
@@ -219,6 +222,10 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   follows a rebase), `sampling.test.ts`, plus
   the earlier pure-module tests (quadtree, tileMesh, gridIndex, heightfield, terrarium, procedural,
   providers, imagery, tilePipeline).
+* Pavement flattening checked in the real app at the synthetic KSFO fixtures (procedural terrain
+  offline): 54 areas flattened after a parking spawn, the ground under the stand is the KSFO plane
+  (2.52–2.55 m over 25 m instead of 1.73–3.16 m of procedural bumps) and no terrain shows through
+  the apron from the stand, from 60 m, 300 m or 500 m up (see the scenery README).
 * Manually verified in headless Chrome (SwiftShader) with a throwaway Vite build: the module worker
   bundles and runs, spawn tile in ≈ 0.2 s with h = 3.96 m, 74 tiles resident, readyFraction 1, no holes,
   and the materials compile and render identically with logarithmic and reversed depth buffers.
@@ -279,7 +286,7 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   terraced well above or below its runways is cut or filled to the plane with an embankment. Areas
   of different airports overlapping within their feathers take the nearest area's plane (a slope
   break where two airports' pavement nearly touch). The work is O(edges × reach²) per tile (a few
-  ms for the synthetic KSFO, tens of ms for a dense real airport tile in the worker).
+  ms for the synthetic KSFO, up to a few hundred ms for an unusually dense tile, in the worker).
 * **Runway pavement vs. flattened terrain**: the flattened strip follows the curved earth at the
   interpolated threshold elevations, while `src/world` draws each runway as one flat quad between its
   corners lifted 0.12 m. On long runways the chord sags below the curve (s²/8R ≈ 0.26 m mid-runway for

@@ -287,4 +287,10 @@ Optional: a graphics toggle calling `setVisible(on)`.
 - `debugView` moves the render camera only; the terrain LOD keeps following the simulator's
   camera (see the screenshot tips above).
 - The headless visual check ran in SwiftShader at a few fps with procedural terrain and
-  imagery (no network), not representative of performance on a GPU.
+  imagery (no network), not representative of performance on a GPU. Pavement check (parked at the
+  synthetic KSFO terminal apron): before the terrain flattening, terrain slivers showed through
+  the apron 150–500 m from a camera at the stand (2.5 m eye height, 22° telephoto) and the drawn
+  pavement under the aircraft was 2.6–6 cm above the bumpy ground (0.166–0.201 m geometry lift
+  minus the old 0.14 m drop); with it the apron is clean from the stand, from 60 m (grazing), 300 m
+  and 500 m up, the pavement geometry is exactly 0.200 m above the flattened ground at every sampled
+  point around the aircraft (4 mm after the near-camera drop) and the tyres rest on the concrete.
