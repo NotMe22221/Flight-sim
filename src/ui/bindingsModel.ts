@@ -8,9 +8,14 @@ import { humanizeAction } from './dom';
 
 export type BindingProfileId = Parameters<UiHost['resetBindings']>[0];
 
+/** The layout a plain "reset" goes back to: the input module's out-of-the-box keyboard set. */
+export const DEFAULT_BINDING_PROFILE: BindingProfileId = 'default';
+
+/** Reset choices, the default first (Settings › Controls renders it as the recommended one). */
 export const BINDING_PROFILES: { id: BindingProfileId; label: string; help: string }[] = [
-  { id: 'msfs', label: 'MSFS keyboard', help: 'Default Microsoft Flight Simulator keys' },
-  { id: 'laptop', label: 'Laptop', help: 'Pitch/roll on the arrow keys, rudder on Q/E' },
+  { id: 'default', label: 'Default', help: 'Out-of-the-box keys: the MSFS numpad layout plus the laptop layer (arrow keys, Q/E rudder, [ ] trim)' },
+  { id: 'msfs', label: 'MSFS keyboard', help: 'Microsoft Flight Simulator keys only: numpad flight controls, no laptop layer' },
+  { id: 'laptop', label: 'Laptop', help: 'No numpad needed: pitch/roll on the arrow keys, rudder on Q/E' },
   { id: 'gamepad-xbox', label: 'Xbox gamepad', help: 'MSFS Xbox controller layout' },
   { id: 'joystick-generic', label: 'Generic joystick', help: 'Stick axes plus common buttons' },
 ];

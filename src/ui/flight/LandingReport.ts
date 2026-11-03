@@ -1,7 +1,7 @@
 /** Landing score card from 'landing:scored'. The pure payload adapter lives in ../landingReportModel. */
 import type { SimEvents } from '../../core/types';
 import type { UnitsSettings } from '../UiHost';
-import { button, clear, h, icon } from '../dom';
+import { button, clear, h, icon, trapFocus } from '../dom';
 import { landingBand, landingComponents, landingExtras, landingRunway } from '../landingReportModel';
 
 export { landingComponents, scoreBand } from '../landingReportModel';
@@ -15,6 +15,7 @@ export class LandingReport {
 
   constructor(layer: HTMLElement) {
     this.card = h('div', { class: 'panel landing-report', role: 'dialog', aria: { label: 'Landing report' } });
+    trapFocus(this.card);
     this.el = h('div', { class: 'modal-backdrop', onClick: (e) => { if (e.target === this.el) this.hide(); } }, this.card);
     layer.appendChild(this.el);
   }

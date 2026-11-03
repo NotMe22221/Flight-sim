@@ -65,7 +65,15 @@ describe('bindingGroups', () => {
 
 describe('profiles', () => {
   it('lists every profile the host can reset to', () => {
-    expect(BINDING_PROFILES.map((p) => p.id)).toEqual(['msfs', 'laptop', 'gamepad-xbox', 'joystick-generic']);
+    expect(BINDING_PROFILES.map((p) => p.id)).toEqual(['default', 'msfs', 'laptop', 'gamepad-xbox', 'joystick-generic']);
+  });
+  it("offers the input module's out-of-the-box 'default' set first, as the default reset choice", async () => {
+    const { DEFAULT_BINDING_PROFILE } = await import('./bindingsModel');
+    expect(DEFAULT_BINDING_PROFILE).toBe('default');
+    expect(BINDING_PROFILES[0].id).toBe(DEFAULT_BINDING_PROFILE);
+    // the layers alone say what they leave out, so nobody picks 'MSFS keyboard' on a laptop by mistake
+    expect(BINDING_PROFILES.find((p) => p.id === 'msfs')!.help).toMatch(/no laptop layer/i);
+    expect(BINDING_PROFILES.find((p) => p.id === 'laptop')!.help).toMatch(/no numpad/i);
   });
 });
 

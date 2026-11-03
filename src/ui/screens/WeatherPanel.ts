@@ -10,6 +10,7 @@ import { WEATHER_ICON } from '../icons';
 import { FT, NM, MAX_CLOUD_LAYERS, MAX_WIND_LAYERS, TURBULENCE_LABELS, WEATHER_PRESETS, cloneWeather, validateCustomWeather, weatherPresetTemplate, weatherSummary } from '../weatherPresets';
 import { KT_PER_MS, formatPressure, formatTemperature, formatTimeLocal, formatTimeScale, formatTimeUtc, formatUtcOffset, speedUnit, speedValue, timezoneOffsetFromLon } from '../format';
 import { SUN_PHASE_LABEL, startOfUtcDay, sunElevationDeg, sunPhase, type TimePreset } from '../solar';
+import { flightTimeMode, presetTimes, sunHint, timeReadout, utcToLocalMinutes } from '../timeOfDay';
 
 type Mode = WeatherPresetId | 'live' | 'custom';
 type TimeMode = 'now' | TimePreset | 'custom';
@@ -39,6 +40,11 @@ export class WeatherPanel {
   private lastSummaryMs = -Infinity;
   /** last simulator preset reflected by the in-flight panel (a challenge or a hotkey can change it) */
   private lastLivePreset: string | null = null;
+  /** in flight: the time choice last derived from the simulator clock (undefined = re-apply) */
+  private lastFlightTime: TimeMode | null | undefined = undefined;
+  private lastSunNight: boolean | null = null;
+  /** preset instants for the aircraft's local day and position (recomputed when either moves) */
+  private presetCache: { key: string; times: Record<TimePreset, number> } | null = null;
   private unsub: () => void;
 
   constructor(private readonly ctx: ScreenContext, private readonly opts: { compact: boolean }) {
@@ -103,6 +109,7 @@ export class WeatherPanel {
   refresh(): void {
     const m = this.mode;
     this.lastLivePreset = null; // the next in-flight update re-checks the simulator's weather
+    this.lastFlightTime = undefined; this.lastSunNight = null; this.lastSummaryMs = -Infinity; // and its clock
     this.markPreset(m);
     this.editorWrap.style.display = m === 'custom' ? '' : 'none';
     // re-seed the editor only when the applied custom weather itself changed: an unrelated change
@@ -248,7 +255,35 @@ export class WeatherPanel {
     if (sc !== this.lastScale) { this.lastScale = sc; this.scaleSeg.set(TIME_SCALES.includes(sc) ? String(sc) : null); this.lastSummaryMs = -Infinity; }
     if (nowMs - this.lastSummaryMs < SUMMARY_INTERVAL_MS) return;
     this.lastSummaryMs = nowMs;
+    if (this.opts.compact && this.ctx.inFlight()) this.updateFlightClock(s);
     const sum = `${weatherSummary(s.weather, this.ctx.settings().units)} · ${formatTimeScale(sc)}`;
     if (sum !== this.lastWxSummary) { this.lastWxSummary = sum; this.currentWx.set(this.opts.compact ? sum : `Current: ${sum}`); }
+  }
+
+  /**
+   * In flight the time card shows the simulator clock at the aircraft, not the plan: a landing
+   * challenge sets its own time and time passes. The highlighted choice is the one that describes
+   * that clock (flightTimeMode); a custom time keeps its slider, which follows the clock unless
+   * the user is dragging it.
+   */
+  private updateFlightClock(s: SimSnapshot): void {
+    const utc = s.time.utcMs, lat = s.aircraft.geo.lat, lon = s.aircraft.geo.lon;
+    if (!Number.isFinite(utc) || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    this.timeReadout.set(timeReadout(utc, lon));
+    const hint = sunHint(utc, lat, lon);
+    this.sunHint.set(hint.text);
+    if (hint.night !== this.lastSunNight) { this.lastSunNight = hint.night; this.sunIcon.innerHTML = icon(hint.night ? 'moon' : 'sun').innerHTML; }
+    if (document.activeElement !== this.timeInput) {
+      const minutes = String(Math.round(utcToLocalMinutes(utc, timezoneOffsetFromLon(lon)) / 5) * 5 % 1440);
+      if (this.timeInput.value !== minutes) this.timeInput.value = minutes;
+    }
+    const sel = this.timeModeFromSelection();
+    const key = `${Math.floor((utc + timezoneOffsetFromLon(lon) * 60_000) / 86_400_000)}:${Math.round(lat * 2)}:${Math.round(lon * 2)}`;
+    if (this.presetCache?.key !== key) this.presetCache = { key, times: presetTimes(utc, lat, lon) };
+    const mode: TimeMode | null = sel === 'custom' ? 'custom' : flightTimeMode(utc, Date.now(), this.presetCache.times);
+    if (mode === this.lastFlightTime) return;
+    this.lastFlightTime = mode;
+    this.timeSeg.set(mode);
+    this.timeSlider.style.display = mode === 'custom' ? '' : 'none';
   }
 }

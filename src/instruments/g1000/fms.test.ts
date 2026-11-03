@@ -3,6 +3,8 @@ import { NM } from '../../core/units';
 import type { NavDb } from '../../nav';
 import { colouredTexts, loadTestNav, makeRig } from '../testing/g1000Rig';
 import { DirectToWindow } from './directTo';
+import { formatHeadingNum } from '../format';
+import { bearingDegGeo, distanceNmGeo } from './fmsCore';
 import { FplWindow } from './fplWindow';
 import { G } from './palette';
 import { resolveCdi, createCdiState } from './navData';
@@ -121,6 +123,29 @@ describe('FPL page', () => {
     expect(col.get('KOAK')).toContain(G.grey); // past
     expect(col.get('KSJC')).toContain(G.white); // future
     for (const h of ['DTK', 'DIS', 'ETE']) expect(col.has(h)).toBe(true);
+  });
+
+  it('DTK (magnetic) and DIS: future legs from the great circle, the active leg matches the nav status bar', () => {
+    const r = rig();
+    // a long leg (≈ 650 nm) so the along-track DTK differs from the leg's initial course by degrees
+    const a = { lat: 37.6, lon: -122.3, alt: 0 }, b = { lat: 30.0, lon: -110.0, alt: 0 }, c = { lat: 30.0, lon: -100.0, alt: 0 };
+    r.planner.setWaypoints([{ id: 'AAA', position: a, type: 'user' }, { id: 'BBB', position: b, type: 'user' }, { id: 'CCC', position: c, type: 'user' }]);
+    r.s.aircraft.geo.lat = 33.9; r.s.aircraft.geo.lon = -116.4; // about half way along AAA → BBB
+    r.btn('mfd', 'FPL');
+    const col = colouredTexts(r.mfdCtx);
+    r.frame(2);
+    const mv = r.g.model.readings.heading.magVarDeg;
+    const fmt = (trueDeg: number) => `${formatHeadingNum(trueDeg - mv)}°`;
+    const along = r.s.plan!.desiredTrackDeg, initial = bearingDegGeo(a, b);
+    expect(Math.abs(along - initial)).toBeGreaterThan(2);
+    // the active row (BBB, magenta) shows the along-track DTK, as the status bar's DTK field does
+    const magentaTexts = [...col].filter(([, cs]) => cs.includes(G.magenta)).map(([t]) => t);
+    expect(magentaTexts).toContain(fmt(along));
+    expect(magentaTexts).not.toContain(fmt(initial));
+    expect(col.has(fmt(along))).toBe(true);
+    // the next leg (BBB → CCC) shows its initial great-circle course and length in white
+    expect(col.get(fmt(bearingDegGeo(b, c)))).toContain(G.white);
+    expect(col.get(`${Math.round(distanceNmGeo(b, c))}NM`)).toContain(G.white);
   });
 
   it('inserts a spelled waypoint before the cursor row and appends on the last row (through the FlightPlanner)', () => {

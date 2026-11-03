@@ -226,13 +226,14 @@ the lifted condensation level, precipitation as liquid-water equivalent (snowfal
 
 ## Tests
 
-`npx vitest run src/sky` — 14 files, all Node (no WebGL):
+`npx vitest run src/sky` — 15 files, all Node (no WebGL):
 
 | File | Covers |
 |---|---|
 | `SkySystem.test.ts` | stub-renderer `SkySystem`: scene graph, ACES + shadows, NOAA sun placement in the render frame, sun light/shadow box, Koschmieder fog, fog colour reaching the GPU encoded once, shared cloud field + floating-origin rebase (shared and self-integrated drift), MSL = y + alt0, ground-fog layer seen from above, in-cloud fog, `patchSkyDepth` output, no cloud-fog lag, first-frame exposure |
 | `haze.test.ts` | phase functions, aerosol share, noon haze between the lit ground and the horizon sky (ridge at 20 km still separable on screen), sun-ward glow, cap, exposure from illuminance, in-scatter knee (horizon ≈ 2–5 × zenith), night glow |
 | `skyShared.test.ts` | shared uniforms (ambient irradiance = hemisphere + floor, cloud-shadow layers, no shadows at night, `null` publishes nothing), noon haze darker than the horizon and blue-grey on screen, night glow and ambient floor, built-in height-fog chunks + uniforms shared through `UniformsUtils.clone`, `patchSkyDome` idempotent |
+| `robustness.test.ts` | one running `SkySystem` fed zero / 50 m / 10⁹ m / NaN visibility, a ground-fog layer, 80 km altitude, in-cloud and storm, at noon, dusk and midnight: every `SkyLighting` number, shared uniform, built-in fog value and the fog optical depth stays finite (a NaN visibility used to latch NaN into the adapted exposure for good) |
 | `WeatherSystem.test.ts` | presets by reference, transitions (lerp, wrap through north, exact end state), `windNED`/`windAt` sign (FROM 270° 10 kt → +E 5.144 m/s), log profile, gusts, METAR/live application, cloud density + drift + rebase |
 | `wind.test.ts` | FROM→TO sign, log profile, vector interpolation, gust envelope, deterministic `GustModel` |
 | `lighting.test.ts` | sun colour/intensity vs elevation, exposure curve + adaptation, light curves, visibility → turbidity/β/FogExp2, height-fog optical depth vs numerical integration, ACES port |
@@ -245,7 +246,14 @@ GLSL was verified separately by bundling a probe with esbuild and rendering in h
 (SwiftShader WebGL2) with normal, logarithmic and reversed depth: every sky program compiles and links,
 the PMREM bake runs, and a tower top in front of an overcast deck stays visible while the deck covers
 the ground behind it in all three modes (removing the clouds' `logdepthbuf_fragment` breaks the log-depth
-case, so the check is meaningful). `npm run smoke` covers the integrated app.
+case, so the check is meaningful). The look-dev pass repeated it for everything it touched: the patched
+dome (knee + night glow), clouds, stars, moon, precipitation and the PMREM bake, terrain (procedural and
+imagery) and ocean materials with the shared sky uniforms and cloud shadows, and every fogged built-in
+material (Standard, Physical, Basic, Lambert, Phong, Toon, Matcap, Normal, Shadow, Points, Line,
+LineDashed, Sprite, InstancedMesh, and `fog: true` ShaderMaterials built before and after
+`installBuiltinHeightFog`) under FogExp2, linear `Fog` and no fog, over 11 cases from 2 m to 80 km incl.
+zero visibility, rain, dusk and night: 60 programs compile and link in each depth mode, no GL errors, and
+the pixels agree across the three modes. `npm run smoke` covers the integrated app.
 
 ## Known limitations
 
@@ -256,7 +264,9 @@ case, so the check is meaningful). `npm run smoke` covers the integrated app.
 - Fog is referenced to the ground under the aircraft (`groundY`). Built-in fog mixes in display space
   (after tone mapping, three's order), the terrain in linear: identical at 0 and full fog, a few percent
   apart in between. Programs compiled before `installBuiltinHeightFog` (or ShaderMaterials with their own
-  fog uniforms) keep three's FogExp2.
+  fog uniforms) keep three's FogExp2. The height-fog values and `SKY_UNIFORMS` are process-wide (one sky per
+  page): another scene on the same page that uses `FogExp2` (a preview, say) gets the main sky's height fog —
+  give it a linear `Fog` or none, and give a second `SkySystem` `sharedUniforms: null`.
 - The haze is one colour pair (90° / sun-ward) per frame: no per-azimuth sky colour, no wavelength-dependent
   extinction (distant terrain does not redden at sunset beyond the haze colour itself).
 - Preetham twilight is approximate (knee + glow on top of single scattering); the star field is synthetic

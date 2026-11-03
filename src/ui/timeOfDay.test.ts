@@ -37,3 +37,27 @@ describe('sunHint', () => {
     expect(midnight.text).toContain('sun −');
   });
 });
+
+describe('flightTimeMode (in-flight Weather & time panel follows the simulator clock)', () => {
+  const KSFO = { lat: 37.62, lon: -122.38 };
+  it("highlights the simulator's own time of day, e.g. a landing challenge at dusk while 'Now' was planned", async () => {
+    const { flightTimeMode, presetTimes } = await import('./timeOfDay');
+    const realNow = Date.UTC(2026, 10, 3, 16, 1); // 08:01 local at KSFO
+    const p = presetTimes(realNow, KSFO.lat, KSFO.lon);
+    expect(flightTimeMode(realNow + 60_000, realNow, p)).toBe('now');
+    // the simulator's challenge 'dusk' is sunset − 20 min, the UI's −1° crossing a few minutes after sunset
+    expect(flightTimeMode(p.dusk - 25 * 60_000, realNow, p)).toBe('dusk');
+    expect(flightTimeMode(p.noon + 10 * 60_000, realNow, p)).toBe('noon');
+    expect(flightTimeMode(p.dawn + 10 * 60_000, realNow, p)).toBe('dawn');
+    // mid-afternoon matches nothing: no choice is highlighted
+    expect(flightTimeMode(p.noon + 3 * 3_600_000, realNow, p)).toBeNull();
+    expect(flightTimeMode(Number.NaN, realNow, p)).toBeNull();
+  });
+  it('night wraps midnight (the instant of the previous or next local day counts)', async () => {
+    const { flightTimeMode, presetTimes } = await import('./timeOfDay');
+    const realNow = Date.UTC(2026, 6, 1, 20, 0);
+    const p = presetTimes(realNow, KSFO.lat, KSFO.lon);
+    expect(flightTimeMode(p.night + 86_400_000 - 20 * 60_000, realNow, p)).toBe('night');
+    expect(flightTimeMode(p.night - 86_400_000 + 20 * 60_000, realNow, p)).toBe('night');
+  });
+});

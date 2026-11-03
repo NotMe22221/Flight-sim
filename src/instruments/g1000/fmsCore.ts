@@ -66,6 +66,8 @@ export interface FmsContext {
   close(w: FmsWindow): void;
   /** something visible changed (redraw) */
   touch(): void;
+  /** load a COM standby frequency (kHz): the G1000's own COM box shows it and a request goes out */
+  comStandby(radio: 1 | 2, kHz: number): void;
   /** activate a direct-to (through the planner); returns false without a planner */
   directTo(t: FmsTarget): boolean;
   /** identifier search (exact first, then nearest) */

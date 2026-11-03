@@ -127,3 +127,52 @@ describe('interface settings persistence', () => {
     expect(sameFlat({ a: 1 }, { a: 1, b: 2 } as { a: number })).toBe(false);
   });
 });
+
+describe('settings version 2 (FOV 70°, anti-stall assist)', () => {
+  it('defaults the field of view to MSFS\'s 70°', () => {
+    expect(defaultSettings().graphics.fov).toBe(70);
+    expect(defaultSettings().version).toBe(2);
+  });
+  it('migrates a version-1 blob that still holds the old 75° default, but keeps any other choice', () => {
+    expect(sanitizeSettings({ version: 1, graphics: { fov: 75 } }).graphics.fov).toBe(70);
+    expect(sanitizeSettings({ version: 1, graphics: { fov: 90 } }).graphics.fov).toBe(90);
+    // once saved as version 2, a deliberate 75° stays
+    const v2 = sanitizeSettings({ version: 1, graphics: { fov: 60 } });
+    expect(v2.version).toBe(2);
+    expect(sanitizeSettings({ ...v2, graphics: { ...v2.graphics, fov: 75 } }).graphics.fov).toBe(75);
+    const r = settingsReducer(v2, { type: 'graphics', patch: { fov: 75 } });
+    expect(r.next.graphics.fov).toBe(75);
+  });
+  it('fills anti-stall in blobs saved before it existed from the preset the saved assists match', () => {
+    const without = (lvl: 'all' | 'middle' | 'true-to-life') => {
+      const a: Record<string, boolean> = { ...assistPreset(lvl) };
+      delete a.antiStall;
+      return sanitizeSettings({ version: 1, assists: a }).assists;
+    };
+    // an 'All assists' player keeps the All assists preset (anti-stall on), not a silent "Custom"
+    expect(without('all').antiStall).toBe(true);
+    expect(assistView(without('all')).level).toBe('all');
+    expect(without('middle').antiStall).toBe(false);
+    expect(assistView(without('middle')).level).toBe('middle');
+    expect(without('true-to-life').antiStall).toBe(false);
+    // a custom mix takes the default (off), and a saved value always wins
+    const custom: Record<string, boolean> = { ...assistPreset('middle'), unlimitedFuel: true };
+    delete custom.antiStall;
+    expect(sanitizeSettings({ assists: custom }).assists.antiStall).toBe(false);
+    expect(sanitizeSettings({ assists: { ...assistPreset('true-to-life'), antiStall: true } }).assists.antiStall).toBe(true);
+  });
+  it('lists anti-stall protection with the piloting helpers and counts it as a helper', () => {
+    const on = { ...assistPreset('middle'), antiStall: true };
+    const v = assistView(on);
+    const row = v.categories.find((c) => c.category === 'Piloting')!.rows.find((r) => r.key === 'antiStall')!;
+    expect(row.label).toBe('Anti-stall protection');
+    expect(row.realism).toBe(false);
+    expect(row.effective).toBe('ON');
+    expect(v.helpersOn).toBe(assistView(assistPreset('middle')).helpersOn + 1);
+    expect(v.level).toBe('custom');
+    // toggling it through the reducer reaches the host payload
+    const r = settingsReducer(defaultSettings(), { type: 'assist', key: 'antiStall', value: true });
+    expect(r.next.assists.antiStall).toBe(true);
+    expect(r.changed).toEqual(['assists']);
+  });
+});

@@ -76,6 +76,8 @@ export class G1000Fms implements FmsContext {
   private pfdFpl: FplWindow | null = null;
   private pfdNrst: NearestWindow | null = null;
   private synced = false;
+  /** planner version at the last update: edits made elsewhere (UI planner, sequencing) redraw both displays */
+  private planVersion = NaN;
   private readonly emitFn: (c: G1000Command) => void;
   private readonly onChange: () => void;
   private s: SimSnapshot | null = null;
@@ -109,6 +111,12 @@ export class G1000Fms implements FmsContext {
   }
 
   touch(): void { this.version = (this.version + 1) | 0; this.onChange(); }
+
+  comStandby(radio: 1 | 2, kHz: number): void {
+    (radio === 1 ? this.pfd.com1 : this.pfd.com2).standbyKHz = kHz;
+    this.emit({ kind: 'comStandby', radio, kHz });
+    this.touch();
+  }
 
   directTo(t: FmsTarget): boolean {
     const p = this.planner;
@@ -230,6 +238,9 @@ export class G1000Fms implements FmsContext {
     this.fplPage.cursor = false; this.fplPage.entry = null; this.nrstPage.cursor = false;
     this.loadedApproach = null; this.approachArmed = false;
     this.pfd.identS = 0;
+    // re-announce the CDI source on the next update: the autopilot may have been switched while
+    // another panel was shown (the steam panel leaves it on 'auto')
+    this.synced = false;
     this.setMfdPage(0);
     syncSoftkeys(this);
   }
@@ -244,6 +255,8 @@ export class G1000Fms implements FmsContext {
     this.navStandby[0] = s.nav1.standbyKHz; this.navStandby[1] = s.nav2.standbyKHz;
     this.navObs[0] = s.nav1.obsDeg; this.navObs[1] = s.nav2.obsDeg;
     if (!this.synced) { this.synced = true; this.emit({ kind: 'cdiSource', source: this.pfd.cdiSource, navSource: navSourceFor(this.pfd.cdiSource) }); }
+    const pv = this.planner ? this.planner.version : NaN;
+    if (pv !== this.planVersion && !(Number.isNaN(pv) && Number.isNaN(this.planVersion))) { this.planVersion = pv; this.touch(); }
     for (const w of this.pfdStack) w.refresh(dt);
     for (const w of this.mfdStack) w.refresh(dt);
     const pg = this.mfdPage();

@@ -75,6 +75,8 @@ export interface SkySystemOptions {
 export type SkySnapshot = Pick<SimSnapshot, 'time' | 'aircraft' | 'weather'> & Partial<Pick<SimSnapshot, 'frame'>>;
 
 const SUN_DISTANCE_M = 600;
+/** visibility used when the weather carries none (NaN): ICAO "10 km or more" */
+const VISIBILITY_FALLBACK_M = 10_000;
 const MOON_LIGHT_COLOR = 0xb8c4ff;
 /** share of the horizon hue in the skylight colour (the rest is the zenith hue) */
 const SKYLIGHT_HORIZON_SHARE = 0.5;
@@ -295,6 +297,8 @@ export class SkySystem {
     const alt0 = snapshot.frame?.alt0 ?? 0;
     /** sim seconds this frame (weather evolution follows the sim clock; 0 while paused) */
     const simDt = dt * Math.max(time.timeScale, 0);
+    /** visibility (m); a missing value (NaN from a bad report) must not poison the adapted exposure */
+    const vis = Number.isFinite(w.visibilityM) ? w.visibilityM : VISIBILITY_FALLBACK_M;
 
     // ── camera velocity (for rain streaks) ──
     if (this.hasPrevCam && dt > 1e-4) {
@@ -323,8 +327,8 @@ export class SkySystem {
     const el = sp.elevation;
 
     // ── sky model parameters from weather ──
-    const turbidity = turbidityFromVisibility(w.visibilityM, w.aerosol);
-    const mie = mieFromVisibility(w.visibilityM, w.aerosol);
+    const turbidity = turbidityFromVisibility(vis, w.aerosol);
+    const mie = mieFromVisibility(vis, w.aerosol);
     this.params.turbidity = turbidity;
     this.params.mieCoefficient = mie;
     this.preetham.setSun(this.sunDir, this.params);
@@ -422,11 +426,11 @@ export class SkySystem {
 
     // ── fog / aerial perspective: β(h) = β0·exp(−h/H), h above the ground under the aircraft ──
     const camAgl = Math.max(camPos.y - L.groundY, 0);
-    let H = hazeScaleHeight(w.visibilityM);
+    let H = hazeScaleHeight(vis);
     // a ground fog layer: the reported visibility applies at the surface and the extinction decays over
     // the layer depth, so it thins out above the top yet still hides the ground when seen from above
     if (w.fogTopM > 0) H = Math.min(H, Math.max(w.fogTopM, 30));
-    const betaSurface = fogBetaFromVisibility(w.visibilityM);
+    const betaSurface = fogBetaFromVisibility(vis);
     // inside cloud the fog becomes homogeneous (falloff → 0) and β at the camera blends toward the
     // in-cloud extinction, so terrain/cloud shaders fog out exactly like the built-in materials below
     const invH = Math.max((1 - inCloud) / H, MIN_FOG_INV_H);
@@ -437,8 +441,8 @@ export class SkySystem {
     // the sky radiance behind it (so the horizon line shows); inside cloud it blends toward cloud grey
     this.tmpA[0] = L.sunColor.r; this.tmpA[1] = L.sunColor.g; this.tmpA[2] = L.sunColor.b;
     this.tmpB[0] = L.ambientIrradiance.r; this.tmpB[1] = L.ambientIrradiance.g; this.tmpB[2] = L.ambientIrradiance.b;
-    capBySky(hazeColor(0, this.tmpA, L.sunIntensity, el, this.tmpB, w.visibilityM, this.haze), this.horizon90);
-    capBySky(hazeColor(1, this.tmpA, L.sunIntensity, el, this.tmpB, w.visibilityM, this.hazeSun), this.horizonSun);
+    capBySky(hazeColor(0, this.tmpA, L.sunIntensity, el, this.tmpB, vis, this.haze), this.horizon90);
+    capBySky(hazeColor(1, this.tmpA, L.sunIntensity, el, this.tmpB, vis, this.hazeSun), this.horizonSun);
     mixVec3(this.zenith, this.horizon, 0.5, this.cloudGrey);
     this.cloudGrey[0] = this.cloudGrey[0] * 0.9 + L.sunRadiance.r * 0.08;
     this.cloudGrey[1] = this.cloudGrey[1] * 0.9 + L.sunRadiance.g * 0.08;
@@ -456,7 +460,7 @@ export class SkySystem {
     // ── exposure: partial eye adaptation to the light on the ground ──
     const ambLum = 0.2126 * L.ambientIrradiance.r + 0.7152 * L.ambientIrradiance.g + 0.0722 * L.ambientIrradiance.b;
     const target = exposureForIlluminance(surfaceIlluminance(L.sunIntensity, el, ambLum), mp.illuminatedFraction, this.exposureOptions);
-    this.exposure = this.adapted ? adaptExposure(this.exposure, target, dt, this.exposureOptions.adaptTimeS) : target;
+    this.exposure = this.adapted && Number.isFinite(this.exposure) ? adaptExposure(this.exposure, target, dt, this.exposureOptions.adaptTimeS) : target;
     this.adapted = true;
     this.renderer.toneMappingExposure = this.exposure;
     L.exposure = this.exposure;

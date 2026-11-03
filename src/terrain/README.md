@@ -229,7 +229,17 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   fixed radius needs many more tiles.
 * **Fog** treats render-frame y as height (as the sky module does), which over-thickens haze for very
   distant terrain below the tangent plane; at those distances the terrain is fully hazed anyway.
-* **No terrain shadows**, no detail textures (§6.3), no night lights.
+* **No terrain self-shadows** (only cloud shadows), no night lights (city glow). The detail texture
+  (§6.3) is only on procedural fallback tiles; real imagery gets none (it is shown unmodified), so it
+  softens below ≈ 10 m/px at low altitude. Cloud shadows skip the cloud planes' edge erosion (slightly
+  softer edges than the clouds above) and are limited to `MAX_SHADOW_LAYERS` (4) layers.
+* **Runway pavement vs. flattened terrain**: the flattened strip follows the curved earth at the
+  interpolated threshold elevations, while `src/world` draws each runway as one flat quad between its
+  corners lifted 0.12 m. On long runways the chord sags below the curve (s²/8R ≈ 0.26 m mid-runway for
+  KSFO 28R/10L, 3.6 km), and coarse LODs resolve the 60 m strip only partly (measured at KSFO from the
+  threshold: pavement −0.33 … +0.19 m against the terrain along the centreline), so distant
+  mid-runway pavement can lose the depth test against the terrain. A pavement tessellated along its
+  length (vertices from `frame.geodeticToThree`, so it curves like the terrain) removes the sag.
 * **Datum**: Terrarium heights are orthometric (≈ MSL) and treated as ellipsoidal (§8.1).
 * **Providers**: EOX and GIBS endpoints are unverified from the build container ([verify] in §0).
   Mapterhorn (WebP) is catalogued but not in the default chain (WebP decode needs `createImageBitmap`).

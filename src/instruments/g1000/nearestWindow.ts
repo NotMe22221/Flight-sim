@@ -122,7 +122,7 @@ export class NearestWindow extends FmsWindow {
         else this.sel = clampInt(this.sel + e.steps, 0, Math.max(0, this.count - 1));
         return true;
       case 'ENT': {
-        if (this.focus === 'freq' && freqs && freqs[this.freqSel]) { this.fms.emit({ kind: 'comStandby', radio: 1, kHz: freqs[this.freqSel].kHz }); return true; }
+        if (this.focus === 'freq' && freqs && freqs[this.freqSel]) { this.fms.comStandby(1, freqs[this.freqSel].kHz); return true; }
         const t = this.selection();
         if (!t) return true;
         if (t.kind === 'vor' && t.frequencyKHz > 0) this.fms.emit({ kind: 'navStandby', radio: 1, kHz: t.frequencyKHz });

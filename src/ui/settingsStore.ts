@@ -1,10 +1,12 @@
 /**
  * Persisted UI settings ('flightsim.settings.v1'): graphics, audio, units, assists, interface.
  * Pure except for the two localStorage accessors, which are guarded for Node/private mode.
+ * Blob versions: 1 = first release; 2 = default FOV 70° (a stored legacy-default 75° is migrated)
+ * and assists added later (anti-stall) are filled from the preset the saved ones match.
  */
 import type { AssistanceOptions } from '../core/types';
 import type { AudioSettings, GraphicsSettings, UnitsSettings } from './UiHost';
-import { assistPreset } from './assistPresets';
+import { ASSIST_LEVELS, assistPreset } from './assistPresets';
 
 export const SETTINGS_KEY = 'flightsim.settings.v1';
 export const LAYOUT_KEY = 'flightsim.ui.layout.v1';
@@ -17,8 +19,10 @@ export interface InterfaceSettings {
   /** flight info strip outside the cockpit */ infoStrip: boolean;
 }
 
+export const SETTINGS_VERSION = 2;
+
 export interface PersistedSettings {
-  version: 1;
+  version: typeof SETTINGS_VERSION;
   graphics: GraphicsSettings;
   audio: AudioSettings;
   units: UnitsSettings;
@@ -33,14 +37,18 @@ export const GRAPHICS_QUALITY_PRESETS: Record<GraphicsSettings['quality'], Omit<
   ultra: { renderScale: 1.25, shadows: true, clouds: true, terrainDetail: 2 },
 };
 
-export const defaultGraphics = (): GraphicsSettings => ({ quality: 'medium', ...GRAPHICS_QUALITY_PRESETS.medium, imagery: 'satellite', fov: 75 });
+/** MSFS's default cockpit field of view; 75° made the C172's A-pillars look heavy. */
+export const DEFAULT_FOV = 70;
+/** The default before settings version 2: a stored 75 is migrated to DEFAULT_FOV on load. */
+const LEGACY_DEFAULT_FOV = 75;
+export const defaultGraphics = (): GraphicsSettings => ({ quality: 'medium', ...GRAPHICS_QUALITY_PRESETS.medium, imagery: 'satellite', fov: DEFAULT_FOV });
 export const defaultAudio = (): AudioSettings => ({ master: 0.8, engine: 0.8, environment: 0.7, cockpit: 0.8, ui: 0.6, atc: 0.9 });
 export const defaultUnitsSettings = (): UnitsSettings => ({ altitude: 'ft', speed: 'kt', pressure: 'inHg', distance: 'nm', temperature: 'C' });
 export const defaultInterface = (): InterfaceSettings => ({ scale: 1, subtitles: true, infoStrip: true });
 export const UI_SCALE_MIN = 0.75;
 export const UI_SCALE_MAX = 1.5;
 export const defaultSettings = (): PersistedSettings => ({
-  version: 1, graphics: defaultGraphics(), audio: defaultAudio(), units: defaultUnitsSettings(), assists: assistPreset('middle'), ui: defaultInterface(),
+  version: SETTINGS_VERSION, graphics: defaultGraphics(), audio: defaultAudio(), units: defaultUnitsSettings(), assists: assistPreset('middle'), ui: defaultInterface(),
 });
 
 /** Applies a quality preset, keeping fov and imagery. */
@@ -62,6 +70,23 @@ const num = (v: unknown, d: number, lo = -Infinity, hi = Infinity) => (typeof v 
 const bool = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d);
 const oneOf = <T extends string>(v: unknown, opts: readonly T[], d: T): T => (typeof v === 'string' && (opts as readonly string[]).includes(v) ? (v as T) : d);
 
+const assistKeys = Object.keys(assistPreset('middle')) as (keyof AssistanceOptions)[];
+
+/**
+ * Where assists missing from a saved blob (options added after it was written, e.g. anti-stall)
+ * take their value from: the preset every saved option still matches ('All assists' players get the
+ * new helper on, 'True to life' players off), else the default preset.
+ */
+function missingAssistBase(saved: Record<string, unknown>): AssistanceOptions {
+  const present = assistKeys.filter((k) => typeof saved[k] === 'boolean');
+  if (present.length === 0 || present.length === assistKeys.length) return assistPreset('middle');
+  for (const lvl of ASSIST_LEVELS) {
+    const p = assistPreset(lvl.id);
+    if (present.every((k) => p[k] === saved[k])) return p;
+  }
+  return assistPreset('middle');
+}
+
 /** Merges unknown JSON onto defaults, field by field, so a stale or hand-edited blob can never break startup. */
 export function sanitizeSettings(raw: unknown): PersistedSettings {
   const d = defaultSettings();
@@ -72,8 +97,11 @@ export function sanitizeSettings(raw: unknown): PersistedSettings {
   const s = isObj(raw.assists) ? raw.assists : {};
   const i = isObj(raw.ui) ? raw.ui : {};
   const vol = (k: keyof AudioSettings) => num(a[k], d.audio[k], 0, 1);
+  // a version-1 blob still holding the old default FOV gets the new default (a deliberate 75 is rare)
+  const legacy = raw.version !== SETTINGS_VERSION;
+  const fov = num(g.fov, d.graphics.fov, 30, 120);
   const out: PersistedSettings = {
-    version: 1,
+    version: SETTINGS_VERSION,
     graphics: {
       quality: oneOf(g.quality, ['low', 'medium', 'high', 'ultra'] as const, d.graphics.quality),
       renderScale: num(g.renderScale, d.graphics.renderScale, 0.5, 2),
@@ -81,7 +109,7 @@ export function sanitizeSettings(raw: unknown): PersistedSettings {
       clouds: bool(g.clouds, d.graphics.clouds),
       terrainDetail: num(g.terrainDetail, d.graphics.terrainDetail, 0.25, 4),
       imagery: oneOf(g.imagery, ['satellite', 'procedural'] as const, d.graphics.imagery),
-      fov: num(g.fov, d.graphics.fov, 30, 120),
+      fov: legacy && fov === LEGACY_DEFAULT_FOV ? DEFAULT_FOV : fov,
     },
     audio: { master: vol('master'), engine: vol('engine'), environment: vol('environment'), cockpit: vol('cockpit'), ui: vol('ui'), atc: vol('atc') },
     units: {
@@ -98,7 +126,8 @@ export function sanitizeSettings(raw: unknown): PersistedSettings {
       infoStrip: bool(i.infoStrip, d.ui.infoStrip),
     },
   };
-  for (const k of Object.keys(d.assists) as (keyof AssistanceOptions)[]) out.assists[k] = bool(s[k], d.assists[k]);
+  const base = missingAssistBase(s);
+  for (const k of assistKeys) out.assists[k] = bool(s[k], base[k]);
   return out;
 }
 

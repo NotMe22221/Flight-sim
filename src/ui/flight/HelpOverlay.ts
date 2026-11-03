@@ -1,6 +1,6 @@
 /** Keyboard cheat sheet from host.bindings(), grouped and searchable. */
 import type { BindingInfo } from '../UiHost';
-import { button, clear, deviceIcon, h, icon, isCoarsePointer } from '../dom';
+import { button, clear, deviceIcon, h, icon, isCoarsePointer, trapFocus } from '../dom';
 import { bindingGroups } from '../bindingsModel';
 
 export class HelpOverlay {
@@ -21,7 +21,8 @@ export class HelpOverlay {
       h('div', { class: 'row' }, icon('keyboard'), h('h2', { class: 'screen-title', style: 'font-size:1.1em;flex:1', text: 'Controls' }),
         button('', () => this.hide(), { icon: 'close', cls: 'btn-ghost btn-icon', title: 'Close (Esc)' })),
       this.search, scroller,
-      h('div', { class: 'muted', style: 'font-size:.8em', text: 'Rebind keys in Settings › Controls. Laptop profile puts pitch/roll on the arrow keys and rudder on Q/E.' }));
+      h('div', { class: 'muted', style: 'font-size:.8em', text: 'Rebind keys in Settings › Controls. The default layout has the MSFS numpad keys plus a laptop set: arrow keys pitch and roll, Q/E rudder.' }));
+    trapFocus(card);
     this.el = h('div', { class: 'modal-backdrop', onClick: (e) => { if (e.target === this.el) this.hide(); } }, card);
     layer.appendChild(this.el);
   }

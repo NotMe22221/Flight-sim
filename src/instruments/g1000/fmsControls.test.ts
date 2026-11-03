@@ -56,6 +56,7 @@ describe('NRST', () => {
     const c = last(r.cmds, 'comStandby')!;
     expect(c.radio).toBe(1);
     expect(c.kHz).toBe(120_500); // KSFO tower first
+    expect(r.g.com1.standbyKHz).toBe(120_500); // the G1000's own COM1 box shows it too (contract of comStandby)
     r.knob('mfd', 'FMS', 1, 'outer'); // back to the list
     r.btn('mfd', 'ENT');
     expect((r.f.mfdPopups.at(-1) as DirectToWindow).target?.ident).toBe('KSFO');
@@ -170,6 +171,17 @@ describe('PFD softkeys', () => {
     const seen: string[] = [];
     for (let i = 0; i < 3; i++) { r.input({ type: 'softkey', display: 'pfd', index: 4 }); seen.push(last(r.cmds, 'cdiSource')!.navSource); }
     expect(seen).toEqual(['nav1', 'nav2', 'gps']);
+  });
+
+  it('reset (new flight / panel swap) re-announces the CDI source once on the next update', () => {
+    const r = rig();
+    r.input({ type: 'softkey', display: 'pfd', index: 4 }); // NAV1
+    r.frame();
+    const n = r.cmds.length;
+    r.g.reset(r.s);
+    expect(r.cmds.length).toBe(n); // nothing until the next update
+    r.frame(3);
+    expect(r.cmds.slice(n)).toEqual([{ kind: 'cdiSource', source: 'NAV1', navSource: 'nav1' }]);
   });
 
   it('OBS suspends sequencing with a selectable GPS course (CRS knob); a second press resumes', () => {

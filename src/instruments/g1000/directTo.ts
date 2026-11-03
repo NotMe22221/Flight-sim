@@ -132,7 +132,7 @@ export class DirectToWindow extends FmsWindow {
         const m = this.matches[i], sel = this.focus === i + 1;
         cell(ctx, m.ident, x, y, 80, h - 2, st.bold, G.white, sel);
         text(ctx, KIND_LABEL[m.kind] ?? '', x + 92, y + 1, st.small, G.white, 'left');
-        brgDis(ctx, bearingDegGeo(pos, m.position) - this.fms.magVarDeg, m.distanceM / 1852, x + w - 80, x + w, y, st, G.white);
+        brgDis(ctx, bearingDegGeo(pos, m.position) - this.fms.magVarDeg, distanceNmGeo(pos, m.position), x + w - 80, x + w, y, st, G.white);
       }
     }
     const by = rc.y + rc.h - h;

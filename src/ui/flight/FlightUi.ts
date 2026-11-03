@@ -9,6 +9,7 @@ import type { ScreenContext } from '../screens/Screen';
 import type { InterfaceSettings } from '../settingsStore';
 import type { AssistKey } from '../assistPresets';
 import { ASSIST_ITEMS } from '../assistPresets';
+import { disconnectText } from '../apAnnunciator';
 import { Cls, Txt, h } from '../dom';
 import { releasesFocusAfter } from '../routing';
 import { FlightPanels, type PanelId } from './FlightPanels';
@@ -110,7 +111,8 @@ export class FlightUi {
     this.d.hudLayer.style.display = on ? '' : 'none';
     this.d.flightLayer.style.display = on ? '' : 'none';
     this.panels.toolbar.setEnabled(on);
-    if (on) { this.panels.clampAll(); if (this.pausedByMenu && !this.pause.visible) this.showPause(); }
+    // frames spent in a menu were not watched: a disconnect from back then must not flash now
+    if (on) { this.hud.rebase(); this.panels.clampAll(); if (this.pausedByMenu && !this.pause.visible) this.showPause(); }
     else { this.help.hide(); this.report.hide(); if (this.pause.visible) this.pause.hide(); }
     this.d.onOverlayChange();
   }
@@ -165,7 +167,7 @@ export class FlightUi {
     if (!this.active) return;
     this.status.update(s, nowMs);
     this.hud.enabled = this.hudToggle && this.d.iface().infoStrip;
-    this.hud.update(s, this.d.units());
+    this.hud.update(s, this.d.units(), nowMs);
     this.hudShift.set(this.panels.toolbar.el.classList.contains('visible'));
     this.panels.update(s, nowMs);
     if (this.subUntil && nowMs > this.subUntil) { this.subUntil = 0; this.subVisible.set(false); }
@@ -206,7 +208,10 @@ export class FlightUi {
     const was = this.apEngaged;
     this.apEngaged = st.engaged;
     if (!this.active || was === null || was === st.engaged || this.now < this.apGraceUntil) return;
-    this.d.ctx.toast(st.engaged ? 'Autopilot engaged' : 'AP OFF — autopilot disconnected', st.engaged ? 'info' : 'warn');
+    if (st.engaged) { this.d.ctx.toast('Autopilot engaged', 'info'); return; }
+    // the autopilot reports why it let go (GFC 700): say so when it was not the pilot
+    const d = disconnectText(st.disconnectReason);
+    this.d.ctx.toast(d.abnormal ? `AP OFF — autopilot disconnected: ${d.long}` : 'AP OFF — autopilot disconnected', d.abnormal ? 'error' : 'warn');
   }
 
   /** A new flight (spawn, respawn, challenge): fresh panels, no stale overlays, not paused by us. */
@@ -220,6 +225,7 @@ export class FlightUi {
     this.subUntil = 0; this.subVisible.set(false);
     this.apEngaged = null;
     this.apGraceUntil = this.now + AP_EVENT_GRACE_MS;
+    this.hud.rebase();
     this.d.onOverlayChange();
   }
 

@@ -40,6 +40,9 @@ Required: `events`, `nav`, `snapshot()`, `aircraftList()`, `currentAircraft()`, 
 `spawn()`, `setWeatherPreset()`, `setCustomWeather()`, `requestLiveWeather()`, `setTime()`,
 `setTimeScale()`, `setPaused()`, `setCamera()`, `setAssists()`, `setGraphics()`, `setAudio()`,
 `setUnits()`, `bindings()`, `rebind()`, `resetBindings()`, `dataCredits()`, `captureInput()`.
+`resetBindings(profile)` takes the input module's layouts: `'default'` (out of the box: MSFS numpad
+layout + laptop layer merged; Settings › Controls offers it first as the recommended reset),
+`'msfs'` and `'laptop'` (each layer alone), `'gamepad-xbox'`, `'joystick-generic'`.
 
 `setWeatherPreset(id, { immediate: true })` / `setCustomWeather(w, { immediate: true })` are sent
 when a new flight starts (no blend from the previous flight's weather); without the option the
@@ -49,7 +52,9 @@ Optional (feature-detected, UI hides/disables the feature when absent):
 `addWaypoint(wp)` (World Map "Set as arrival", VFR map "Direct to"), `clearPlan()` (Nav log),
 `startChallenge(id)` (Activities "Start"), `comRadio()` (COM1 frequency in the ATC panel header;
 otherwise the header shows the last transmission's frequency), `setInfoStrip(visible)` (the
-"Flight info strip" setting, for a host whose own HUD replaces the UI's strip).
+"Flight info strip" setting, for a host whose own HUD replaces the UI's strip),
+`magneticVariationDeg(lat, lon)` (runway headings and nav-log bearings in °M; without it the
+World Map shows true headings marked 'T').
 
 Events consumed: `ui:toast`, `terrain:progress` (flight loading bar), `landing:scored` (report +
 challenge best score; `landingReportModel.ts` maps the scorer's `centre/smooth/zone/stop` percentages,
@@ -79,7 +84,9 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
   to the previous menu. Challenges use `host.startChallenge(id)` the same way.
 - **Settings** (`settingsStore.ts`, `settingsModel.ts`): `flightsim.settings.v1` holds graphics,
   audio, units, assists and interface (UI scale, ATC subtitles, info strip), sanitized field by
-  field. Every edit goes through the pure `settingsReducer`, which reports which groups changed;
+  field. Blob version 2: default FOV 70° (MSFS cockpit default; a version-1 blob still holding the
+  old 75° default is migrated), and assists added after a blob was saved (anti-stall protection)
+  take the value of the preset the saved assists match ('All assists' players get it on). Every edit goes through the pure `settingsReducer`, which reports which groups changed;
   only those are saved and pushed to the host. Assist presets overwrite every item and the
   General tab always shows each item's **effective** ON/OFF state (MSFS gotcha, doc 01 §1.2);
   in flight the live `snapshot.assists` (hotkey toggles) is adopted before Settings opens.
@@ -87,7 +94,7 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
   (`searchDebounce.ts`; empty box = airports near the map centre), airport card (elevation,
   frequencies, runways with length × width / surface / ILS, both ends with heading and
   head/tailwind, "into wind" badge, Parking cold & dark, Set as departure / arrival), canvas map
-  (equirectangular `mapProjection.ts`; drag to pan, wheel zooms about the cursor, double-click,
+  (Web-Mercator `mapProjection.ts`; drag to pan, wheel zooms about the cursor, double-click,
   arrows / + / −; graticule; airport dots sized by type and filtered by zoom; labels by zoom;
   departure runway drawn with a take-off chevron; great-circle route to the arrival; scale bar
   in the user's unit). Airports come from `nav.nearestAirports` around the view centre,
@@ -102,8 +109,18 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
   (Camera · ATC · Checklist · Nav log · VFR map · Weather · Controls · Menu), draggable /
   resizable panels with persisted positions (`flightsim.ui.layout.v1`), status bar, info strip,
   ATC subtitles, toasts (also in menus). The Weather panel highlights the preset the simulator is
-  actually flying (a challenge sets its own); the pause menu's "Restart flight" respawns at the
-  same position (runway, parking or challenge final).
+  actually flying (a challenge sets its own) and its time card follows the simulator clock at the
+  aircraft (`flightTimeMode` in `timeOfDay.ts`: 'Dusk' for a dusk challenge, nothing highlighted
+  once the clock has moved away from every preset); the pause menu's "Restart flight" respawns at
+  the same position (runway, parking or challenge final).
+- **Autopilot annunciations** (`apAnnunciator.ts`, info strip): GFC 700 style lateral · AP ·
+  vertical, active modes green and armed modes white, `LVL` in both fields during LVL recovery, a
+  flashing `AP` for 5 s after a disconnect (`disconnectT` changed: red with the reason, e.g.
+  `AP OFF · STALL`, when the autopilot dropped out; amber for the pilot's own disconnect;
+  re-engaging cancels it) and the altitude alerter on the ALT cell (`altAlert`: the key turns into
+  the selected altitude, black on cyan while approaching it, amber on a deviation, flashing 5 s).
+  A disconnect also toasts with the reason in every view. The disconnect tone is the audio
+  module's (it watches `autopilot:changed`); the UI has no audio hook and does not double it.
 
 Keyboard ownership in flight: a slider, dropdown, switch or button used with the pointer in the
 toolbar or a panel gives the focus back right away (`releasesFocusAfter` in `routing.ts`), because
@@ -146,7 +163,8 @@ stale async results), settings reducer (changed groups, presets vs. per-item, sa
 resets), bindings view model (groups, conflicts, filters), activities (filters, briefing text,
 best scores, challenge session), World Map model (zoom filtering, dot sizes, query radius,
 refetch throttling incl. antimeridian, hit-testing, scale bar, runway line), time-of-day
-mapping and sun hint, plus the pre-existing format, projection, solar, runways, weather presets,
+mapping, sun hint and the in-flight clock choice, autopilot annunciator (LVL, disconnect flash
+baseline/rebase, alerter), settings version-2 migrations (FOV, anti-stall), plus the pre-existing format, projection, solar, runways, weather presets,
 assist presets and checklist tests. `importSafety.test.ts` imports every module (including all
 DOM classes and the CSS-importing barrel) in Node to prove nothing touches the DOM at load.
 
@@ -164,8 +182,9 @@ DOM classes and the CSS-importing barrel) in Node to prove nothing touches the D
 - Runway idents are shown as the nav data spells them ('1R/19L' for OurAirports' KSFO data).
 - Without `host.cancelRebind` a pending rebind is ended by a synthesized Esc (works with the
   bundled input module, which cancels a capture on Esc).
-- In flight the Weather panel's time-of-day buttons show the planned selection; a challenge's own
-  time of day (e.g. dusk) is not reflected there (its weather preset is).
+- The info strip (with the AP annunciator) is the UI's own; the bundled host hides it while the
+  instruments HUD plugin draws its flight strip, so there the annunciations come from that HUD
+  and the cockpit PFD, and the UI adds only the disconnect toast.
 - Settings › Controls and the help sheet list SimActions only: keyboard flight-control axes
   (pitch/roll/rudder/throttle keys) are not reported by `host.bindings()`.
 

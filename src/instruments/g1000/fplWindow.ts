@@ -188,7 +188,10 @@ export class FplWindow extends FmsWindow {
       if (active >= 1 && i === active - 1 && !(p && p.isDirectTo)) arrowFromY = y;
       let dtk = this.legDtkTrue[i], dis = this.legNm[i];
       if (isActive) {
-        if (p && p.isDirectTo && legFrom) dtk = bearingDegGeo(legFrom, wps[i].position);
+        // the active leg shows the planner's along-track DTK (as the nav status bar and the HSI do;
+        // on a long great-circle leg it differs from the leg's initial course), else the D→ course
+        if (plan && Number.isFinite(plan.desiredTrackDeg)) dtk = plan.desiredTrackDeg;
+        else if (p && p.isDirectTo && legFrom) dtk = bearingDegGeo(legFrom, wps[i].position);
         dis = plan ? plan.distanceToActiveM / 1852 : distanceNmGeo(pos, wps[i].position);
       }
       if (Number.isFinite(dtk)) text(ctx, brgLabels.get(dtk - mv), cDtk, y + 1, st.font, color, 'right');

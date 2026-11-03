@@ -46,7 +46,7 @@ export class FlightConditions {
 
     this.timeSeg = segmented<TimeMode>([
       { value: 'now', label: 'Now' }, { value: 'dawn', label: 'Dawn' }, { value: 'noon', label: 'Noon' },
-      { value: 'dusk', label: 'Dusk' }, { value: 'night', label: 'Night' }, { value: 'custom', label: '…' },
+      { value: 'dusk', label: 'Dusk' }, { value: 'night', label: 'Night' }, { value: 'custom', label: '…', title: 'Custom time of day (slider)' },
     ], 'now', (m) => this.pickTime(m), 'stretch');
     this.timeInput = h('input', { type: 'range', min: 0, max: 1435, step: 5, value: 720, class: 'slider', aria: { label: 'Local time of day' }, onInput: () => this.onSlider() });
     this.sliderRow = h('div', { class: 'slider-row no-label' }, this.timeInput, h('span'));

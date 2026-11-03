@@ -71,7 +71,7 @@ const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
 ## G1000 interaction (G1000 NXi, docs/research/05 §2–4, §6)
 
 ```ts
-const g = new G1000({ nav: sim.nav, planner: sim.planner, onCommand: (c) => apply(c) });   // bezel: true
+const g = new G1000({ nav: sim.nav, planner: sim.planner, onCommand: (c) => applyG1000Command(c, host) });   // bezel: true; host: see Wiring
 g.handleInput({ type: 'softkey', display: 'pfd', index: 4 });            // CDI
 g.handleInput({ type: 'button', display: 'mfd', id: 'DIRECT' });         // D→, FPL, PROC, CLR, ENT, MENU, NRST, AFCS keys
 g.handleInput({ type: 'knob', display: 'mfd', id: 'FMS', ring: 'outer', steps: +1 });
@@ -101,7 +101,7 @@ side-by-side panel keeps the cockpit mesh's 0.96 × 0.35 m aspect.
 |---|---|---|
 | MFD page groups | MAP (navigation map) · FPL (active flight plan) · NRST (airports, VOR, NDB) | FMS outer = group, inner = page (cursor off); indicator bottom right |
 | D→ window (MFD popup / PFD window) | ident field with spell'n'find completion, nearest-match list (airports, VOR, NDB from `NavDb.searchIdents`), name, BRG/DIS, ACTIVATE? | inner = character, outer = cursor (or field), typing; ENT accept / ENT activate; duplicate idents → pick from the list; MENU → CANCEL DIRECT-TO NAV; prefilled from the FPL/NRST cursor |
-| FPL page / PFD FPL window | waypoints with DTK (mag), DIS, ETE; active leg magenta with leg arrow, past grey; total | push = cursor; outer = row; inner/typing = insert before the row (last row appends); CLR → REMOVE?; MENU → ACTIVATE LEG / DELETE FLIGHT PLAN / CANCEL D→; ACT LEG softkey; D→ = direct to the row |
+| FPL page / PFD FPL window | waypoints with DTK (mag), DIS, ETE; active leg magenta with leg arrow (its DTK is the planner's along-track DTK, as in the nav status bar), past grey; total | push = cursor; outer = row; inner/typing = insert before the row (last row appends); CLR → REMOVE?; MENU → ACTIVATE LEG / DELETE FLIGHT PLAN / CANCEL D→; ACT LEG softkey; D→ = direct to the row |
 | NRST page / PFD NRST window | 25 nearest airports: BRG, DIS, longest runway, TWR/CTAF, ILS flag; selected airport's frequencies; VOR/NDB lists | inner = row, outer = frequency list; ENT = D→ (airport) / COM1 standby (frequency) / NAV1 standby (VOR) |
 | PROC window | SELECT APPROACH at the destination (else D→ airport, else nearest; re-spellable), ILS list, LOAD? / ACTIVATE? | LOAD: FFxx/RWxx fixes appended, LOC into NAV1 + course, CDI switches GPS → LOC on the final; ACTIVATE: also D→ FAF and CDI → NAV1 |
 | PFD TMR/REF, ALERTS | timer START/STOP/RESET, V-speed bugs ON/OFF, BARO minimums (bug + box); active alerts | outer = field, inner = value, ENT |
@@ -146,7 +146,8 @@ returns the MFD to the MAP page.
 autopilot's GPS/NAV source and the HSI follow on the next frame. Off-route D→ keeps the stored
 plan (FPL shows it with "D→ KOAK"); the map draws D→/OBS legs from `plan.legFrom`.
 
-**Render cost**: the UI state folds into the change hash (`fms.version`), windows with live
+**Render cost**: the UI state folds into the change hash (`fms.version`, which also follows
+`planner.version`, so plan edits made elsewhere redraw both displays at once), windows with live
 values add the aircraft position at ~0.05 nm, the inset map at half a pixel; labels come from
 `LabelCache`s and list strings are built when data changes (NRST refresh every 2 s), never per
 frame. The bezel is painted once (again only on hover changes or `invalidate()`).
@@ -219,11 +220,13 @@ model it does not own, so the lags are not advanced twice).
   `dmeValid`, back course and marker beacons.
 * `g1000/fms.test.ts` (real `NavDb` + `FlightPlanner`): D→ typed and knob-spelled, VOR via the
   duplicate list, NDB, off-route D→ keeps the plan, MENU cancels, snapshot plan and HSI follow;
-  FPL with 11 waypoints (active magenta, past grey), insert/append/remove, ACTIVATE LEG (menu and
+  FPL with 11 waypoints (active magenta, past grey), DTK/DIS values on a long great-circle leg
+  (active row = along-track DTK of the status bar), insert/append/remove, ACTIVATE LEG (menu and
   softkey), D→ from the cursor, DELETE FLIGHT PLAN, PFD FPL window.
 * `g1000/fmsControls.test.ts`: NRST airports/VOR/NDB lists, D→ and frequency loading from the
-  list; PROC ILS ACTIVATE (fixes, NAV1 frequency + course, CDI → NAV1) and LOAD (auto GPS → LOC
-  switch, fixes replaced on reload); every implemented PFD/MFD softkey; NAV/COM tuning steps and
+  list (the G1000's COM1 box follows); PROC ILS ACTIVATE (fixes, NAV1 frequency + course, CDI →
+  NAV1) and LOAD (auto GPS → LOC switch, fixes replaced on reload); every implemented PFD/MFD
+  softkey; the CDI source re-announced after `reset`; NAV/COM tuning steps and
   focus, swaps, HDG/ALT/BARO/CRS knobs and AFCS keys as commands, MFD page groups, RANGE, queue
   without `onCommand`, keyboard routing.
 * `g1000/bezel.test.ts`: every control has one region, region centres hit their control, dual
@@ -232,7 +235,8 @@ model it does not own, so the lags are not advanced twice).
   compose only on change.
 * `g1000/pages.test.ts`: 20 page/dialog scenarios draw without throwing with balanced
   save/restore and show their title; stacked menus/confirms; dead bus; idle displays with a
-  window open are not redrawn; softkey menu shapes and inert keys.
+  window open are not redrawn; a plan edit made outside the G1000 redraws the PFD FPL window at
+  once; softkey menu shapes and inert keys.
 * `g1000/wiring.test.ts`: `applyG1000Command` maps every command onto a host and reports missing
   targets; end to end with the real `RadioStack` + `GfcAutopilot` + `FlightPlanner`: NAV knob
   detents reach the standby frequency, COM wheel tuning, PROC ILS ACTIVATE tunes the localizer
@@ -256,6 +260,8 @@ The layout was also checked visually by rendering the PFD, MFD and HUD in headle
 
 ## Known limitations
 
+* FPL DTKs of all legs are converted to magnetic with the variation at the aircraft (the real unit
+  uses each leg's own variation; ≤ 1–2° apart within a few hundred nm).
 * GPS CDI scaling has ENR/TERM only (no DPRT/APR/LPV ramps; the `FlightPlan` contract carries no
   approach phase). No VNAV, holds, SUSP, user waypoints, airways, departures/arrivals or RNAV
   approaches: PROC offers the (synthetic) ILS of each equipped runway end with two fixes.

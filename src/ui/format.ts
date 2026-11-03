@@ -149,6 +149,14 @@ export function formatFuel(kg: number, unit: FuelUnit): string {
   return `${Math.abs(v) < 1000 ? fixed(v, 1) : groupThousands(v)} ${label}`;
 }
 
+/**
+ * Fuel quantity as pilots of each unit family read it: '40.0 gal · 240 lb' (ft) or '151.4 L · 109 kg'
+ * (m). Volume first (the gauges and the POH), then mass (weight & balance); never both kg and lb.
+ */
+export function formatFuelQuantity(kg: number, u: UnitsSettings = defaultUnits): string {
+  return `${formatFuel(kg, u.altitude === 'ft' ? 'gal' : 'l')} · ${formatMass(kg, u)}`;
+}
+
 // ── Frequencies ─────────────────────────────────────────────────────────────────────────
 
 /**

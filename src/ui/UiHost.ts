@@ -44,7 +44,11 @@ export interface UiHost {
   setUnits(u: UnitsSettings): void;
   bindings(): BindingInfo[];                  // for the help sheet and the controls page
   rebind(action: SimAction): Promise<BindingInfo | null>; // waits for the next key/button
-  resetBindings(profile: 'msfs' | 'laptop' | 'gamepad-xbox' | 'joystick-generic'): void;
+  /**
+   * Replaces the bindings with a built-in layout. 'default' is the input module's out-of-the-box
+   * keyboard set (MSFS numpad layout + laptop layer merged); 'msfs' and 'laptop' are each layer alone.
+   */
+  resetBindings(profile: 'default' | 'msfs' | 'laptop' | 'gamepad-xbox' | 'joystick-generic'): void;
   dataCredits(): string[];                    // attribution lines
   captureInput(captured: boolean): void;      // true while a menu owns the keyboard
 

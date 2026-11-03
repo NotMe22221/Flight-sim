@@ -183,3 +183,15 @@ describe('misc', () => {
     expect(formatTimeScale(16)).toBe('x16');
   });
 });
+
+describe('formatFuelQuantity (Aircraft › Fuel readout)', () => {
+  it('shows volume then mass in one unit family, never kg next to kg or lb', async () => {
+    const { formatFuelQuantity } = await import('./format');
+    const metric: UnitsSettings = { altitude: 'm', speed: 'kmh', pressure: 'hPa', distance: 'km', temperature: 'C' };
+    const imperial: UnitsSettings = { altitude: 'ft', speed: 'kt', pressure: 'inHg', distance: 'nm', temperature: 'C' };
+    const kg = 40 * 3.785411784 * 0.72; // 40 US gal of avgas
+    expect(formatFuelQuantity(kg, imperial)).toBe('40.0 gal · 240 lb');
+    expect(formatFuelQuantity(kg, metric)).toBe('151.4 L · 109 kg');
+    expect(formatFuelQuantity(kg, metric).match(/kg/g)).toHaveLength(1);
+  });
+});

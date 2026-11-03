@@ -37,7 +37,7 @@ export class NavLog {
     if (!plan || plan.waypoints.length === 0) {
       if (this.lastKey !== 'empty') {
         this.lastKey = 'empty'; clear(this.table); clear(this.total);
-        this.table.appendChild(h('div', { class: 'empty', text: 'No flight plan. Set an arrival in the World Map or use Direct-to on the VFR map.' }));
+        this.table.appendChild(h('div', { class: 'empty', text: 'No flight plan. Set an arrival in the World Map or use Direct\u00a0to on the VFR map.' }));
         if (this.clearBtn) this.clearBtn.style.display = 'none';
       }
       return;

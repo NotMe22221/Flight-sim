@@ -114,6 +114,24 @@ describe('rendering every page and dialog', () => {
     expect(r.g.changed.pfd).toBe(true);
   });
 
+  it('a flight-plan edit made outside the G1000 redraws an open PFD FPL window on the next due frame', () => {
+    const r = makeRig(nav, TEN);
+    r.btn('pfd', 'FPL');
+    r.frame(3);
+    for (let i = 0; i < 3; i++) r.g.update(r.s, 0.05);
+    r.pfdCtx.clear();
+    // e.g. the UI's flight planner inserts a waypoint after the active leg (active leg, DTK, DIS unchanged)
+    r.planner.insert(5, { id: 'KHAF', position: nav.getAirport('KHAF')!.position, type: 'airport' });
+    r.s.plan = r.planner.update(r.s.aircraft.geo, r.s.aircraft.groundSpeedMs);
+    r.g.update(r.s, 0.05);
+    expect(r.g.changed.pfd).toBe(true);
+    expect(r.pfdCtx.texts()).toContain('KHAF');
+    // and nothing more while the plan stays put
+    let draws = 0;
+    for (let i = 0; i < 5; i++) { r.g.update(r.s, 0.05); if (r.g.changed.pfd) draws++; }
+    expect(draws).toBe(0);
+  });
+
   it('every softkey menu has 12 labels with ALERTS on key 12 of the PFD; blank or inert keys do nothing', () => {
     for (const m of Object.values(PFD_MENUS)) { expect(m.length).toBe(12); expect(m[11]).toBe('ALERTS'); }
     for (const m of Object.values(MFD_MENUS)) expect(m.length).toBe(12);

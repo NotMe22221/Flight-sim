@@ -15,7 +15,7 @@ const MODULES = [
   './screens/settings/GeneralTab', './screens/settings/GraphicsTab', './screens/settings/ControlsTab', './screens/settings/AudioTab', './screens/settings/DataTab',
   './flight/FlightUi', './flight/FlightPanels', './flight/Toolbar', './flight/FloatingPanel', './flight/AtcWindow', './flight/Checklist',
   './flight/VfrMap', './flight/NavLog', './flight/PauseMenu', './flight/Toasts', './flight/LandingReport', './flight/HelpOverlay',
-  './flight/StatusBar', './flight/HudStrip',
+  './flight/StatusBar', './flight/HudStrip', './apAnnunciator', './flight/checklistAuto',
 ];
 
 describe('import safety (Node, no DOM)', () => {

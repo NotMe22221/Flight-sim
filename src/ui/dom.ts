@@ -103,7 +103,7 @@ export function button(label: string, onClick: (e: MouseEvent) => void, o: Butto
 /** Thin uppercase section label. */
 export function sectionLabel(text: string, cls = ''): HTMLElement { return h('div', { class: `section-label ${cls}`.trim(), text }); }
 
-export interface SelectOpt<T extends string> { value: T; label: string }
+export interface SelectOpt<T extends string> { value: T; label: string; /** tooltip + accessible name for a terse label ('…') */ title?: string }
 export function select<T extends string>(options: SelectOpt<T>[], value: T, onChange: (v: T) => void, cls = ''): HTMLSelectElement {
   const s = h('select', { class: `select ${cls}`.trim() });
   for (const o of options) s.appendChild(h('option', { value: o.value, text: o.label }));
@@ -143,7 +143,7 @@ export function segmented<T extends string>(options: SelectOpt<T>[], value: T | 
   const el = h('div', { class: `segmented ${cls}`.trim(), role: 'group' });
   const set = (v: T | null) => { for (const [k, b] of buttons) { b.classList.toggle('active', k === v); b.setAttribute('aria-pressed', String(k === v)); } };
   for (const o of options) {
-    const b = h('button', { class: 'seg', type: 'button', text: o.label, onClick: () => { set(o.value); onChange(o.value); } });
+    const b = h('button', { class: 'seg', type: 'button', text: o.label, title: o.title, aria: o.title ? { label: o.title } : undefined, onClick: () => { set(o.value); onChange(o.value); } });
     buttons.set(o.value, b);
     el.appendChild(b);
   }
@@ -171,6 +171,22 @@ export function arrowNavigation(root: HTMLElement, selector = 'button:not([disab
     const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
     items[next].focus();
     e.preventDefault();
+  });
+}
+
+/**
+ * Keeps Tab / Shift+Tab inside a modal dialog: past the last focusable control it wraps to the first
+ * (and back), so the keyboard cannot reach the toolbar or panels hidden behind the backdrop.
+ */
+export function trapFocus(root: HTMLElement, selector = 'button:not([disabled]), [tabindex="0"], input:not([disabled]), select:not([disabled]), textarea, a[href]'): void {
+  root.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key !== 'Tab' || e.altKey || e.ctrlKey || e.metaKey) return;
+    const items = Array.from(root.querySelectorAll<HTMLElement>(selector)).filter((x) => x.offsetParent !== null);
+    if (items.length === 0) { e.preventDefault(); return; }
+    const first = items[0], last = items[items.length - 1];
+    const a = document.activeElement as HTMLElement | null;
+    const inside = !!a && root.contains(a) && a !== root;
+    if (e.shiftKey ? (!inside || a === first) : (!inside || a === last)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
   });
 }
 

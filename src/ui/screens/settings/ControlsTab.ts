@@ -6,7 +6,7 @@
 import type { SimAction } from '../../../core/types';
 import type { BindingInfo } from '../../UiHost';
 import { Txt, button, clear, deviceIcon, h, humanizeAction, segmented } from '../../dom';
-import { BINDING_PROFILES, bindingGroups, conflictCount, type BindingProfileId, type DeviceFilter } from '../../bindingsModel';
+import { BINDING_PROFILES, DEFAULT_BINDING_PROFILE, bindingGroups, conflictCount, type BindingProfileId, type DeviceFilter } from '../../bindingsModel';
 import type { SettingsTabView, TabDeps } from './types';
 
 const CONFIRM_MS = 3000;
@@ -30,9 +30,13 @@ export class ControlsTab implements SettingsTabView {
       'all', (v) => { this.device = v; this.render(); });
     this.conflicts = new Txt(h('span', { class: 'badge badge-err' }), '');
     this.list = h('div', { class: 'settings-bindings' });
-    const profiles = h('div', { class: 'row wrap' }, h('span', { class: 'muted', style: 'font-size:.85em', text: 'Reset to profile:' }),
+    // the out-of-the-box set is the reset most players want: first, with the reset icon and an accent
+    // outline; the single layers and the device layouts follow
+    const profiles = h('div', { class: 'row wrap binding-profiles' }, h('span', { class: 'muted', style: 'font-size:.85em', text: 'Reset bindings to:' }),
       ...BINDING_PROFILES.map((p) => {
-        const b = button(p.label, () => this.resetProfile(p.id), { cls: 'btn-sm', title: p.help });
+        const isDefault = p.id === DEFAULT_BINDING_PROFILE;
+        const b = button(isDefault ? `${p.label} (recommended)` : p.label, () => this.resetProfile(p.id),
+          { cls: isDefault ? 'btn-sm recommended' : 'btn-sm', title: p.help, icon: isDefault ? 'restart' : undefined });
         this.profileButtons.set(p.id, b);
         return b;
       }));
@@ -128,7 +132,8 @@ export class ControlsTab implements SettingsTabView {
 
   private resetProfile(id: BindingProfileId): void {
     const now = Date.now();
-    const label = BINDING_PROFILES.find((p) => p.id === id)?.label ?? id;
+    // the visible button text ('Default (recommended)'), so the confirm hint names what to click
+    const label = this.profileButtons.get(id)?.textContent || (BINDING_PROFILES.find((p) => p.id === id)?.label ?? id);
     if (!this.confirm || this.confirm.id !== id || now > this.confirm.until) {
       this.confirm = { id, until: now + CONFIRM_MS };
       for (const [k, b] of this.profileButtons) b.classList.toggle('btn-danger', k === id);

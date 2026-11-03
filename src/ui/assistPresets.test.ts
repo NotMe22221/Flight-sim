@@ -51,3 +51,19 @@ describe('assist presets', () => {
     expect(ASSIST_ITEMS.map((i) => i.key).sort()).toEqual(keys);
   });
 });
+
+describe('anti-stall protection (AssistanceOptions.antiStall)', () => {
+  it('is a piloting helper: badge, count and level detection follow it', async () => {
+    const { activeAssistCount, assistBadges, detectAssistLevel, ASSIST_ITEMS } = await import('./assistPresets');
+    const mid = assistPreset('middle');
+    const on = { ...mid, antiStall: true };
+    expect(assistBadges(on)).toContain('ANTI-STALL');
+    expect(assistBadges(mid)).not.toContain('ANTI-STALL');
+    expect(activeAssistCount(on)).toBe(activeAssistCount(mid) + 1);
+    expect(detectAssistLevel(on)).toBe('custom');
+    expect(detectAssistLevel({ ...assistPreset('all'), antiStall: false })).toBe('custom');
+    expect(ASSIST_ITEMS.find((i) => i.key === 'antiStall')).toMatchObject({ label: 'Anti-stall protection', category: 'Piloting' });
+    // the status bar keeps one bit per item in a 32-bit mask
+    expect(ASSIST_ITEMS.length).toBeLessThanOrEqual(31);
+  });
+});

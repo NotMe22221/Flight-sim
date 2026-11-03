@@ -16,6 +16,8 @@
   --ok: #5fd68a;
   --warn: #ffc857;
   --err: #ff6b6b;
+  /* G1000 cyan: selected values and the altitude alerter */
+  --alert-cyan: #3ee6f0;
   --radius: 10px;
   --radius-sm: 6px;
   --t: 150ms ease;
@@ -382,7 +384,32 @@
 .fs-ui .hud-cell:last-child { border-right: 0; }
 .fs-ui .hud-k { font-size: 0.6em; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-faint); }
 .fs-ui .hud-v { font-size: 0.95em; font-weight: 600; }
-.fs-ui .hud-cell.hud-ap .hud-v { color: var(--ok); }
+/* AP cell, GFC 700 style: lateral · AP · vertical, active modes green, armed white */
+.fs-ui .hud-cell.hud-ap .ap-row { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.fs-ui .hud-cell.hud-ap .ap-row > span:empty { display: none; }
+.fs-ui .hud-cell.hud-ap .ap-mode { color: var(--ok); }
+.fs-ui .hud-cell.hud-ap .ap-arm { color: var(--fg); font-weight: 500; font-size: 0.85em; }
+.fs-ui .hud-cell.hud-ap .ap-st { padding: 0 4px; border-radius: 3px; }
+.fs-ui .hud-cell.hud-ap .ap-st.ap-ok { color: var(--ok); }
+.fs-ui .hud-cell.hud-ap .ap-st.ap-fd { color: var(--fg-dim); }
+/* disconnect: 5 s flash, red when the autopilot dropped out by itself, amber for the pilot's own */
+.fs-ui .hud-cell.hud-ap .ap-st.ap-disc { color: var(--err); font-weight: 800; animation: fs-ap-flash-red 1s steps(1, end) 5; }
+.fs-ui .hud-cell.hud-ap .ap-st.ap-disc-pilot { color: var(--warn); font-weight: 800; animation: fs-ap-flash-amber 1s steps(1, end) 5; }
+.fs-ui .hud-cell.hud-ap:has(.ap-disc) .hud-k { color: var(--err); }
+.fs-ui .hud-cell.hud-ap:has(.ap-disc-pilot) .hud-k { color: var(--warn); }
+@keyframes fs-ap-flash-red { 0% { background: var(--err); color: #10141c; } 50% { background: transparent; color: var(--err); } }
+@keyframes fs-ap-flash-amber { 0% { background: var(--warn); color: #10141c; } 50% { background: transparent; color: var(--warn); } }
+/* altitude alerter on the ALT cell (G1000): the key turns into the selected altitude, black on cyan
+   while approaching it, amber on a deviation; it flashes for 5 s; the current altitude takes the colour */
+.fs-ui .hud-cell .hud-k { white-space: nowrap; }
+.fs-ui .hud-cell.alt-approach .hud-k,
+.fs-ui .hud-cell.alt-deviation .hud-k { padding: 0 3px; border-radius: 3px; letter-spacing: 0.08em; }
+.fs-ui .hud-cell.alt-approach .hud-k { background: var(--alert-cyan); color: #10141c; font-weight: 700; animation: fs-alt-flash-cyan 1s steps(1, end) 5; }
+.fs-ui .hud-cell.alt-approach .hud-v { color: var(--alert-cyan); }
+.fs-ui .hud-cell.alt-deviation .hud-k { color: var(--warn); font-weight: 700; animation: fs-alt-flash-amber 1s steps(1, end) 5; }
+.fs-ui .hud-cell.alt-deviation .hud-v { color: var(--warn); }
+@keyframes fs-alt-flash-cyan { 0% { background: var(--alert-cyan); color: #10141c; } 50% { background: transparent; color: var(--alert-cyan); } }
+@keyframes fs-alt-flash-amber { 0% { background: var(--warn); color: #10141c; } 50% { background: transparent; color: var(--warn); } }
 .fs-ui .hud-cell.hud-warn .hud-v { color: var(--err); }
 .fs-ui .hud-cell.hidden { display: none; }
 .fs-ui .hud-strip { transition: top 180ms ease; }
@@ -569,3 +596,6 @@
 
 /* map overlay buttons sit on airport labels: opaque, not the translucent default */
 .fs-ui .wm-zoom .btn { background: var(--ui-bg-strong); border-color: var(--ui-border-strong); }
+
+/* Settings › Controls: the out-of-the-box layout is the recommended reset */
+.fs-ui .binding-profiles .btn.recommended:not(.btn-danger) { border-color: var(--accent); color: var(--accent); }
