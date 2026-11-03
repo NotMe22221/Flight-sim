@@ -163,3 +163,72 @@ export function papiIndication(observer: Vec3, papiBase: Vec3, glideDeg = 3): [b
   const offsets = [0.5, 0.1667, -0.1667, -0.5];
   return [angle > glideDeg + offsets[0], angle > glideDeg + offsets[1], angle > glideDeg + offsets[2], angle > glideDeg + offsets[3]];
 }
+
+/** Night lighting beyond edge/threshold/PAPI: REIL, centreline and approach lighting. */
+export interface ApproachLights {
+  /** runway end identifier lights: pairs of strobes either side of each threshold */
+  reilA: Vec3[];
+  reilB: Vec3[];
+  /** white centreline lights every 15 m (long runways) */
+  centreline: Vec3[];
+  /** steady approach light bars before each threshold (MALSR-style) */
+  barsA: Vec3[];
+  barsB: Vec3[];
+  /** sequenced flasher positions, ordered from the far end toward the threshold */
+  rabbitA: Vec3[];
+  rabbitB: Vec3[];
+}
+
+export interface ApproachLightOptions {
+  /** build approach bars + sequenced flashers for this end */
+  alsA: boolean;
+  alsB: boolean;
+  centreline: boolean;
+}
+
+/**
+ * MALSR-like approach lighting (simplified): 5-light bars every 60 m out to 720 m before the
+ * (displaced) threshold, a wide crossbar at 300 m, and sequenced flashers on the outer 360 m;
+ * REIL strobes 12 m outside each runway edge at the threshold; centreline lights every 15 m.
+ * All points sit at the threshold elevation (approach lights over water stand on piers).
+ */
+export function approachLights(g: RunwayGeometry, opt: ApproachLightOptions): ApproachLights {
+  const [A, B] = g.ends;
+  const across = g.across;
+  const reil = (end: RunwayEndGeometry): Vec3[] => {
+    const p = end.displacedPos;
+    const off = g.widthM / 2 + 12;
+    return [
+      [p[0] - across[0] * off, p[1] + 0.6, p[2] - across[2] * off],
+      [p[0] + across[0] * off, p[1] + 0.6, p[2] + across[2] * off],
+    ];
+  };
+  const als = (end: RunwayEndGeometry): { bars: Vec3[]; rabbit: Vec3[] } => {
+    const bars: Vec3[] = [], rabbit: Vec3[] = [];
+    const p = end.displacedPos, d = end.dir; // d points down the runway from this end
+    for (let dist = 60; dist <= 720; dist += 60) {
+      const cx = p[0] - d[0] * dist, cy = p[1] + 0.5, cz = p[2] - d[2] * dist;
+      const half = dist === 300 ? 15 : 2.1;
+      const n = dist === 300 ? 11 : 5;
+      for (let i = 0; i < n; i++) {
+        const s = -half + (2 * half * i) / (n - 1);
+        bars.push([cx + across[0] * s, cy, cz + across[2] * s]);
+      }
+    }
+    for (let dist = 720; dist >= 420; dist -= 60) rabbit.push([p[0] - d[0] * dist, p[1] + 1.0, p[2] - d[2] * dist]);
+    return { bars, rabbit };
+  };
+  const centre: Vec3[] = [];
+  if (opt.centreline) {
+    const a = A.displacedPos, b = B.displacedPos;
+    const len = Math.hypot(b[0] - a[0], b[2] - a[2]);
+    const n = Math.floor(len / 15);
+    for (let i = 1; i < n; i++) {
+      const t = i / n;
+      centre.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t + 0.15, a[2] + (b[2] - a[2]) * t]);
+    }
+  }
+  const sa = opt.alsA ? als(A) : { bars: [], rabbit: [] };
+  const sb = opt.alsB ? als(B) : { bars: [], rabbit: [] };
+  return { reilA: reil(A), reilB: reil(B), centreline: centre, barsA: sa.bars, barsB: sb.bars, rabbitA: sa.rabbit, rabbitB: sb.rabbit };
+}

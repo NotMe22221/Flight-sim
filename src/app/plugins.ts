@@ -70,11 +70,16 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
     const hud = new (Hud as unknown as new () => HudLike)();
     hud.canvas.classList.add('sim-hud');
     container.appendChild(hud.canvas);
+    // The instruments HUD replaces the UI's own top flight strip (they would overlap).
+    const style = document.createElement('style');
+    style.textContent = '.fs-ui .hud-strip { display: none !important; }';
+    document.head.appendChild(style);
     sim.plugins.hud = {
       canvas: hud.canvas,
       resize: (w, h, dpr) => hud.resize(w, h, dpr),
       update: (s, dt) => {
-        const show = sim.hudVisible && sim.inFlight && s.camera.mode !== 'cockpit';
+        // the HUD itself draws only warning flags and status in the cockpit view
+        const show = sim.hudVisible && sim.inFlight && !sim.replayer.active;
         hud.canvas.style.display = show ? 'block' : 'none';
         if (show) hud.update(s, dt);
       },

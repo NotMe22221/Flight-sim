@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import type { Airport, Geodetic, NavDatabase, Runway, Vec3 } from '../core/types';
 import { LocalFrame } from '../geo/wgs84';
-import { papiIndication, runwayGeometry, runwayLights, type RunwayGeometry, type RunwayLights } from './runwayGeometry';
+import { approachLights, papiIndication, runwayGeometry, runwayLights, type RunwayGeometry, type RunwayLights } from './runwayGeometry';
 
 export interface AirportsLayerOptions {
   /** radius around the aircraft within which airports are built, nm */
@@ -25,6 +25,8 @@ interface RunwayObjects {
   lights: RunwayLights;
   papiA: THREE.Points;
   papiB: THREE.Points;
+  /** sequenced flashers ("rabbit") per approach end, null when the end has no approach lights */
+  rabbits: THREE.Points[];
 }
 interface AirportObjects {
   airport: Airport;
@@ -46,6 +48,9 @@ export class AirportsLayer {
   private markings: THREE.MeshStandardMaterial;
   private lightSprite: THREE.Texture;
   private lightMaterial: THREE.PointsMaterial;
+  private reilMaterial: THREE.PointsMaterial;
+  private rabbitMaterial: THREE.PointsMaterial;
+  private clock = 0;
   private readonly tmpColor = new THREE.Color();
 
   constructor(private frame: LocalFrame, private nav: NavDatabase, options: Partial<AirportsLayerOptions> = {}) {
@@ -56,6 +61,8 @@ export class AirportsLayer {
     this.markings = new THREE.MeshStandardMaterial({ color: 0xf2f2ea, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
     this.lightSprite = makeLightSprite();
     this.lightMaterial = new THREE.PointsMaterial({ size: 3.2, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true, alphaTest: 0.01 });
+    this.reilMaterial = new THREE.PointsMaterial({ size: 7, map: this.lightSprite, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+    this.rabbitMaterial = new THREE.PointsMaterial({ size: 8, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
   }
 
   /** Runway centreline segments for terrain flattening (threshold → end, with pavement width). */
@@ -94,6 +101,13 @@ export class AirportsLayer {
     // Light brightness by sun elevation: full at night, dim by day.
     const sunDeg = (sunElevationRad * 180) / Math.PI;
     this.lightMaterial.opacity = sunDeg < -2 ? 1 : sunDeg > 12 ? 0.3 : 1 - (0.7 * (sunDeg + 2)) / 14;
+    // REIL strobes flash together once a second; the approach "rabbit" sweeps toward the runway twice a second
+    this.clock += dt;
+    const night = this.lightMaterial.opacity;
+    this.reilMaterial.opacity = (this.clock % 1) < 0.07 ? night : 0;
+    this.rabbitMaterial.opacity = night;
+    const phase = (this.clock % 0.5) / 0.5;
+    for (const ap of this.built.values()) for (const rw of ap.runways) for (const r of rw.rabbits) this.stepRabbit(r, phase);
     // PAPI colours for runways within 12 km of the aircraft.
     for (const ap of this.built.values()) {
       for (const rw of ap.runways) {
@@ -113,6 +127,8 @@ export class AirportsLayer {
     this.markings.dispose();
     this.lightSprite.dispose();
     this.lightMaterial.dispose();
+    this.reilMaterial.dispose();
+    this.rabbitMaterial.dispose();
   }
 
   // ───────────────────────────── internals ─────────────────────────────
@@ -146,7 +162,20 @@ export class AirportsLayer {
       }
       const papiA = this.buildPapi(lights.papiA), papiB = this.buildPapi(lights.papiB);
       group.add(papiA, papiB);
-      runways.push({ geom, lights, papiA, papiB });
+      const rabbits: THREE.Points[] = [];
+      if (rw.lighted) {
+        const major = airport.type === 'large' || airport.type === 'medium';
+        const al = approachLights(geom, { alsA: major && rw.lengthM >= 1800, alsB: major && rw.lengthM >= 1800, centreline: rw.lengthM >= 2400 });
+        const steady = this.buildColoredPoints([...al.barsA, ...al.barsB, ...al.centreline], COLOR_WHITE, this.lightMaterial, 'approach-lights');
+        if (steady) { group.add(steady); lightPoints.push(steady); }
+        const reil = this.buildColoredPoints([...al.reilA, ...al.reilB], COLOR_WHITE, this.reilMaterial, 'reil');
+        if (reil) group.add(reil);
+        for (const seq of [al.rabbitA, al.rabbitB]) {
+          const r = this.buildColoredPoints(seq, COLOR_WHITE, this.rabbitMaterial, 'rabbit');
+          if (r) { group.add(r); rabbits.push(r); }
+        }
+      }
+      runways.push({ geom, lights, papiA, papiB, rabbits });
     }
     this.group.add(group);
     this.built.set(airport.icao, { airport, group, runways, lightPoints });
@@ -159,7 +188,7 @@ export class AirportsLayer {
       const m = o as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();
       const mat = (m as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
-      if (mat && mat !== this.asphalt && mat !== this.markings && mat !== this.lightMaterial) {
+      if (mat && mat !== this.asphalt && mat !== this.markings && mat !== this.lightMaterial && mat !== this.reilMaterial && mat !== this.rabbitMaterial) {
         if (Array.isArray(mat)) mat.forEach((x) => x.dispose()); else mat.dispose();
       }
     });
@@ -301,6 +330,30 @@ export class AirportsLayer {
     points.frustumCulled = true;
     points.name = 'runway-lights';
     return points;
+  }
+
+  private buildColoredPoints(pts: Vec3[], c: THREE.Color, material: THREE.PointsMaterial, name: string): THREE.Points | null {
+    if (!pts.length) return null;
+    const pos = new Float32Array(pts.length * 3), col = new Float32Array(pts.length * 3);
+    pts.forEach((v, i) => { pos.set(v, i * 3); col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const points = new THREE.Points(geo, material);
+    points.name = name;
+    return points;
+  }
+
+  /** Light one flasher of a sequence at a time (phase 0..1 sweeps from the far end to the threshold). */
+  private stepRabbit(points: THREE.Points, phase: number): void {
+    const attr = points.geometry.getAttribute('color') as THREE.BufferAttribute;
+    const n = attr.count;
+    const lit = Math.min(n - 1, Math.floor(phase * n * 1.6)); // sweep in the first ~60 % of the cycle, then dark
+    for (let i = 0; i < n; i++) {
+      const on = phase * 1.6 < 1 && i === lit ? 1 : 0;
+      attr.setXYZ(i, on, on, on);
+    }
+    attr.needsUpdate = true;
   }
 
   private buildPapi(p: Vec3[]): THREE.Points {

@@ -38,6 +38,9 @@ describe('AirportsLayer (Node, no DOM)', () => {
     expect(names.filter((n) => n === 'papi').length).toBe(8);
     expect(names.filter((n) => n === 'runway-lights').length).toBe(4);
     expect(names).toContain('designator:28R');
+    expect(names.filter((n) => n === 'reil').length).toBe(4);
+    expect(names.filter((n) => n === 'rabbit').length).toBe(8); // both ends of four ≥ 1800 m runways
+    expect(names.filter((n) => n === 'approach-lights').length).toBe(4);
     expect(layer.flatteningSegments().length).toBe(4);
     // Rebase to a frame 10 km away: everything rebuilt, 28R threshold now ~10 km from origin
     const frame2 = new LocalFrame(37.7, -122.36, 0);

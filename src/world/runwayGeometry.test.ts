@@ -74,3 +74,33 @@ describe('runwayGeometry', () => {
     expect(papiIndication(low, base)).toEqual([false, false, false, false]);
   });
 });
+
+import { approachLights } from './runwayGeometry';
+describe('approach lighting', () => {
+  const frame = new LocalFrame(37.613538, -122.35716, 4);
+  const g = runwayGeometry(ksfo28R, frame);
+  const L = approachLights(g, { alsA: true, alsB: true, centreline: true });
+  it('REIL pairs straddle each threshold outside the edges', () => {
+    expect(L.reilB.length).toBe(2);
+    const [l, r] = L.reilB;
+    expect(Math.hypot(r[0] - l[0], r[2] - l[2])).toBeCloseTo(61 + 24, 3);
+  });
+  it('approach bars run 720 m out before the 28R threshold, on the extended centreline', () => {
+    expect(L.barsB.length).toBe(11 * 5 + 11); // 11 bars of 5, plus the 11-light crossbar at 300 m
+    const end = g.ends[1];
+    const far = L.rabbitB[0];
+    const back = [far[0] - end.displacedPos[0], far[2] - end.displacedPos[2]];
+    const along = back[0] * end.dir[0] + back[1] * end.dir[2];
+    expect(along).toBeCloseTo(-720, 0); // before the threshold, opposite to the landing direction
+    const cross = -back[0] * end.dir[2] + back[1] * end.dir[0];
+    expect(Math.abs(cross)).toBeLessThan(0.01);
+  });
+  it('the rabbit runs from the far end toward the threshold', () => {
+    const end = g.ends[1];
+    const dist = (p: number[]) => Math.hypot(p[0] - end.displacedPos[0], p[2] - end.displacedPos[2]);
+    for (let i = 1; i < L.rabbitB.length; i++) expect(dist(L.rabbitB[i])).toBeLessThan(dist(L.rabbitB[i - 1]));
+  });
+  it('centreline lights every ~15 m along the runway', () => {
+    expect(L.centreline.length).toBeGreaterThan(3618 / 15 - 3);
+  });
+});
