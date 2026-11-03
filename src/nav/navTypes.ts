@@ -78,6 +78,19 @@ export interface FlightPlanEx extends FlightPlan {
   eteTotalS: number;
   /** true when the last waypoint has been passed */
   complete: boolean;
+  /** the active leg is a direct-to, flown from the position where D→ was activated */
+  directTo: boolean;
+  /**
+   * the direct-to target is not part of the stored flight plan ("off-route" D→): `waypoints` is
+   * then `[target]` while the stored plan waits, inactive, in `FlightPlanner.waypoints`
+   */
+  offRoute: boolean;
+  /** FROM point of the active leg (previous waypoint, D→ origin or OBS course origin) */
+  legFrom: Geodetic;
+  /** GPS OBS course, deg true, while OBS mode suspends sequencing; null otherwise */
+  obsCourseDeg: number | null;
+  /** increments whenever the waypoints, the active leg, D→ or OBS change (cheap change detection) */
+  version: number;
 }
 
 /** Loads a data file by its path relative to the site root (e.g. `data/airports.json`). */

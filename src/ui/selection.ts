@@ -8,7 +8,7 @@ import { FALLBACK_KSFO, findRunwayEnd } from './runways';
 import { SELECTION_KEY, loadJson, saveJson } from './settingsStore';
 import { timeForPreset, type TimePreset } from './solar';
 import { formatTimeLocal, formatTimeUtc, timezoneOffsetFromLon } from './format';
-import { weatherPresetLabel, weatherPresetTemplate } from './weatherPresets';
+import { WEATHER_PRESET_IDS, validateCustomWeather, weatherPresetLabel, weatherPresetTemplate } from './weatherPresets';
 
 /** 'Cessna 172S Skyhawk' — the manufacturer is prefixed only when the name does not already start with it. */
 export function aircraftDisplayName(manufacturer: string, name: string): string {
@@ -30,14 +30,15 @@ export interface FlightSelection {
   arrival: Airport | null;
 }
 
-interface PersistedSelection { icao?: string; endIdent?: string | null; aircraftId?: string; fuelFraction?: number; payloadKg?: number; weather?: WeatherSelection; time?: TimeSelection; arrivalIcao?: string | null }
+export interface PersistedSelection { icao?: string; endIdent?: string | null; aircraftId?: string; fuelFraction?: number; payloadKg?: number; weather?: WeatherSelection; time?: TimeSelection; arrivalIcao?: string | null }
 
 export class SelectionStore {
   sel: FlightSelection;
   private listeners = new Set<(s: FlightSelection) => void>();
 
   constructor(private readonly host: UiHost) {
-    const saved = loadJson<PersistedSelection>(SELECTION_KEY, {});
+    // a stale or hand-edited blob must never break startup: every field is checked before use
+    const saved = parsePersistedSelection(loadJson<unknown>(SELECTION_KEY, {}));
     const airport = (saved.icao && host.nav.getAirport(saved.icao)) || host.nav.getAirport('KSFO') || FALLBACK_KSFO;
     let runwayEnd = saved.endIdent === null ? null : findRunwayEnd(airport, saved.endIdent ?? '28R');
     if (runwayEnd === null && saved.endIdent !== null) runwayEnd = airport.runways.length ? findRunwayEnd(airport, airport.runways[0].ident) : null;
@@ -49,8 +50,8 @@ export class SelectionStore {
       aircraftId,
       fuelFraction: clamp01(saved.fuelFraction ?? 0.75),
       payloadKg: Math.max(0, saved.payloadKg ?? 170),
-      weather: saved.weather && isWeatherSel(saved.weather) ? saved.weather : { mode: 'preset', presetId: 'clear' },
-      time: saved.time && isTimeSel(saved.time) ? saved.time : { mode: 'now' },
+      weather: saved.weather ?? { mode: 'preset', presetId: 'clear' },
+      time: saved.time ?? { mode: 'now' },
       arrival: (typeof saved.arrivalIcao === 'string' && host.nav.getAirport(saved.arrivalIcao)) || null,
     };
   }
@@ -119,13 +120,41 @@ export class SelectionStore {
 }
 
 const clamp01 = (v: number) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.75);
-function isWeatherSel(w: unknown): w is WeatherSelection {
-  if (typeof w !== 'object' || w === null) return false;
-  const m = (w as { mode?: unknown }).mode;
-  return m === 'preset' || m === 'live' || (m === 'custom' && typeof (w as { custom?: unknown }).custom === 'object');
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const finite = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+const TIME_PRESETS: readonly string[] = ['dawn', 'noon', 'dusk', 'night'];
+
+function parseWeatherSel(w: unknown): WeatherSelection | undefined {
+  if (!isObj(w)) return undefined;
+  if (w.mode === 'live') return { mode: 'live' };
+  if (w.mode === 'preset') return typeof w.presetId === 'string' && (WEATHER_PRESET_IDS as readonly string[]).includes(w.presetId) ? { mode: 'preset', presetId: w.presetId as WeatherPresetId } : undefined;
+  if (w.mode !== 'custom' || !isObj(w.custom)) return undefined;
+  const c = w.custom;
+  if (!Array.isArray(c.clouds) || !Array.isArray(c.winds) || !c.clouds.every(isObj) || !c.winds.every(isObj)) return undefined;
+  // fills missing scalars from a template, then clamps/sorts like the custom editor's Apply
+  const merged = { ...weatherPresetTemplate('clear'), ...(c as unknown as Partial<WeatherState>) } as WeatherState;
+  try { return { mode: 'custom', custom: validateCustomWeather(merged).fixed }; } catch { return undefined; }
 }
-function isTimeSel(t: unknown): t is TimeSelection {
-  if (typeof t !== 'object' || t === null) return false;
-  const m = (t as { mode?: unknown }).mode;
-  return m === 'now' || m === 'preset' || (m === 'custom' && typeof (t as { utcMs?: unknown }).utcMs === 'number');
+
+function parseTimeSel(t: unknown): TimeSelection | undefined {
+  if (!isObj(t)) return undefined;
+  if (t.mode === 'now') return { mode: 'now' };
+  if (t.mode === 'preset') return typeof t.preset === 'string' && TIME_PRESETS.includes(t.preset) ? { mode: 'preset', preset: t.preset as TimePreset } : undefined;
+  const utcMs = finite(t.utcMs);
+  return t.mode === 'custom' && utcMs !== undefined ? { mode: 'custom', utcMs } : undefined;
+}
+
+/** Field-by-field check of the saved selection (anything malformed falls back to the default). */
+export function parsePersistedSelection(raw: unknown): PersistedSelection {
+  if (!isObj(raw)) return {};
+  const out: PersistedSelection = {};
+  if (typeof raw.icao === 'string' && raw.icao) out.icao = raw.icao;
+  if (raw.endIdent === null || (typeof raw.endIdent === 'string' && raw.endIdent)) out.endIdent = raw.endIdent;
+  if (typeof raw.aircraftId === 'string') out.aircraftId = raw.aircraftId;
+  const fuel = finite(raw.fuelFraction); if (fuel !== undefined) out.fuelFraction = fuel;
+  const payload = finite(raw.payloadKg); if (payload !== undefined) out.payloadKg = payload;
+  const w = parseWeatherSel(raw.weather); if (w) out.weather = w;
+  const t = parseTimeSel(raw.time); if (t) out.time = t;
+  if (raw.arrivalIcao === null || typeof raw.arrivalIcao === 'string') out.arrivalIcao = raw.arrivalIcao;
+  return out;
 }

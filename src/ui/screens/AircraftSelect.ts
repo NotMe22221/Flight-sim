@@ -3,6 +3,7 @@ import type { AircraftConfig } from '../../core/types';
 import { Screen, screenHeader, type ScreenContext } from './Screen';
 import { button, clear, h, icon, slider, type SliderHandle } from '../dom';
 import { formatFuel, formatMass, formatSpeed, KT_PER_MS } from '../format';
+import { aircraftDisplayName } from '../selection';
 
 const CATEGORY_LABEL: Record<AircraftConfig['category'], string> = { 'ga-piston': 'Propeller', turboprop: 'Turboprop', jet: 'Jet', airliner: 'Airliner' };
 
@@ -74,7 +75,7 @@ export class AircraftSelect extends Screen {
     const capKg = a.mass.tanks.reduce((s, t) => s + t.capacityKg, 0);
     const payloadMaxKg = Math.max(0, a.mass.stations.reduce((s, st) => s + st.maxKg, 0)) || 400;
     const u = this.ctx.settings().units;
-    this.selectedName.textContent = `${a.manufacturer} ${a.name}`;
+    this.selectedName.textContent = aircraftDisplayName(a.manufacturer, a.name);
     const updateFuel = (f: number) => {
       const kg = capKg * f;
       this.fuelInfo.textContent = `${formatFuel(kg, u.altitude === 'ft' ? 'gal' : 'l')} · ${formatFuel(kg, 'kg')} · ${formatMass(kg, u)}`;

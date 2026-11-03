@@ -133,6 +133,37 @@ export class NavDb implements NavDatabase {
     return scored.slice(0, limit).map((s) => s.a);
   }
 
+  /**
+   * Waypoint identifiers starting with `prefix` (airport ICAO/IATA codes and navaid idents),
+   * for the G1000 ident entry: exact matches within 300 nm first, then the nearest to `pos`
+   * (NDB idents repeat worldwide, so a far-away exact "KS" must not hide KSFO). A linear scan
+   * of the loaded records (~1 ms), meant for keystrokes, not for every frame.
+   */
+  searchIdents(prefix: string, pos: Geodetic, limit = 8): IdentMatch[] {
+    const q = prefix.trim().toUpperCase();
+    const out: IdentMatch[] = [];
+    if (!q || limit <= 0) return out;
+    const consider = (m: IdentMatch): void => {
+      // keep `out` sorted (exact first, then by distance) and at most `limit` long
+      let i = out.length;
+      while (i > 0 && rankAfter(out[i - 1], m)) i--;
+      if (i >= limit) return;
+      out.splice(i, 0, m);
+      if (out.length > limit) out.pop();
+    };
+    for (const a of this.airportList) {
+      const iata = a.iata?.toUpperCase();
+      const byIcao = a.icao.startsWith(q), byIata = !byIcao && iata !== undefined && iata.startsWith(q);
+      if (!byIcao && !byIata) continue;
+      consider({ ident: a.icao, kind: 'airport', subtype: a.type, name: a.name, position: a.position, distanceM: greatCircleDistance(pos, a.position), exact: a.icao === q || iata === q, frequencyKHz: 0, airport: a });
+    }
+    for (const n of this.navaidList) {
+      if (!n.id.startsWith(q)) continue;
+      consider({ ident: n.id, kind: n.type === 'NDB' ? 'ndb' : 'vor', subtype: n.type, name: n.name, position: n.position, distanceM: greatCircleDistance(pos, n.position), exact: n.id === q, frequencyKHz: n.frequencyKHz, navaid: n });
+    }
+    return out;
+  }
+
   /** Nearest navaid on `khz` within its published range of `pos`, or undefined. */
   findNavaidByFrequency(khz: number, pos: Geodetic): NavaidRecord | undefined {
     const list = this.navaidsByKHz.get(khz);
@@ -214,6 +245,31 @@ export class NavDb implements NavDatabase {
 }
 
 const TYPE_RANK: Record<Airport['type'], number> = { large: 5, medium: 4, small: 3, seaplane: 2, heliport: 1 };
+
+/** One result of {@link NavDb.searchIdents}. */
+export interface IdentMatch {
+  ident: string;
+  /** 'airport', 'vor' (VOR, VOR-DME, VORTAC, DME, TACAN) or 'ndb' */
+  kind: 'airport' | 'vor' | 'ndb';
+  /** airport type ('large' …) or navaid type ('VOR-DME' …) */
+  subtype: string;
+  name: string;
+  position: Geodetic;
+  /** great-circle distance from the search position, m */
+  distanceM: number;
+  /** the ident equals the query (an IATA code counts for airports) */
+  exact: boolean;
+  /** navaid frequency, kHz (0 for airports) */
+  frequencyKHz: number;
+  airport?: AirportRecord;
+  navaid?: NavaidRecord;
+}
+
+/** Exact ident matches closer than this rank before nearer prefix matches, m (300 nm). */
+const EXACT_PRIORITY_M = 300 * NM;
+const priority = (m: IdentMatch): boolean => m.exact && m.distanceM <= EXACT_PRIORITY_M;
+/** True when `a` should be listed after `b`: nearby exact matches first, then nearer first. */
+const rankAfter = (a: IdentMatch, b: IdentMatch): boolean => (priority(a) !== priority(b) ? priority(b) : a.distanceM > b.distanceM);
 
 /**
  * Headwind-component tolerance (cosine units) within which the longer runway wins: 0.02 is

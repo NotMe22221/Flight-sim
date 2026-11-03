@@ -48,6 +48,9 @@ export class Toolbar {
     }
     this.el.addEventListener('pointerenter', () => { this.clearTimer(); });
     this.el.addEventListener('pointerleave', () => this.scheduleHide());
+    // keyboard users (Tab) reveal it too; it hides again once the focus leaves
+    this.el.addEventListener('focusin', () => this.show());
+    this.el.addEventListener('focusout', (e) => { if (!this.el.contains(e.relatedTarget as Node | null)) this.scheduleHide(); });
     layer.appendChild(this.el);
   }
 
@@ -66,7 +69,7 @@ export class Toolbar {
   }
 
   show(): void { this.el.classList.add('visible'); this.clearTimer(); }
-  hide(): void { if (this.pinned) return; this.el.classList.remove('visible'); this.clearTimer(); }
+  hide(): void { if (this.pinned || (this.enabled && this.el.contains(document.activeElement))) return; this.el.classList.remove('visible'); this.clearTimer(); }
   toggle(): void { this.el.classList.contains('visible') ? this.hide() : (this.show(), this.scheduleHide()); }
 
   private closeCamera(): void { this.cameraMenu?.classList.remove('open'); this.pinned = false; this.scheduleHide(); }

@@ -13,6 +13,7 @@
  *    space on upload; never copy the raw triple into a `Color` that three will encode again.
  */
 import * as THREE from 'three';
+import { HAZE_G, hgPhase } from './lighting';
 
 export interface SkyLighting {
   /** unit vector toward the (refracted) sun, render frame (x East, y Up, z South) */ sunDirThree: THREE.Vector3;
@@ -20,7 +21,11 @@ export interface SkyLighting {
   /** DirectionalLight intensity (0 at night) */ sunIntensity: number;
   /** linear sky radiance straight up */ skyColorZenith: THREE.Color;
   /** linear sky radiance averaged around the horizon at +1° */ skyColorHorizon: THREE.Color;
-  /** linear in-scatter colour for fog (horizon colour, blended toward cloud grey inside cloud) */ fogColor: THREE.Color;
+  /**
+   * linear aerial-perspective colour that ground objects (terrain, ocean, aircraft, runways) fade to, seen at
+   * 90° from the sun, in three's light units (see `hazeColor`): a blue-grey a little brighter than the lit
+   * ground and always darker than the sky behind it; blended toward cloud grey inside cloud
+   */ fogColor: THREE.Color;
   /**
    * β0 (m⁻¹) of the exponential extinction profile β(h) = fogDensity · exp(−h · fogHeightFalloff), h = height
    * above `groundY`. Outside cloud it is Koschmieder 3.912 / visibility; inside cloud the profile flattens and
@@ -34,7 +39,9 @@ export interface SkyLighting {
   /** tone-mapped, sRGB-encoded fog colour: raw display values the built-in fog shader receives */ fogColorEncoded: THREE.Color;
   /** `FogExp2.density` currently assigned to `scene.fog` */ fogExp2Density: number;
   /** linear direct-sun radiance for custom shaders (sunE · Fex · 0.04), 0 at night */ sunRadiance: THREE.Color;
-  /** linear horizon radiance in the sun's azimuth (sun-ward Mie glow for custom fog) */ sunGlowColor: THREE.Color;
+  /** linear haze colour looking straight at the sun (Mie glow); custom fog mixes `fogColor` toward it by `hazeSunLobe(cos θ)` */ sunGlowColor: THREE.Color;
+  /** linear colour objects seen against the sky (cloud planes) fade to: the horizon sky radiance, blended toward cloud grey inside cloud */ skyFogColor: THREE.Color;
+  /** linear ambient irradiance of an up-facing surface (HemisphereLight sky colour × intensity + ambient floor), three light units */ ambientIrradiance: THREE.Color;
   /** unit vector toward the moon */ moonDirThree: THREE.Vector3;
   /** moon DirectionalLight intensity */ moonIntensity: number;
   moonColor: THREE.Color;
@@ -53,6 +60,7 @@ export function createSkyLighting(): SkyLighting {
     exposure: 0.6, ambientIntensity: 0,
     fogColorEncoded: new THREE.Color(0.7, 0.8, 0.9), fogExp2Density: 1.978 / 50_000,
     sunRadiance: new THREE.Color(0, 0, 0), sunGlowColor: new THREE.Color(0.5, 0.6, 0.7),
+    skyFogColor: new THREE.Color(0.5, 0.6, 0.7), ambientIrradiance: new THREE.Color(0.3, 0.4, 0.6),
     moonDirThree: new THREE.Vector3(0, -1, 0), moonIntensity: 0, moonColor: new THREE.Color(0xb8c4ff),
     sunElevationDeg: 0, cloudCover: 0, starVisibility: 0, inCloud: 0, groundY: 0,
   };
@@ -64,7 +72,7 @@ export function createSkyLighting(): SkyLighting {
  * `groundY` as the height reference, and mix toward `fogColor` (+ a `sunGlowColor` lobe) BEFORE tone mapping:
  *
  *   float f = heightFogFactor(cameraPosition, dir, dist, uFogBeta, uFogInvH, uGroundY);
- *   vec3 fc = mix(uFogColor, uSunGlow, pow(max(dot(dir, uSunDir), 0.0), 8.0) * 0.5);
+ *   vec3 fc = mix(uFogColor, uSunGlow, hazeSunLobe(dot(dir, uSunDir)));   // HAZE_LOBE_GLSL
  *   color = mix(color, fc, f);
  */
 export const HEIGHT_FOG_GLSL = /* glsl */ `
@@ -77,5 +85,17 @@ float heightFogOpticalDepth( vec3 origin, vec3 dir, float dist, float beta0, flo
 }
 float heightFogFactor( vec3 origin, vec3 dir, float dist, float beta0, float invH, float groundY ) {
   return 1.0 - exp( - heightFogOpticalDepth( origin, dir, dist, beta0, invH, groundY ) );
+}
+`;
+
+/**
+ * GLSL twin of `hazeSunLobe` (lighting.ts): weight 0…1 of the sun-ward haze colour at cos θ from the sun —
+ * the Henyey–Greenstein (g = HAZE_G) excess over its 90° value, normalised at θ = 0.
+ */
+export const HAZE_LOBE_GLSL = /* glsl */ `
+float hazeSunLobe( float cosTheta ) {
+  const float g = ${HAZE_G.toFixed(3)};
+  float p = ( 1.0 - g * g ) / ( 12.5663706 * pow( max( 1.0 + g * g - 2.0 * g * clamp( cosTheta, -1.0, 1.0 ), 1e-6 ), 1.5 ) );
+  return clamp( ( p - ${hgPhase(0, HAZE_G).toFixed(7)} ) / ${(hgPhase(1, HAZE_G) - hgPhase(0, HAZE_G)).toFixed(7)}, 0.0, 1.0 );
 }
 `;

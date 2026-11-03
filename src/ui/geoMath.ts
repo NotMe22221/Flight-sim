@@ -44,3 +44,21 @@ export function localOffsetM(origin: LatLon, p: LatLon): { east: number; north: 
 }
 
 export function geodeticToLatLon(g: Geodetic): LatLon { return { lat: g.lat, lon: g.lon }; }
+
+/**
+ * Local magnetic variation (deg, east positive, in (−180, 180]) from the aircraft's true and
+ * magnetic headings, which the flight model already reports: variation = true − magnetic.
+ */
+export function variationFromHeadings(headingTrueRad: number, headingMagRad: number): number {
+  if (!Number.isFinite(headingTrueRad) || !Number.isFinite(headingMagRad)) return 0;
+  const d = (headingTrueRad - headingMagRad) * R2D;
+  const w = ((d + 180) % 360 + 360) % 360 - 180;
+  return w === -180 ? 180 : w;
+}
+
+/** True bearing → magnetic, [0, 360): magnetic = true − variation (east positive). */
+export function trueToMagnetic(trueDeg: number, variationDeg: number): number {
+  const v = Number.isFinite(variationDeg) ? variationDeg : 0;
+  const m = ((trueDeg - v) % 360 + 360) % 360;
+  return Number.isFinite(m) ? m : 0;
+}

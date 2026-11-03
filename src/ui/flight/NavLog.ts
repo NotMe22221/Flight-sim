@@ -1,8 +1,11 @@
-/** Flight plan legs: waypoint, distance, bearing, ETE from snapshot.plan. Recomputed at 1 Hz or on plan change. */
+/**
+ * Flight plan legs: waypoint, distance, magnetic bearing (what the heading indicator shows; the
+ * planner works in true), ETE from snapshot.plan. Recomputed at 1 Hz or on plan change.
+ */
 import type { FlightPlan, SimSnapshot } from '../../core/types';
 import type { UiHost, UnitsSettings } from '../UiHost';
 import { button, clear, h } from '../dom';
-import { bearingDeg, distanceM } from '../geoMath';
+import { bearingDeg, distanceM, trueToMagnetic, variationFromHeadings } from '../geoMath';
 import { formatAltitude, formatDistance, formatDuration, formatEte, formatHeading } from '../format';
 
 export class NavLog {
@@ -44,6 +47,7 @@ export class NavLog {
     const rows: HTMLElement[] = [];
     let totalM = 0, totalS = 0;
     const here = { lat: s.aircraft.geo.lat, lon: s.aircraft.geo.lon };
+    const variation = variationFromHeadings(s.aircraft.headingTrueRad, s.aircraft.headingMagRad);
     for (let i = 0; i < plan.waypoints.length; i++) {
       const wp = plan.waypoints[i];
       const prev = i === 0 ? here : plan.waypoints[i - 1].position;
@@ -55,7 +59,7 @@ export class NavLog {
       if (!passed) { totalM += legM; totalS += ete; }
       rows.push(h('tr', { class: isActive ? 'active' : passed ? 'passed' : '' },
         h('td', { text: wp.id }), h('td', { class: 'muted', text: wp.type }),
-        h('td', { class: 'num', text: formatDistance(legM, u) }), h('td', { class: 'num', text: formatHeading(brg) }),
+        h('td', { class: 'num', text: formatDistance(legM, u) }), h('td', { class: 'num', text: formatHeading(trueToMagnetic(brg, variation)) }),
         h('td', { class: 'num', text: passed ? '--' : formatEte(ete) }),
         h('td', { class: 'num', text: wp.altConstraintM !== undefined ? formatAltitude(wp.altConstraintM, u) : '' })));
     }
@@ -65,7 +69,7 @@ export class NavLog {
     if (this.clearBtn) this.clearBtn.style.display = '';
     clear(this.table);
     this.table.appendChild(h('table', null,
-      h('thead', null, h('tr', null, h('th', { text: 'Waypoint' }), h('th', { text: 'Type' }), h('th', { class: 'num', text: 'Dist' }), h('th', { class: 'num', text: 'Brg' }), h('th', { class: 'num', text: 'ETE' }), h('th', { class: 'num', text: 'Alt' }))),
+      h('thead', null, h('tr', null, h('th', { text: 'Waypoint' }), h('th', { text: 'Type' }), h('th', { class: 'num', text: 'Dist' }), h('th', { class: 'num', text: 'Brg', title: 'Magnetic bearing' }), h('th', { class: 'num', text: 'ETE' }), h('th', { class: 'num', text: 'Alt' }))),
       h('tbody', null, rows)));
     clear(this.total);
     this.total.append(h('span', { text: `Remaining ${formatDistance(totalM, u)}` }), h('span', { text: `ETE ${formatDuration(totalS)} · XTK ${formatDistance(plan.crossTrackM, u)}` }));

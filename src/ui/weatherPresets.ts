@@ -3,6 +3,8 @@
  * owns the real presets; these templates only seed the custom editor and summaries.
  */
 import type { CloudLayer, WeatherPresetId, WeatherState, WindLayer, TurbulenceIntensity } from '../core/types';
+import type { UnitsSettings } from './UiHost';
+import { formatDistance, formatPressure, formatTemperature, formatWind } from './format';
 
 export const FT = 0.3048;
 export const NM = 1852;
@@ -130,15 +132,21 @@ export function validateCustomWeather(input: WeatherState): WeatherValidation {
   return { ok: errors.length === 0, errors, fixed: w };
 }
 
-/** METAR-ish one-liner for summaries: 'SCT035 · 280/08 · 60 nm · 15 °C · 1013 hPa'. */
-export function weatherSummary(w: WeatherState): string {
+/**
+ * METAR-ish one-liner for summaries: 'SCT035 · 280/08 · 10+ nm · 15 °C · 29.92 inHg'. Cloud bases
+ * stay in hundreds of feet (METAR convention); visibility, temperature and pressure follow `units`
+ * (without `units`: nm, °C and hPa). A north wind reads 360, as on an ATIS.
+ */
+export function weatherSummary(w: WeatherState, units?: UnitsSettings): string {
   const cover = (c: number) => (c < 0.1 ? 'SKC' : c < 0.3 ? 'FEW' : c < 0.6 ? 'SCT' : c < 0.9 ? 'BKN' : 'OVC');
   const clouds = w.clouds.length === 0 ? 'SKC' : w.clouds.map((c) => `${cover(c.coverage)}${Math.round(c.baseM / FT / 100).toString().padStart(3, '0')}`).join(' ');
   const sfc = w.winds[0];
-  const windTxt = !sfc || sfc.speedKt < 1 ? 'CALM' : `${Math.round(sfc.directionDeg).toString().padStart(3, '0')}/${Math.round(sfc.speedKt).toString().padStart(2, '0')}${sfc.gustKt > sfc.speedKt ? 'G' + Math.round(sfc.gustKt) : ''}`;
-  const vis = w.visibilityM >= 10 * NM ? '10+ nm' : `${(w.visibilityM / NM).toFixed(1)} nm`;
+  const windTxt = !sfc || sfc.speedKt < 1 ? 'CALM' : formatWind(sfc.directionDeg, sfc.speedKt, sfc.gustKt);
+  const u: UnitsSettings = units ?? { altitude: 'ft', speed: 'kt', pressure: 'hPa', distance: 'nm', temperature: 'C' };
+  const visUnit = u.distance === 'km' ? 1000 : NM;
+  const vis = w.visibilityM >= 10 * visUnit ? `10+ ${u.distance}` : formatDistance(w.visibilityM, u);
   const wx = w.thunderstorm ? ' · TS' : w.precipitationType !== 'none' ? ` · ${w.precipitationType.toUpperCase()}` : '';
-  return `${clouds} · ${windTxt} · ${vis} · ${Math.round(w.temperatureC)} °C · ${Math.round(w.qnhPa / 100)} hPa${wx}`;
+  return `${clouds} · ${windTxt} · ${vis} · ${formatTemperature(w.temperatureC, u)} · ${formatPressure(w.qnhPa, u)}${wx}`;
 }
 
 export function weatherPresetLabel(preset: WeatherState['preset']): string {

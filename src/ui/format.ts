@@ -152,14 +152,17 @@ export function formatFuel(kg: number, unit: FuelUnit): string {
 // ── Frequencies ─────────────────────────────────────────────────────────────────────────
 
 /**
- * kHz → display. 25 kHz channels (NAV and classic COM) use two decimals ('116.80',
- * '118.25'); 8.33 kHz channels use three ('118.005', '118.010').
+ * kHz → display. Channels whose third decimal is 0 on the 25 kHz raster use two decimals
+ * ('116.80', '118.25'); the other 25 kHz channels keep all three ('118.125', '118.275' — two
+ * decimals would round them onto a different channel), as do 8.33 kHz channels ('118.005',
+ * '118.010'). Digits are taken from the integer kHz, never from a rounded float.
  */
 export function formatFrequency(khz: number): string {
   if (!isFiniteNum(khz) || khz <= 0) return '---.--';
   const k = Math.round(khz);
-  const mhz = k / 1000;
-  return k % 25 === 0 ? mhz.toFixed(2) : mhz.toFixed(3);
+  const mhz = Math.floor(k / 1000);
+  const frac = (k % 1000).toString().padStart(3, '0');
+  return k % 25 === 0 && k % 10 === 0 ? `${mhz}.${frac.slice(0, 2)}` : `${mhz}.${frac}`;
 }
 /** MHz → display (rounds to the nearest kHz first so 118.005 stays 118.005). */
 export function formatFrequencyMHz(mhz: number): string {

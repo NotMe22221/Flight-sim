@@ -20,6 +20,17 @@ describe('weather presets', () => {
     expect(weatherSummary(weatherPresetTemplate('storm'))).toContain('TS');
     expect(weatherSummary(weatherPresetTemplate('scattered'))).toMatch(/^SCT030 /);
   });
+  it('summaries follow the user units (pressure, temperature, visibility) and read a north wind as 360', () => {
+    const us = { altitude: 'ft', speed: 'kt', pressure: 'inHg', distance: 'nm', temperature: 'F' } as const;
+    expect(weatherSummary(weatherPresetTemplate('clear'), us)).toBe('SKC · CALM · 10+ nm · 59 °F · 29.92 inHg');
+    const metric = { altitude: 'm', speed: 'kmh', pressure: 'hPa', distance: 'km', temperature: 'C' } as const;
+    const rain = weatherPresetTemplate('rain'); // 5 nm visibility
+    expect(weatherSummary(rain, metric)).toContain('9.3 km');
+    expect(weatherSummary(rain, metric)).toContain('1008 hPa');
+    const north = weatherPresetTemplate('few');
+    north.winds[0] = { altM: 0, directionDeg: 0, speedKt: 12, gustKt: 20 };
+    expect(weatherSummary(north)).toContain('360/12G20');
+  });
 });
 
 describe('validateCustomWeather', () => {

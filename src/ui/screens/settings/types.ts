@@ -15,6 +15,8 @@ export interface SettingsTabView {
   sync(): void;
   /** Tab became visible. */
   onShow?(): void;
+  /** Tab left (another tab, or the Settings screen closed). */
+  onHide?(): void;
   /** Return true when the key was consumed (e.g. Esc while waiting for a rebind). */
   onKey?(e: KeyboardEvent): boolean;
   dispose?(): void;

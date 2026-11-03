@@ -81,7 +81,7 @@ export class UiManager {
       back: () => this.back(),
       fly: () => { void this.launcher.fly(); },
       inFlight: () => this._inFlight,
-      toast: (text, kind) => this.toasts.push({ text, kind }),
+      toast: (text, kind, durationMs) => this.toasts.push({ text, kind, ...(durationMs ? { durationMs } : {}) }),
       resetLayout: () => this.layout.reset(),
       startChallenge: (id) => { void this.launcher.startChallenge(id); },
       resumeFlight: () => {

@@ -57,8 +57,8 @@ export class MapCanvas {
     this.scaleBarEl = h('span', { class: 'wm-scale-bar' });
     this.scaleTxt = new Txt(h('span'), '');
     const zoom = h('div', { class: 'wm-zoom' },
-      button('', () => this.zoomBy(2), { icon: 'arrowUp', cls: 'btn-icon btn-sm', title: 'Zoom in (+)', aria: { label: 'Zoom in' } }),
-      button('', () => this.zoomBy(0.5), { icon: 'chevronDown', cls: 'btn-icon btn-sm', title: 'Zoom out (−)', aria: { label: 'Zoom out' } }),
+      button('', () => this.zoomBy(2), { icon: 'plus', cls: 'btn-icon btn-sm', title: 'Zoom in (+)', aria: { label: 'Zoom in' } }),
+      button('', () => this.zoomBy(0.5), { icon: 'minus', cls: 'btn-icon btn-sm', title: 'Zoom out (−)', aria: { label: 'Zoom out' } }),
       button('', () => { const d = this.o.state().departure; this.centerOn(d.position.lat, d.position.lon, Math.max(this.view.pxPerDeg, 200)); }, { icon: 'target', cls: 'btn-icon btn-sm', title: 'Centre on departure', aria: { label: 'Centre on departure' } }));
     this.el = h('div', { class: 'wm-map' }, this.canvas, this.hoverTxt.el, zoom,
       h('div', { class: 'wm-map-overlay' }, h('div', { class: 'wm-scale' }, this.scaleBarEl, this.scaleTxt.el)));

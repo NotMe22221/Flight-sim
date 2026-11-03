@@ -33,9 +33,9 @@ export class VfrMap {
     this.infoTxt = new Txt(h('span', { class: 'muted', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }), '');
     this.orientBtn = button('TRK UP', () => { this.trackUp = !this.trackUp; this.orientBtn.querySelector('.btn-label')!.textContent = this.trackUp ? 'TRK UP' : 'NORTH UP'; this.lastDraw = 0; }, { cls: 'btn-sm', icon: 'north', title: 'Toggle track-up / north-up' });
     const controls = h('div', { class: 'vfr-controls' },
-      button('', () => this.setRange(this.rangeIdx - 1), { icon: 'arrowUp', cls: 'btn-icon btn-sm', title: 'Zoom in' }),
+      button('', () => this.setRange(this.rangeIdx - 1), { icon: 'plus', cls: 'btn-icon btn-sm', title: 'Zoom in (shorter range)', aria: { label: 'Zoom in' } }),
       this.rangeTxt.el,
-      button('', () => this.setRange(this.rangeIdx + 1), { icon: 'chevronDown', cls: 'btn-icon btn-sm', title: 'Zoom out' }),
+      button('', () => this.setRange(this.rangeIdx + 1), { icon: 'minus', cls: 'btn-icon btn-sm', title: 'Zoom out (longer range)', aria: { label: 'Zoom out' } }),
       this.orientBtn, this.infoTxt.el);
     if (host.addWaypoint) {
       this.directBtn = button('Direct to', () => { if (this.selected) { host.addWaypoint!({ id: this.selected.icao, position: this.selected.position, type: 'airport' }); this.infoTxt.set(`Direct to ${this.selected.icao} added to plan`); } }, { cls: 'btn-sm', icon: 'target', disabled: true });
@@ -58,12 +58,15 @@ export class VfrMap {
     return false;
   }
 
-  /** Called every frame while visible; redraws at ≤ 10 Hz, airports refreshed at 1 Hz. */
+  /**
+   * Called every frame while visible; redraws at ≤ 10 Hz, airports refreshed at 1 Hz. The canvas size
+   * is read only when about to draw (reading clientWidth every frame forces a layout per frame).
+   */
   update(s: SimSnapshot, nowMs: number): void {
     this.lastSnap = s;
-    const resized = this.resize();
-    if (!resized && nowMs - this.lastDraw < 100) return;
+    if (nowMs - this.lastDraw < 100) return;
     this.lastDraw = nowMs;
+    this.resize();
     if (nowMs - this.lastFetch > 1000) {
       this.lastFetch = nowMs;
       try { this.airports = this.host.nav.nearestAirports(s.aircraft.geo, 80, this.rangeNm * 1.6); } catch { this.airports = []; }

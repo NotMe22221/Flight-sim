@@ -101,3 +101,28 @@ export function isTextEntry(el: { tagName?: unknown; type?: unknown; isContentEd
   if (tag === 'INPUT') return TEXT_INPUT_TYPES.has(String(el.type ?? 'text').toLowerCase());
   return el.isContentEditable === true;
 }
+
+const RELEASE_ON_CLICK_INPUTS: ReadonlySet<string> = new Set(['range', 'checkbox', 'radio', 'button', 'submit', 'reset', 'color']);
+const RELEASE_ROLES: ReadonlySet<string> = new Set(['button', 'checkbox', 'switch', 'option', 'tab', 'radio', 'menuitem']);
+
+/**
+ * In flight the keyboard flies the aircraft, so a control used with the pointer in the toolbar or
+ * a floating panel must not keep the focus: the input module ignores every key whose target is an
+ * INPUT or SELECT (a focused slider or dropdown silently disables the flight keys), and a focused
+ * button or checklist row re-activates on Space/Enter. True when `el` should be blurred after a
+ * pointer `click` or a committed `change`. Text fields keep the focus while being clicked (typing).
+ * Duck-typed so it is testable without a DOM.
+ */
+export function releasesFocusAfter(
+  el: { tagName?: unknown; type?: unknown; getAttribute?: (name: string) => string | null } | null | undefined,
+  ev: 'click' | 'change',
+): boolean {
+  if (!el || typeof el.tagName !== 'string') return false;
+  const tag = el.tagName.toUpperCase();
+  if (ev === 'change') return tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA';
+  if (tag === 'BUTTON') return true;
+  if (tag === 'INPUT') return RELEASE_ON_CLICK_INPUTS.has(String(el.type ?? 'text').toLowerCase());
+  if (tag === 'SELECT' || tag === 'TEXTAREA') return false; // a click opens the dropdown / places the caret
+  const role = typeof el.getAttribute === 'function' ? el.getAttribute('role') : null;
+  return role !== null && RELEASE_ROLES.has(role);
+}

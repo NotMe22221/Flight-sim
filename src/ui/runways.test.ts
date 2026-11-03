@@ -64,3 +64,16 @@ describe('runway records with per-end data (nav database)', () => {
     expect(b.ilsMHz).toBeUndefined();
   });
 });
+
+describe('runway heading labels', () => {
+  it('magnetic when the host knows the variation, else marked true', async () => {
+    const { runwayHeadingLabel, magneticVariationAt } = await import('./runways');
+    expect(runwayHeadingLabel(298, 13.2)).toBe('285°');
+    expect(runwayHeadingLabel(298, null)).toBe('298°T');
+    expect(runwayHeadingLabel(3, 13)).toBe('350°');
+    expect(magneticVariationAt({}, 37, -122)).toBeNull();
+    expect(magneticVariationAt({ magneticVariationDeg: () => 13 }, 37, -122)).toBe(13);
+    expect(magneticVariationAt({ magneticVariationDeg: () => { throw new Error('x'); } }, 37, -122)).toBeNull();
+    expect(magneticVariationAt({ magneticVariationDeg: () => Number.NaN }, 37, -122)).toBeNull();
+  });
+});

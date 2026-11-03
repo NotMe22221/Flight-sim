@@ -10,5 +10,6 @@ export * from './spatialGrid';
 export * from './frequencies';
 export * from './radio';
 export * from './flightPlan';
+export * from './approaches';
 export * from './NavDatabase';
 export { MagVarCache, magneticDeclinationDeg, magneticField, decimalYear } from '../geo/magvar';

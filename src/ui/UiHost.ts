@@ -65,6 +65,14 @@ export interface UiHost {
   /** COM1 active/standby frequencies, MHz: the ATC panel header shows the tuned station. */
   comRadio?(): { activeMHz: number; standbyMHz: number } | null;
   /**
+   * Magnetic variation (deg, east positive) at a place, e.g. from the World Magnetic Model. The
+   * World Map then shows runway headings magnetic, as charts and the compass do; without it they
+   * are labelled true ('298°T').
+   */
+  magneticVariationDeg?(lat: number, lon: number): number;
+  /** Cancels a pending `rebind` (its promise resolves null): Settings calls it when the screen closes. */
+  cancelRebind?(): void;
+  /**
    * Settings › General › "Flight info strip" (pushed at startup and on change). Lets a host that
    * draws its own speed/altitude/heading strip (an instruments HUD replacing the UI's) honour it.
    */

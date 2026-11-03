@@ -80,3 +80,15 @@ describe('band, extras, runway', () => {
     expect(landingRunway({})).toBe('');
   });
 });
+
+describe('landing presentation (touch-and-go must not open a modal that takes the keyboard)', () => {
+  it('full stop → report card; touch-and-go → toast', async () => {
+    const { landingPresentation, landingToastText, isTouchAndGo } = await import('./landingReportModel');
+    expect(landingPresentation(real)).toBe('report');
+    const tng = { ...real, stopDistanceM: 'touch-and-go', grade: 'Good' };
+    expect(isTouchAndGo(tng)).toBe(true);
+    expect(landingPresentation(tng)).toBe('toast');
+    expect(landingToastText(tng, 6123.4)).toBe('Touch-and-go · KSFO 28R · 6,123 · Good landing');
+    expect(landingToastText({ stopDistanceM: 'touch-and-go' }, 3000)).toBe('Touch-and-go · 3,000 · Firm');
+  });
+});

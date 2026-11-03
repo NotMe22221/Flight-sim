@@ -54,12 +54,18 @@ export function challengeTimeLabel(c: TimeFields): string {
   return hour ? `${hour} local` : '—';
 }
 
+/** '280/10G15 kt', or 'Calm' (no 'CALM kt'). */
+function windLabel(fromDeg: number, kt: number, gustKt?: number): string {
+  const w = formatWind(fromDeg, kt, gustKt);
+  return w === 'CALM' ? 'Calm' : `${w} kt`;
+}
+
 /** Human-readable briefing lines for the detail card. */
 export function challengeConditions(c: LandingChallenge): ChallengeConditions {
   return {
     airport: `${c.icao} · runway ${c.runway}`,
     weather: weatherPresetLabel(c.weather),
-    wind: c.wind ? `${formatWind(c.wind.fromDeg, c.wind.speedKt, c.wind.gustKt)} kt` : 'Preset winds',
+    wind: c.wind ? windLabel(c.wind.fromDeg, c.wind.speedKt, c.wind.gustKt) : 'Preset winds',
     time: challengeTimeLabel(c as LandingChallenge & TimeFields),
     approach: `${c.startNm} nm final · ${c.glideDeg.toFixed(1)}° path · ${c.speedKt} kt`,
   };

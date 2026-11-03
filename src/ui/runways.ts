@@ -1,6 +1,8 @@
 /** Runway helpers: the nav database stores one record per runway, the UI offers both ends. */
 import type { Airport, Geodetic, Runway } from '../core/types';
-import type { RunwayEndChoice } from './UiHost';
+import type { RunwayEndChoice, UiHost } from './UiHost';
+import { formatHeading } from './format';
+import { trueToMagnetic } from './geoMath';
 
 /**
  * Per-end data the nav database carries on its runway records (`RunwayRecord.ends`: real
@@ -88,6 +90,21 @@ export function activeRunwayEnd(ap: Airport, windDirDeg: number, windKt: number)
     if (hw > bestHw + 1e-9 || (Math.abs(hw - bestHw) < 1e-9 && e.lengthM > best.lengthM)) { best = e; bestHw = hw; }
   }
   return best;
+}
+
+/** The host's magnetic variation at a place (deg, east +), or null when it does not provide one. */
+export function magneticVariationAt(host: Pick<UiHost, 'magneticVariationDeg'>, lat: number, lon: number): number | null {
+  if (typeof host.magneticVariationDeg !== 'function') return null;
+  try { const v = host.magneticVariationDeg(lat, lon); return Number.isFinite(v) ? v : null; } catch { return null; }
+}
+
+/**
+ * A runway end's heading as pilots read it: magnetic when the variation is known ('284°', matching
+ * the runway number and the compass), otherwise explicitly true ('298°T').
+ */
+export function runwayHeadingLabel(headingTrueDeg: number, variationDeg: number | null): string {
+  if (variationDeg === null || !Number.isFinite(variationDeg)) return `${formatHeading(headingTrueDeg)}T`;
+  return formatHeading(trueToMagnetic(headingTrueDeg, variationDeg));
 }
 
 /** Hard-coded default (DESIGN.md): KSFO 28R, used when the nav DB has not loaded yet. */

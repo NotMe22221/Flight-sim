@@ -160,10 +160,11 @@
   background: radial-gradient(1200px 700px at 20% 10%, rgba(32, 56, 90, 0.75), transparent 60%),
               radial-gradient(900px 600px at 85% 90%, rgba(20, 70, 100, 0.55), transparent 60%),
               linear-gradient(180deg, #0a1220 0%, #0b1526 50%, #060b14 100%);
-  opacity: 0; transition: opacity var(--t); pointer-events: none;
+  opacity: 0; transition: opacity var(--t), visibility 0s linear 150ms; pointer-events: none;
+  visibility: hidden; /* out of the tab order once faded out */
 }
 .fs-ui .screen.overlay { background: rgba(6, 10, 18, 0.72); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-.fs-ui .screen.visible { opacity: 1; pointer-events: auto; }
+.fs-ui .screen.visible { opacity: 1; pointer-events: auto; visibility: visible; transition: opacity var(--t), visibility 0s; }
 .fs-ui .screen-header { display: flex; align-items: center; gap: 14px; padding: 18px 28px 10px; }
 .fs-ui .screen-title { font-size: 1.5em; font-weight: 300; letter-spacing: 0.18em; text-transform: uppercase; margin: 0; }
 .fs-ui .screen-subtitle { color: var(--fg-dim); font-size: 0.9em; }

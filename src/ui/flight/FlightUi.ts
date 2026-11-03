@@ -10,11 +10,13 @@ import type { InterfaceSettings } from '../settingsStore';
 import type { AssistKey } from '../assistPresets';
 import { ASSIST_ITEMS } from '../assistPresets';
 import { Cls, Txt, h } from '../dom';
+import { releasesFocusAfter } from '../routing';
 import { FlightPanels, type PanelId } from './FlightPanels';
 import type { LayoutStore } from './FloatingPanel';
 import { HelpOverlay } from './HelpOverlay';
 import { HudStrip } from './HudStrip';
 import { LandingReport } from './LandingReport';
+import { landingPresentation, landingToastText } from '../landingReportModel';
 import { PauseMenu } from './PauseMenu';
 import { StatusBar } from './StatusBar';
 
@@ -81,6 +83,17 @@ export class FlightUi {
     // hidden until the 'flight' route shows; no onOverlayChange here (the owner is still constructing)
     d.hudLayer.style.display = 'none';
     d.flightLayer.style.display = 'none';
+    // a slider, dropdown or button used with the pointer must not keep the keyboard from the flight
+    d.flightLayer.addEventListener('click', (e) => { if (e.detail > 0) this.releaseFocus(e.target, 'click'); });
+    d.flightLayer.addEventListener('change', (e) => this.releaseFocus(e.target, 'change'));
+  }
+
+  private releaseFocus(target: EventTarget | null, ev: 'click' | 'change'): void {
+    const t = target as HTMLElement | null;
+    const el = t && typeof t.closest === 'function' ? t.closest<HTMLElement>('button, input, select, textarea, [role]') : null;
+    if (!el || !releasesFocusAfter(el, ev)) return;
+    // after the browser's own focus handling for this event
+    setTimeout(() => { if (document.activeElement === el) el.blur(); }, 0);
   }
 
   /** True while a modal overlay owns the screen (keyboard captured). */
@@ -171,6 +184,8 @@ export class FlightUi {
 
   onLanding(p: SimEvents['landing:scored']): void {
     if (!this.active) return;
+    // a touch-and-go is scored on the climb-out: a modal would take the keyboard from the pilot
+    if (landingPresentation(p.details) === 'toast') { this.d.ctx.toast(landingToastText(p.details, p.score), 'success', 6000); return; }
     this.report.show(p, this.d.units(), () => this.d.onOverlayChange());
     this.d.onOverlayChange();
   }

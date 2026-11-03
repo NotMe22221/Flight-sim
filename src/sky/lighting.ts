@@ -180,3 +180,78 @@ export function mixVec3(a: Vec3, b: Vec3, t: number, out: Vec3 = [0, 0, 0]): Vec
   out[0] = a[0] + (b[0] - a[0]) * t; out[1] = a[1] + (b[1] - a[1]) * t; out[2] = a[2] + (b[2] - a[2]) * t;
   return out;
 }
+
+// ── aerial perspective (haze) colour ─────────────────────────────────────────────────────────────
+
+/** Henyey–Greenstein phase function (sr⁻¹, integrates to 1 over the sphere). */
+export function hgPhase(cosTheta: number, g: number): number {
+  const g2 = g * g;
+  return (1 - g2) / (4 * Math.PI * Math.pow(Math.max(1 + g2 - 2 * g * clamp(cosTheta, -1, 1), 1e-6), 1.5));
+}
+
+/** Rayleigh phase function (sr⁻¹). */
+export const rayleighPhase = (cosTheta: number): number => (3 / (16 * Math.PI)) * (1 + cosTheta * cosTheta);
+
+/** Haze aerosol asymmetry (forward-scattering lobe toward the sun). Also used by the GPU lobe (`HAZE_LOBE_GLSL`). */
+export const HAZE_G = 0.7;
+/** Sea-level Rayleigh extinction at 550 nm, m⁻¹ (molecular share of the Koschmieder β). */
+export const RAYLEIGH_BETA_550 = 1.16e-5;
+
+/** Aerosol (Mie) share of the surface extinction for a meteorological visibility (0 … 1). */
+export const mieFraction = (visibilityM: number): number => clamp(1 - RAYLEIGH_BETA_550 / fogBetaFromVisibility(visibilityM), 0, 1);
+
+/** Tunables of the haze model (see `hazeColor`). */
+export interface HazeOptions {
+  /** single-scattering albedo of the haze */ omega: number;
+  /** multiple-scattering gain on the single-scattering estimate (optically thick horizontal paths) */ multiScatter: number;
+  /** reflectance of the ground under the haze (it lights the haze from below) */ groundAlbedo: number;
+  /** the haze never exceeds this fraction of the sky radiance behind it, so the horizon line stays visible */ maxOfSky: number;
+}
+
+export const DEFAULT_HAZE: Readonly<HazeOptions> = { omega: 0.9, multiScatter: 2.6, groundAlbedo: 0.15, maxOfSky: 0.8 };
+
+/**
+ * Aerial-perspective in-scatter colour L∞ (linear, in three's light units: the radiance scale of a surface
+ * lit by the same sun/ambient, albedo/π · irradiance) seen at angle θ from the sun — the colour distant
+ * ground fades to. Single scattering of the sun (Rayleigh + Henyey–Greenstein Mie, weighted by the
+ * aerosol share of the extinction) plus the sky and ground light scattered isotropically, times a
+ * multiple-scattering gain:
+ *
+ *   L∞ = ω·ms·[ E☉·c☉·P(θ) + (E_sky + ρ_g·E_ground) / 2π ]
+ *
+ * Unlike the Preetham horizon radiance (≈ 25 × a sunlit field at noon), this sits a little above the lit
+ * ground, so 10–20 km ridgelines stay readable through 40 km of visibility. `sunColor` is the hue (max 1),
+ * `sunIntensity` the DirectionalLight intensity, `skyIrradiance` the ambient irradiance of an up-facing
+ * surface; the result is not yet capped by the sky (see `capBySky`).
+ */
+export function hazeColor(
+  cosTheta: number, sunColor: Vec3, sunIntensity: number, sunElDeg: number, skyIrradiance: Vec3, visibilityM: number,
+  out: Vec3 = [0, 0, 0], o: HazeOptions = DEFAULT_HAZE,
+): Vec3 {
+  const m = mieFraction(visibilityM);
+  const phase = m * hgPhase(cosTheta, HAZE_G) + (1 - m) * rayleighPhase(cosTheta);
+  const sunI = Math.max(sunIntensity, 0);
+  const sinEl = Math.max(Math.sin(sunElDeg * (Math.PI / 180)), 0);
+  const k = o.omega * o.multiScatter;
+  for (let c = 0; c < 3; c++) {
+    const ground = o.groundAlbedo * (sunI * sinEl * sunColor[c] + skyIrradiance[c]);
+    out[c] = k * (sunI * sunColor[c] * phase + (skyIrradiance[c] + ground) / (2 * Math.PI));
+  }
+  return out;
+}
+
+/** Limit a haze colour to `maxOfSky` × the sky radiance behind it, per channel (in place). */
+export function capBySky(haze: Vec3, sky: Vec3, maxOfSky = DEFAULT_HAZE.maxOfSky): Vec3 {
+  for (let c = 0; c < 3; c++) haze[c] = Math.min(haze[c], Math.max(sky[c], 0) * maxOfSky);
+  return haze;
+}
+
+/**
+ * Weight 0…1 of the sun-ward haze colour at angle θ from the sun: the Henyey–Greenstein excess over its
+ * value at 90°, normalised at θ = 0. Mixing `fogColor` (θ = 90°) toward `sunGlowColor` (θ = 0) with this
+ * reproduces the Mie part of `hazeColor` exactly for θ ≤ 90°. CPU twin of `hazeSunLobe` in `HAZE_LOBE_GLSL`.
+ */
+export function hazeSunLobe(cosTheta: number, g = HAZE_G): number {
+  const p0 = hgPhase(0, g), p1 = hgPhase(1, g);
+  return clamp((hgPhase(cosTheta, g) - p0) / (p1 - p0), 0, 1);
+}

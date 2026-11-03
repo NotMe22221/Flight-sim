@@ -63,7 +63,7 @@ export class SceneryManager implements SceneryLike {
   private quality: SceneryQuality;
   private build: BuildSettings;
   private stream: StreamSettings;
-  private readonly overrides: { stream?: Partial<StreamSettings>; build?: Partial<BuildSettings> };
+  private overrides: { stream?: Partial<StreamSettings>; build?: Partial<BuildSettings> };
   private readonly loader: SceneryLoader;
   private readonly source: TileSource;
   private readonly materials: SceneryMaterials;
@@ -164,6 +164,13 @@ export class SceneryManager implements SceneryLike {
     const p = qualityProfile(q);
     this.build = { ...p.build, ...this.overrides.build };
     this.stream = { ...p.stream, ...this.overrides.stream };
+    this.lastSelect.set(NaN, NaN, NaN);
+  }
+
+  /** Override streaming knobs at runtime (kept across setQuality), e.g. { radiusM: 5000 }. */
+  setStreamOverrides(o: Partial<StreamSettings>): void {
+    this.overrides.stream = { ...this.overrides.stream, ...o };
+    this.stream = { ...this.stream, ...o };
     this.lastSelect.set(NaN, NaN, NaN);
   }
 

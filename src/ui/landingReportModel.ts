@@ -67,7 +67,7 @@ export function landingComponents(d: LandingDetails, units: UnitsSettings, score
   const alongM = num(d, KEYS.alongM);
   const aimM = num(d, KEYS.aimM) ?? 305; // 1000 ft markers
   const stopDistM = num(d, KEYS.stopDistM);
-  const touchAndGo = KEYS.stopDistM.some((k) => typeof d[k] === 'string' && /touch/i.test(String(d[k])));
+  const touchAndGo = isTouchAndGo(d);
   const lengthM = num(d, KEYS.lengthM);
 
   const center = norm(cN) ?? (offM !== null ? 1 - clamp01(Math.abs(offM) / Math.max(1, halfWidthM)) : null);
@@ -121,6 +121,26 @@ export function landingExtras(d: LandingDetails): LandingExtra[] {
     out.push({ label: humanizeKey(k), value: typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(2)) : v });
   }
   return out;
+}
+
+/** True when the scorer marks the landing as a touch-and-go (the aircraft is flying again). */
+export function isTouchAndGo(d: LandingDetails): boolean {
+  return KEYS.stopDistM.some((k) => typeof d[k] === 'string' && /touch/i.test(String(d[k])));
+}
+
+/**
+ * How a score is shown. A full-stop landing gets the modal report card. A touch-and-go is
+ * scored while the aircraft is climbing out again: a modal would take the keyboard from the pilot
+ * (the UI owns the keys while an overlay is open), so it becomes a toast instead.
+ */
+export function landingPresentation(d: LandingDetails): 'report' | 'toast' {
+  return isTouchAndGo(d) ? 'toast' : 'report';
+}
+
+/** 'Touch-and-go · KSFO 28R · 7,840 · Great landing' for the toast. */
+export function landingToastText(d: LandingDetails, score: number): string {
+  const rwy = landingRunway(d);
+  return `Touch-and-go${rwy ? ` · ${rwy}` : ''} · ${Number.isFinite(score) ? Math.round(score).toLocaleString('en-US') : '--'} · ${landingBand(d, score)}`;
 }
 
 /** 'KSFO 28R' (or the airport) for the report title. */

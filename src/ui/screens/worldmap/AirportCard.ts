@@ -6,8 +6,8 @@ import type { Airport, Runway } from '../../../core/types';
 import type { RunwayEndChoice } from '../../UiHost';
 import type { ScreenContext } from '../Screen';
 import { button, clear, h, icon } from '../../dom';
-import { formatAltitude, formatCoord, formatFrequencyMHz, formatHeading, formatLength } from '../../format';
-import { activeRunwayEnd, headwindKt, runwayEnds, runwayPairLabel } from '../../runways';
+import { formatAltitude, formatCoord, formatFrequencyMHz, formatLength } from '../../format';
+import { activeRunwayEnd, headwindKt, magneticVariationAt, runwayEnds, runwayHeadingLabel, runwayPairLabel } from '../../runways';
 import { AIRPORT_TYPE_LABEL } from './AirportSearch';
 
 const SURFACE_LABEL: Record<Runway['surface'], string> = { asphalt: 'Asphalt', concrete: 'Concrete', grass: 'Grass', gravel: 'Gravel', water: 'Water', other: 'Other' };
@@ -78,6 +78,7 @@ export class AirportCard {
     const wind = this.ctx.selection.weatherState().winds[0];
     const windKt = wind ? wind.speedKt : 0;
     const active = wind && windKt >= 5 ? activeRunwayEnd(ap, wind.directionDeg, windKt) : null;
+    const variation = magneticVariationAt(this.ctx.host, ap.position.lat, ap.position.lon);
     for (const rwy of [...ap.runways].sort((a, b) => b.lengthM - a.lengthM)) {
       const ends = runwayEnds(rwy);
       const ilsEnds = ends.filter((e) => e.ilsMHz !== undefined);
@@ -92,8 +93,9 @@ export class AirportCard {
           const hw = wind ? headwindKt(end, wind.directionDeg, windKt) : 0;
           const windTxt = windKt >= 1 ? ` · ${hw >= 0 ? 'headwind' : 'tailwind'} ${Math.abs(Math.round(hw))} kt` : '';
           const on = chosen !== null && chosen.endIdent === end.endIdent;
-          const b = button(end.endIdent, () => this.actions.chooseEnd(ap, end), { cls: `runway-btn${on ? ' active' : ''}`, title: `Runway ${end.endIdent} · heading ${formatHeading(end.headingDeg)} true${end.ilsMHz !== undefined ? ` · ILS ${formatFrequencyMHz(end.ilsMHz)}` : ''}${windTxt}`, aria: { pressed: on } });
-          b.appendChild(h('span', { class: 'faint', style: 'font-weight:400;font-size:.8em', text: formatHeading(end.headingDeg) }));
+          const hdg = runwayHeadingLabel(end.headingDeg, variation);
+          const b = button(end.endIdent, () => this.actions.chooseEnd(ap, end), { cls: `runway-btn${on ? ' active' : ''}`, title: `Runway ${end.endIdent} · heading ${hdg}${variation === null ? ' (true)' : ' magnetic'}${end.ilsMHz !== undefined ? ` · ILS ${formatFrequencyMHz(end.ilsMHz)}` : ''}${windTxt}`, aria: { pressed: on } });
+          b.appendChild(h('span', { class: 'faint', style: 'font-weight:400;font-size:.8em', text: hdg }));
           return b;
         })));
     }

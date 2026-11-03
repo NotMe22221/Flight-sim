@@ -14,6 +14,7 @@ import { SUN_PHASE_LABEL, startOfUtcDay, sunElevationDeg, sunPhase, type TimePre
 type Mode = WeatherPresetId | 'live' | 'custom';
 type TimeMode = 'now' | TimePreset | 'custom';
 const TIME_SCALES = [1, 2, 4, 8, 16];
+const SUMMARY_INTERVAL_MS = 500;
 
 export class WeatherPanel {
   readonly el: HTMLElement;
@@ -33,6 +34,7 @@ export class WeatherPanel {
   private currentWx: Txt;
   private lastScale = -1;
   private lastWxSummary = '';
+  private lastSummaryMs = -Infinity;
   /** last simulator preset reflected by the in-flight panel (a challenge or a hotkey can change it) */
   private lastLivePreset: string | null = null;
   private unsub: () => void;
@@ -223,16 +225,19 @@ export class WeatherPanel {
 
   /**
    * In flight: reflect the current time scale, the weather summary and (compact in-flight panel)
-   * the preset the simulator is actually flying, e.g. a landing challenge's own weather.
+   * the preset the simulator is actually flying, e.g. a landing challenge's own weather. The
+   * summary string is rebuilt at most twice a second (this runs every frame while visible).
    */
-  update(s: SimSnapshot): void {
+  update(s: SimSnapshot, nowMs: number): void {
     if (this.opts.compact && this.ctx.inFlight() && s.weather.preset !== this.lastLivePreset) {
       this.lastLivePreset = s.weather.preset;
       if (this.presetButtons.has(s.weather.preset)) this.markPreset(s.weather.preset);
     }
     const sc = s.time.timeScale;
-    if (sc !== this.lastScale) { this.lastScale = sc; this.scaleSeg.set(TIME_SCALES.includes(sc) ? String(sc) : null); }
-    const sum = `${weatherSummary(s.weather)} · ${formatTimeScale(sc)}`;
+    if (sc !== this.lastScale) { this.lastScale = sc; this.scaleSeg.set(TIME_SCALES.includes(sc) ? String(sc) : null); this.lastSummaryMs = -Infinity; }
+    if (nowMs - this.lastSummaryMs < SUMMARY_INTERVAL_MS) return;
+    this.lastSummaryMs = nowMs;
+    const sum = `${weatherSummary(s.weather, this.ctx.settings().units)} · ${formatTimeScale(sc)}`;
     if (sum !== this.lastWxSummary) { this.lastWxSummary = sum; this.currentWx.set(this.opts.compact ? sum : `Current: ${sum}`); }
   }
 }

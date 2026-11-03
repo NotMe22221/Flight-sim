@@ -93,7 +93,7 @@ export class FlightPanels {
     if (this.isVisible('checklist')) this.checklist.update(s, nowMs);
     if (this.isVisible('navlog')) this.navlog.update(s, nowMs);
     if (this.isVisible('vfrmap')) this.vfr.update(s, nowMs);
-    if (this.isVisible('weather')) this.weather.update(s);
+    if (this.isVisible('weather')) this.weather.update(s, nowMs);
   }
 
   dispose(): void {

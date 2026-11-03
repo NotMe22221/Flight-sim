@@ -114,3 +114,27 @@ describe('capture rules', () => {
     expect(isTextEntry(null)).toBe(false);
   });
 });
+
+describe('releasesFocusAfter (in-flight controls hand the keyboard back to the simulator)', () => {
+  it('releases buttons, sliders, switches and checklist rows after a pointer click', async () => {
+    const { releasesFocusAfter } = await import('./routing');
+    const el = (tagName: string, type?: string, role?: string) => ({ tagName, type, getAttribute: (n: string) => (n === 'role' ? role ?? null : null) });
+    expect(releasesFocusAfter(el('BUTTON'), 'click')).toBe(true);
+    expect(releasesFocusAfter(el('INPUT', 'range'), 'click')).toBe(true);
+    expect(releasesFocusAfter(el('INPUT', 'checkbox'), 'click')).toBe(true);
+    expect(releasesFocusAfter(el('DIV', undefined, 'checkbox'), 'click')).toBe(true);
+    expect(releasesFocusAfter(el('DIV', undefined, 'switch'), 'click')).toBe(true);
+  });
+  it('keeps text fields and an opening dropdown focused on click, releases them once a value is committed', async () => {
+    const { releasesFocusAfter } = await import('./routing');
+    const el = (tagName: string, type?: string) => ({ tagName, type, getAttribute: () => null });
+    expect(releasesFocusAfter(el('INPUT', 'number'), 'click')).toBe(false);
+    expect(releasesFocusAfter(el('INPUT', 'search'), 'click')).toBe(false);
+    expect(releasesFocusAfter(el('SELECT'), 'click')).toBe(false);
+    expect(releasesFocusAfter(el('SELECT'), 'change')).toBe(true);
+    expect(releasesFocusAfter(el('INPUT', 'range'), 'change')).toBe(true);
+    expect(releasesFocusAfter(el('INPUT', 'number'), 'change')).toBe(true);
+    expect(releasesFocusAfter(el('DIV'), 'click')).toBe(false);
+    expect(releasesFocusAfter(null, 'click')).toBe(false);
+  });
+});

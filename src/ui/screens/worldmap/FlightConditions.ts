@@ -80,7 +80,7 @@ export class FlightConditions {
     this.editCustom.style.display = m === 'custom' ? '' : 'none';
     this.wxStatus.set(m === 'live'
       ? (this.ctx.inFlight() ? 'Live weather (METAR-based) at your position' : `Live weather for ${sel.spawn.airport.icao} loads when you fly`)
-      : weatherSummary(this.ctx.selection.weatherState()));
+      : weatherSummary(this.ctx.selection.weatherState(), this.ctx.settings().units));
 
     const t = sel.time;
     const tm: TimeMode = t.mode === 'now' ? 'now' : t.mode === 'preset' ? t.preset : 'custom';

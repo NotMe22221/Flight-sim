@@ -13,6 +13,6 @@ export class WeatherScreen extends Screen {
       h('footer', { class: 'screen-footer' }, h('span', { class: 'spacer' }), button('Back', () => ctx.back()), button('Fly', () => ctx.fly(), { primary: true, big: true, icon: 'plane' })));
   }
   protected override onShow(): void { this.panel.refresh(); }
-  override update(s: SimSnapshot): void { this.panel.update(s); }
+  override update(s: SimSnapshot, nowMs: number): void { this.panel.update(s, nowMs); }
   override dispose(): void { this.panel.dispose(); }
 }

@@ -23,6 +23,8 @@ export class Settings extends Screen {
   private views: Partial<Record<SettingsTab, SettingsTabView>> = {};
   private content: HTMLElement;
   private deps: TabDeps;
+  /** the tab view currently in the content area */
+  private shown: SettingsTabView | null = null;
 
   constructor(private readonly ctx: ScreenContext) {
     super('settings');
@@ -57,6 +59,8 @@ export class Settings extends Screen {
       b.tabIndex = id === tab ? 0 : -1;
     }
     const view = this.view(tab);
+    if (this.shown && this.shown !== view) this.shown.onHide?.();
+    this.shown = view;
     this.content.replaceChildren(view.el);
     view.sync();
     view.onShow?.();
@@ -64,6 +68,7 @@ export class Settings extends Screen {
   }
 
   protected override onShow(): void { this.select(this.tab); }
+  protected override onHide(): void { this.shown?.onHide?.(); this.shown = null; }
 
   override onKey(e: KeyboardEvent): boolean { return this.views[this.tab]?.onKey?.(e) ?? false; }
 

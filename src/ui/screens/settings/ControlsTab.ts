@@ -44,6 +44,11 @@ export class ControlsTab implements SettingsTabView {
   }
 
   onShow(): void { this.reload(); }
+  /**
+   * Leaving the tab (Back button, another tab) while the input module still waits for a key: cancel
+   * it, or the next key pressed in flight would silently become the new binding.
+   */
+  onHide(): void { if (this.rebinding) this.cancelPending(); }
   sync(): void { /* bindings live in the input module, not in PersistedSettings */ }
 
   /**
@@ -53,7 +58,11 @@ export class ControlsTab implements SettingsTabView {
    */
   onKey(e: KeyboardEvent): boolean { return e.key === 'Escape' && (this.rebinding !== null || this.endedThisTask); }
 
-  dispose(): void { this.rebinding = null; }
+  dispose(): void { if (this.rebinding) this.cancelPending(); this.rebinding = null; }
+
+  private cancelPending(): void {
+    try { this.d.ctx.host.cancelRebind?.(); } catch { /* host gone */ }
+  }
 
   private reload(): void {
     try { this.bindings = this.d.ctx.host.bindings(); } catch { this.bindings = []; }

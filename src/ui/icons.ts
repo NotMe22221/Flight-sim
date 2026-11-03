@@ -50,6 +50,8 @@ export const ICONS = {
   volume: wrap('<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>'),
   monitor: wrap('<rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M9 21h6M12 17v4"/>'),
   arrowUp: wrap('<path d="M12 19V5M5 12l7-7 7 7"/>'),
+  plus: wrap('<path d="M12 5v14M5 12h14"/>'),
+  minus: wrap('<path d="M5 12h14"/>'),
   layers: wrap('<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5M3 17l9 5 9-5"/>'),
   north: wrap('<path d="M12 3l5 16-5-3-5 3z"/>'),
   trophy: wrap('<path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8M9 18h6"/>'),

@@ -102,6 +102,15 @@ describe('frequency', () => {
     expect(formatFrequency(121500)).toBe('121.50');
     expect(formatFrequency(0)).toBe('---.--');
   });
+  it('keeps the third decimal of 25 kHz channels such as 118.125 (no rounding onto another channel)', () => {
+    expect(formatFrequency(118125)).toBe('118.125');
+    expect(formatFrequency(118275)).toBe('118.275');
+    expect(formatFrequency(118025)).toBe('118.025');
+    expect(formatFrequency(124425)).toBe('124.425');
+    expect(formatFrequencyMHz(121.775)).toBe('121.775');
+    expect(formatFrequencyMHz(119.1)).toBe('119.10');
+    expect(formatFrequencyMHz(108.0)).toBe('108.00');
+  });
   it('accepts MHz with float noise', () => {
     expect(formatFrequencyMHz(118.005)).toBe('118.005');
     expect(formatFrequencyMHz(116.8)).toBe('116.80');

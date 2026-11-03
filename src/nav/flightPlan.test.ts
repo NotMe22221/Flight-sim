@@ -151,3 +151,142 @@ describe('FlightPlanner', () => {
     for (const v of [s.desiredTrackDeg, s.crossTrackM, s.distanceToActiveM, s.bearingToActiveDeg, s.remainingDistanceM]) expect(Number.isFinite(v)).toBe(true);
   });
 });
+
+describe('FlightPlanner editing (G1000 FPL / D→ / OBS)', () => {
+  const W = (id: string, p: Geodetic, type: Waypoint['type'] = 'user'): Waypoint => ({ id, position: p, type });
+  /** a 12-waypoint plan heading east from KSFO, 10 km legs */
+  const long = (): Waypoint[] => Array.from({ length: 12 }, (_, i) => W(`WP${String(i).padStart(2, '0')}`, destinationPoint(KSFO, 90, i * 10_000)));
+
+  it('version increments on every edit, activation and direct-to', () => {
+    const fp = new FlightPlanner();
+    const seen = new Set<number>([fp.version]);
+    const step = (f: () => void) => { const v = fp.version; f(); expect(fp.version).not.toBe(v); seen.add(fp.version); };
+    step(() => fp.setWaypoints(long()));
+    step(() => fp.insert(3, W('INS', destinationPoint(KSFO, 0, 5000))));
+    step(() => fp.remove(3));
+    step(() => fp.add(W('END', destinationPoint(KSFO, 90, 200_000))));
+    step(() => fp.activateLeg(5));
+    step(() => fp.directTo(7, KSFO));
+    step(() => fp.cancelDirectTo());
+    step(() => fp.setObs(90));
+    step(() => fp.setObs(null));
+    expect(seen.size).toBe(10);
+    // the published state carries the version
+    expect(fp.update(KSFO, GS)!.version).toBe(fp.version);
+  });
+
+  it('activateLeg flies from the previous waypoint and cancels a direct-to', () => {
+    const fp = new FlightPlanner(long());
+    fp.directTo(4, destinationPoint(KSFO, 180, 5000));
+    expect(fp.isDirectTo).toBe(true);
+    fp.activateLeg(6);
+    expect(fp.isDirectTo).toBe(false);
+    expect(fp.activeLeg).toBe(6);
+    expect(fp.legOrigin()).toEqual(fp.waypoints[5].position);
+    const s = fp.update(fp.waypoints[5].position, GS)!;
+    expect(s.directTo).toBe(false);
+    expect(s.legFrom.lat).toBeCloseTo(fp.waypoints[5].position.lat, 9);
+    expect(s.desiredTrackDeg).toBeCloseTo(initialBearingDeg(fp.waypoints[5].position, fp.waypoints[6].position), 1);
+    fp.activateLeg(-1); fp.activateLeg(99); // ignored
+    expect(fp.activeLeg).toBe(6);
+  });
+
+  it('insert / remove on a 12-waypoint plan keep the active waypoint and the leg table consistent', () => {
+    const fp = new FlightPlanner(long());
+    fp.activateLeg(5);
+    const active = fp.activeWaypoint;
+    fp.insert(2, W('NEW1', destinationPoint(KSFO, 45, 8000)));
+    fp.insert(fp.waypoints.length, W('NEW2', destinationPoint(KSFO, 90, 130_000)));
+    expect(fp.waypoints).toHaveLength(14);
+    expect(fp.activeWaypoint).toBe(active);
+    expect(fp.activeLeg).toBe(6);
+    fp.remove(0);
+    expect(fp.activeWaypoint).toBe(active);
+    expect(fp.indexOfId('new2')).toBe(12);
+    expect(fp.indexOfId('nope')).toBe(-1);
+    const s = fp.update(fp.waypoints[4].position, GS)!;
+    expect(s.waypoints).toBe(fp.waypoints);
+    expect(s.waypoints[s.activeLeg]).toBe(active);
+  });
+
+  it('directToWaypoint: in-plan by id, new plan when empty, off-route keeps the stored plan', () => {
+    const here = destinationPoint(KSFO, 200, 15_000);
+    // empty plan: the target becomes the plan
+    const empty = new FlightPlanner();
+    expect(empty.directToWaypoint(W('KOAK', KHAF, 'airport'), here)).toBe('new-plan');
+    expect(empty.waypoints.map((w) => w.id)).toEqual(['KOAK']);
+    expect(empty.update(here, GS)!.directTo).toBe(true);
+
+    const fp = new FlightPlanner(long());
+    // same id and position as a plan waypoint (a fresh object from the nav database) → in-plan
+    const copy = W('WP07', { ...fp.waypoints[7].position });
+    expect(fp.directToWaypoint(copy, here)).toBe('in-plan');
+    expect(fp.activeLeg).toBe(7);
+    expect(fp.offRouteTarget).toBeNull();
+    let s = fp.update(here, GS)!;
+    expect(s.directTo).toBe(true);
+    expect(s.offRoute).toBe(false);
+    expect(s.legFrom.lat).toBeCloseTo(here.lat, 9);
+
+    // not in the plan → off-route: the snapshot plan is just the target, the stored plan stays
+    const usr = W('USR9', destinationPoint(here, 0, 30_000));
+    expect(fp.directToWaypoint(usr, here)).toBe('off-route');
+    expect(fp.waypoints).toHaveLength(12);
+    expect(fp.offRouteTarget).toBe(usr);
+    expect(fp.activeWaypoint).toBe(usr);
+    s = fp.update(here, GS)!;
+    expect(s.offRoute).toBe(true);
+    expect(s.waypoints).toEqual([usr]);
+    expect(s.activeLeg).toBe(0);
+    expect(s.distanceToActiveM).toBeCloseTo(30_000, -1);
+    expect(s.desiredTrackDeg).toBeCloseTo(0, 0);
+    expect(Math.abs(s.crossTrackM)).toBeLessThan(1);
+    // no sequencing while off-route, even far past the target
+    s = fp.update(destinationPoint(here, 0, 60_000), GS)!;
+    expect(s.waypoints[0]).toBe(usr);
+    expect(s.complete).toBe(true);
+    // editing the stored plan during the D→ does not disturb it
+    fp.remove(0);
+    expect(fp.offRouteTarget).toBe(usr);
+    // cancelling returns to the stored plan's active leg
+    fp.cancelDirectTo();
+    s = fp.update(here, GS)!;
+    expect(s.offRoute).toBe(false);
+    expect(s.waypoints).toBe(fp.waypoints);
+    expect(s.waypoints[s.activeLeg].id).toBe('WP07');
+  });
+
+  it('removing every stored waypoint during an off-route D→ adopts the target as the plan', () => {
+    const fp = new FlightPlanner([W('A', KSFO), W('B', KHAF)]);
+    const t = W('T', destinationPoint(KSFO, 90, 20_000));
+    fp.directToWaypoint(t, KSFO);
+    fp.remove(0); fp.remove(0);
+    expect(fp.waypoints).toEqual([t]);
+    expect(fp.offRouteTarget).toBeNull();
+    const s = fp.update(KSFO, GS)!;
+    expect(s.directTo).toBe(true);
+    expect(s.distanceToActiveM).toBeCloseTo(20_000, -1);
+  });
+
+  it('OBS mode flies the selected course through the active waypoint and suspends sequencing', () => {
+    const fp = new FlightPlanner(long());
+    fp.activateLeg(3);
+    const wp = fp.waypoints[3].position;
+    fp.setObs(45);
+    expect(fp.obsCourseDeg).toBe(45);
+    // 2 km right of the 045° course line through the waypoint, 5 km before it
+    const onCourse = destinationPoint(wp, 225, 5000);
+    const right = destinationPoint(onCourse, 135, 2000);
+    let s = fp.update(right, GS)!;
+    expect(s.obsCourseDeg).toBe(45);
+    expect(s.desiredTrackDeg).toBe(45);
+    expect(s.crossTrackM).toBeGreaterThan(1500);
+    // passing the waypoint does not sequence
+    s = fp.update(destinationPoint(wp, 45, 3000), GS)!;
+    expect(s.activeLeg).toBe(3);
+    fp.setObs(null);
+    s = fp.update(destinationPoint(wp, 90, 3000), GS)!; // past WP03 on the 090° leg
+    expect(s.activeLeg).toBeGreaterThan(3);
+    expect(s.obsCourseDeg).toBeNull();
+  });
+});

@@ -18,7 +18,7 @@ export interface ScreenContext {
   /** Start a flight with the current selection. */
   fly(): void;
   inFlight(): boolean;
-  toast(text: string, kind?: 'info' | 'warn' | 'error' | 'success'): void;
+  toast(text: string, kind?: 'info' | 'warn' | 'error' | 'success', durationMs?: number): void;
   /** Forgets persisted floating-panel positions. */
   resetLayout?(): void;
   /** Activities: show the loading screen and start a landing challenge (host.startChallenge). */
@@ -30,10 +30,17 @@ export interface ScreenContext {
 export abstract class Screen {
   readonly el: HTMLElement;
   private _visible = false;
-  constructor(cls: string, overlay = false) { this.el = h('section', { class: `screen ${cls}${overlay ? ' overlay' : ''}`, aria: { hidden: true } }); }
+  constructor(cls: string, overlay = false) {
+    this.el = h('section', { class: `screen ${cls}${overlay ? ' overlay' : ''}`, aria: { hidden: true } });
+    setInert(this.el, true);
+  }
   get visible(): boolean { return this._visible; }
-  show(): void { if (this._visible) return; this._visible = true; this.el.classList.add('visible'); this.el.setAttribute('aria-hidden', 'false'); this.onShow(); }
-  hide(): void { if (!this._visible) return; this._visible = false; this.el.classList.remove('visible'); this.el.setAttribute('aria-hidden', 'true'); this.onHide(); }
+  show(): void { if (this._visible) return; this._visible = true; this.el.classList.add('visible'); this.el.setAttribute('aria-hidden', 'false'); setInert(this.el, false); this.onShow(); }
+  /**
+   * A hidden screen only fades out (opacity), so it must also leave the tab order: Tab pressed in
+   * flight would otherwise land in an invisible menu (an invisible search box then owns the keyboard).
+   */
+  hide(): void { if (!this._visible) return; this._visible = false; this.el.classList.remove('visible'); this.el.setAttribute('aria-hidden', 'true'); setInert(this.el, true); this.onHide(); }
   protected onShow(): void { /* override */ }
   protected onHide(): void { /* override */ }
   /** Per-frame update while visible. */
@@ -44,6 +51,11 @@ export abstract class Screen {
   focus(): void { (this.el.querySelector<HTMLElement>('input, button:not([disabled])') ?? this.el).focus(); }
   /** Release timers, observers and subscriptions (UiManager.dispose). */
   dispose(): void { /* override */ }
+}
+
+/** `inert` where supported (no focus, no clicks); the CSS also sets visibility: hidden on hidden screens. */
+function setInert(el: HTMLElement, on: boolean): void {
+  if ('inert' in el) (el as HTMLElement & { inert: boolean }).inert = on;
 }
 
 export function screenHeader(ctx: ScreenContext, title: string, subtitle?: string, ...extra: HTMLElement[]): HTMLElement {

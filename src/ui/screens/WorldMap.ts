@@ -6,7 +6,8 @@ import type { Airport } from '../../core/types';
 import type { RunwayEndChoice } from '../UiHost';
 import { Screen, screenHeader, type ScreenContext } from './Screen';
 import { Txt, button, h } from '../dom';
-import { formatDistance, formatFrequencyMHz, formatHeading, formatLength, formatTimeLocal, timezoneOffsetFromLon } from '../format';
+import { formatDistance, formatFrequencyMHz, formatLength, formatTimeLocal, timezoneOffsetFromLon } from '../format';
+import { magneticVariationAt, runwayHeadingLabel } from '../runways';
 import { distanceM } from '../geoMath';
 import { AIRPORT_FOCUS_PX_PER_DEG } from '../worldMapModel';
 import { AirportSearch } from './worldmap/AirportSearch';
@@ -131,7 +132,7 @@ export class WorldMap extends Screen {
     this.summary.dep.set(s.spawn.airport.icao);
     this.summarySub.dep.set(s.spawn.airport.name);
     this.summary.pos.set(end ? `Runway ${end.endIdent}` : 'Parking');
-    this.summarySub.pos.set(end ? `${formatHeading(end.headingDeg)} · ${formatLength(end.lengthM, u)}${end.ilsMHz !== undefined ? ` · ILS ${formatFrequencyMHz(end.ilsMHz)}` : ''}` : 'Cold & dark');
+    this.summarySub.pos.set(end ? `${runwayHeadingLabel(end.headingDeg, magneticVariationAt(this.ctx.host, end.threshold.lat, end.threshold.lon))} · ${formatLength(end.lengthM, u)}${end.ilsMHz !== undefined ? ` · ILS ${formatFrequencyMHz(end.ilsMHz)}` : ''}` : 'Cold & dark');
     this.summary.arr.set(s.arrival ? s.arrival.icao : '—');
     this.summarySub.arr.set(s.arrival ? `${formatDistance(distanceM(s.spawn.airport.position, s.arrival.position), u)} direct` : 'Free flight');
     this.summary.cond.set(d.weather);
