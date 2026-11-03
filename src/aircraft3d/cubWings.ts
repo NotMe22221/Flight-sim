@@ -27,6 +27,29 @@ export function tubeBetween(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: 
   return m;
 }
 
+/**
+ * Merge static meshes that share one material into a single mesh (one draw call): each mesh's
+ * geometry is baked with its local transform. The source geometries are disposed.
+ */
+export function mergeStatic(meshes: THREE.Mesh[], mat: THREE.Material, name: string): THREE.Mesh {
+  const pos: number[] = [], nor: number[] = [];
+  for (const m of meshes) {
+    m.updateMatrix();
+    const g = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(m.matrix);
+    // applyMatrix4 renormalises the normals with the normal matrix (non-uniform scales included)
+    pos.push(...(g.getAttribute('position').array as Float32Array));
+    nor.push(...(g.getAttribute('normal').array as Float32Array));
+    g.dispose();
+    m.geometry.dispose();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  const out = new THREE.Mesh(geo, mat);
+  out.name = name;
+  return out;
+}
+
 /** mirror a right-side point to the left */
 const mx = (p: THREE.Vector3): THREE.Vector3 => p.clone().setX(-p.x);
 
@@ -77,47 +100,41 @@ export function buildCubWings(layout: CubLayout, mats: ModelMaterials): WingAsse
   const flaps = hinged(flapSpan, 'flap');
   const ailerons = hinged(aileronSpan, 'aileron');
 
-  // --- V lift struts (streamlined steel tubes) with jury struts ---
+  // --- V lift struts (streamlined steel tubes) with jury struts; static parts are merged per
+  // material (struts in the airframe paint, fittings / caps / pitot in metal) ---
   const S = layout.struts;
+  const painted: THREE.Mesh[] = [], metal: THREE.Mesh[] = [];
   const strutsOf = (front: TubeLayout, rear: TubeLayout, side: 1 | -1): void => {
     const f = side > 0 ? front : [mx(front[0]), mx(front[1])];
     const r = side > 0 ? rear : [mx(rear[0]), mx(rear[1])];
     for (const [a, b] of [f, r]) {
-      const m = tubeBetween(a, b, 0.019, mats.paintPlain, 2.3, 10);
-      m.name = 'strut';
-      group.add(m);
+      painted.push(tubeBetween(a, b, 0.019, mats.paintPlain, 2.3, 10));
       // fork fitting at the wing end
-      const fit = tubeBetween(b.clone().lerp(a, 0.03), b, 0.012, mats.metal, 1, 6);
-      group.add(fit);
+      metal.push(tubeBetween(b.clone().lerp(a, 0.03), b, 0.012, mats.metal, 1, 6));
     }
     // jury struts: from each lift strut straight up to the spar, plus a diagonal between them
     const jf = f[0].clone().lerp(f[1], S.juryAt), jr = r[0].clone().lerp(r[1], S.juryAt);
     const wingY = (p: THREE.Vector3): number => f[1].y + (Math.abs(p.x) - Math.abs(f[1].x)) * Math.tan(W.dihedralRad);
     const jfTop = new THREE.Vector3(jf.x, wingY(jf), jf.z), jrTop = new THREE.Vector3(jr.x, wingY(jr), jr.z);
-    for (const [a, b] of [[jf, jfTop], [jr, jrTop], [jf, jrTop]] as const) {
-      const m = tubeBetween(a, b, 0.009, mats.paintPlain, 1.6, 6);
-      m.name = 'juryStrut';
-      group.add(m);
-    }
+    for (const [a, b] of [[jf, jfTop], [jr, jrTop], [jf, jrTop]] as const) painted.push(tubeBetween(a, b, 0.009, mats.paintPlain, 1.6, 6));
   };
   strutsOf(S.front, S.rear, 1);
   strutsOf(S.front, S.rear, -1);
 
   // --- fuel filler caps on the upper surface over the wing-root tanks ---
-  const capGeo = new THREE.CylinderGeometry(0.035, 0.038, 0.016, 14);
   for (const side of [1, -1]) {
-    const c = new THREE.Mesh(capGeo, mats.metal);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.038, 0.016, 14), mats.metal);
     c.position.set(side * layout.details.fuelCap.x, layout.details.fuelCap.y + 0.004, layout.details.fuelCap.z);
-    c.name = 'fuelCap';
-    group.add(c);
+    metal.push(c);
   }
 
   // --- pitot tube under the left wing: a mast down from the lower surface, a tube forward ---
   const P = layout.details.pitot;
   const tubeEnd = P.tip.clone().setZ(P.tip.z + P.length);
-  group.add(tubeBetween(P.tip, tubeEnd, 0.007, mats.metal, 1, 8));
+  metal.push(tubeBetween(P.tip, tubeEnd, 0.007, mats.metal, 1, 8));
   const mastTop = tubeEnd.clone(); mastTop.y += 0.1; mastTop.z -= 0.08;
-  group.add(tubeBetween(tubeEnd.clone().setZ(tubeEnd.z - 0.12), mastTop, 0.012, mats.metal, 2, 8));
+  metal.push(tubeBetween(tubeEnd.clone().setZ(tubeEnd.z - 0.12), mastTop, 0.012, mats.metal, 2, 8));
+  group.add(mergeStatic(painted, mats.paintPlain, 'struts'), mergeStatic(metal, mats.metal, 'wingFittings'));
 
   return { group, aileronLeft: ailerons.left, aileronRight: ailerons.right, flapLeft: flaps.left, flapRight: flaps.right };
 }

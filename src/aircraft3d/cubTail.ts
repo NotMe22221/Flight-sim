@@ -10,7 +10,7 @@ import { buildWingPanel, mirrorGeometryX, type AirfoilSpec, type WingSection } f
 import { attachToHinge } from './hinge';
 import type { ModelMaterials } from './materials';
 import type { TailAssembly } from './tail';
-import { tubeBetween } from './cubWings';
+import { mergeStatic, tubeBetween } from './cubWings';
 
 /** thin symmetric sections: tube-and-fabric tail surfaces are only ≈ 3–4 cm thick */
 const FIN_FOIL: AirfoilSpec = { thickness: 0.055, camber: 0, camberPos: 0.4 };
@@ -75,13 +75,11 @@ export function buildCubTail(layout: CubLayout, mats: ModelMaterials): TailAssem
   group.add(rudderHinge.mount);
 
   // --- flying wires (streamlined wires, both sides) and the tail post ---
+  const wires: THREE.Mesh[] = [];
   for (const [a, b] of layout.wires) {
-    for (const s of [1, -1]) {
-      const w = tubeBetween(new THREE.Vector3(a.x * s, a.y, a.z), new THREE.Vector3(b.x * s, b.y, b.z), 0.0045, mats.metal, 1, 5);
-      w.name = 'flyingWire';
-      group.add(w);
-    }
+    for (const s of [1, -1]) wires.push(tubeBetween(new THREE.Vector3(a.x * s, a.y, a.z), new THREE.Vector3(b.x * s, b.y, b.z), 0.0045, mats.metal, 1, 5));
   }
+  group.add(mergeStatic(wires, mats.metal, 'flyingWires'));
   const post = tubeBetween(new THREE.Vector3(0, R.bottomY - 0.01, R.hingeZ - 0.012), new THREE.Vector3(0, fin.rootY + 0.05, R.hingeZ - 0.012), 0.016, mats.paintPlain, 1, 8);
   post.name = 'tailPost';
   group.add(post);

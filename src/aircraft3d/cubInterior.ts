@@ -14,7 +14,7 @@ import type { ModelMaterials } from './materials';
 import { buildLoftCap } from './fuselage';
 import { buildSkin, inside, outlineField, outside } from './skin';
 import { applyPanelLighting, type CockpitAssembly, type PanelMesh, type PanelVariant } from './interior';
-import { tubeBetween } from './cubWings';
+import { mergeStatic, tubeBetween } from './cubWings';
 
 /** flap angle at which the handle is fully up (PA-18 flaps: 0 … 50°) */
 const FLAP_FULL_DEG = 50;
@@ -49,6 +49,7 @@ export class CubCockpit implements CockpitAssembly {
       parent.add(m);
       return m;
     };
+    const keepMesh = (m: THREE.Mesh): THREE.Mesh => { keep(m.geometry); return m; };
     const box = (w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number, rx = 0, parent: THREE.Object3D = g): THREE.Mesh => {
       const m = add(new THREE.BoxGeometry(w, h, d), mat, undefined, parent);
       m.position.set(x, y, z);
@@ -124,7 +125,7 @@ export class CubCockpit implements CockpitAssembly {
     box(0.44, Sr.y - 0.08 - C.floorY, 0.32, mats.frame, 0, (Sr.y - 0.08 + C.floorY) / 2, Sr.z);
 
     // --- steel-tube frame inside the fabric ---
-    for (const [a, b] of K.tubes) g.add(tubeBetween(a, b, 0.012, mats.frame, 1, 8));
+    g.add(keepMesh(mergeStatic(K.tubes.map(([a, b]) => tubeBetween(a, b, 0.012, mats.frame, 1, 8)), mats.frame, 'tubeFrame')));
 
     // --- sticks (front for the pilot, rear for the passenger) ---
     for (const st of [K.frontStick, K.rearStick]) {
