@@ -9,7 +9,8 @@ import { FT, KT } from '../core/units';
 
 /**
  * Serializable mulberry32 PRNG with Box–Muller normal deviates. The 32-bit state lives in a
- * Uint32Array: as a plain field, values ≥ 2³¹ were re-boxed as heap numbers on every draw.
+ * Uint32Array: as a plain field, values ≥ 2³¹ can be boxed as a heap number on every draw when
+ * the JIT does not unbox the field.
  */
 export class Rng {
   private readonly s = new Uint32Array(1);

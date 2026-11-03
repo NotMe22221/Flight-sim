@@ -9,6 +9,8 @@ import { defaultControlInputs, type ControlInputs, type Environment, type Quat }
 import { FPM, KT } from '../core/units';
 import { makeRebase } from '../world/rebase';
 import type { Fdm } from './fdm';
+import { AeroModel, newAeroOutput } from './aero';
+import { C172S } from './aircraft/c172';
 import { flatEnvironment } from './testEnv';
 import { DT, KSFO, airborne, frameKSFO, levelWings, makeEnv, makeFdm, run } from './testing';
 
@@ -304,5 +306,44 @@ describe('robustness to bad inputs', () => {
     run(f, env, u, 1);
     expect(f.state.crashed).toBe(false);
     expect(Number.isFinite(f.state.aero.alphaDot)).toBe(true);
+  });
+});
+
+// ───────────────────────────── stall warning ─────────────────────────────
+
+describe('stall warning', () => {
+  /**
+   * Quasi-static 1 g: the highest trimmed speed (power-off-ish 5° glide) at which the warning is
+   * on, and the 1 g stall speed from the lift ratio to the CL peak at the same elevator and flaps.
+   */
+  function margins(flapDeg: number) {
+    const env = makeEnv();
+    const trimmed = (kc: number) => {
+      const f = makeFdm(MTOW);
+      f.reset({ geo: { lat: KSFO.lat, lon: KSFO.lon, alt: 1500 }, headingRad: 0, speedMs: kc * KT, onGround: false, engineRunning: true }, env);
+      inner(f).flapDeg = flapDeg;
+      f.trim(kc * KT, -5 * DEG, env);
+      return f;
+    };
+    let lo = 40, hi = 90;
+    for (let i = 0; i < 20; i++) { const mid = 0.5 * (lo + hi); if (trimmed(mid).state.warnings.stall) lo = mid; else hi = mid; }
+    const f = trimmed(lo);
+    const tr = f.trimResult!;
+    const m = new AeroModel(C172S), o = newAeroOutput();
+    const cl = (alpha: number) => m.compute({ alpha, beta: 0, V: 30, rho: 1.2, qbar: 540, qbarUW: 540, qbarTail: 540, qbarInduced: 0, propSense: 1, p: 0, q: 0, r: 0, alphaDot: 0, de: tr.elevatorRad, da: 0, dr: 0, flapDeg, hOverB: Infinity, hyst: 0 }, o).CL;
+    let clMax = 0;
+    for (let a = 0.15; a < 0.4; a += 0.001) clMax = Math.max(clMax, cl(a));
+    const vStall = lo * Math.sqrt(cl(tr.alphaRad) / clMax);
+    return { warn: lo, stall: vStall };
+  }
+
+  it('sounds 5–10 kt above the 1 g stall, flaps up and flaps 30 (172S POH: "5 to 10 knots above the stall")', () => {
+    for (const flaps of [0, 30]) {
+      const { warn, stall } = margins(flaps);
+      expect(stall, `flaps ${flaps}: 1 g stall`).toBeGreaterThan(flaps ? 44 : 49);
+      expect(stall).toBeLessThan(flaps ? 52 : 57);
+      expect(warn - stall, `flaps ${flaps}: warning ${warn.toFixed(1)} KCAS, stall ${stall.toFixed(1)} KCAS`).toBeGreaterThanOrEqual(5);
+      expect(warn - stall).toBeLessThanOrEqual(10);
+    }
   });
 });

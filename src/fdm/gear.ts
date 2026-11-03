@@ -18,7 +18,7 @@ const ANCHOR_SPEED = 0.08;
 const BRAKE_ANCHOR = 0.3;
 /**
  * Wheel load (× aircraft weight) that collapses a leg. A 600 fpm arrival peaks at ≈ 1.3 W per
- * main and ≈ 1.8 W on the nose leg as it slams down; ≈ 1100–1200 fpm reaches 3 W.
+ * main and ≈ 1.8 W on the nose leg as it slams down; ≈ 1000–1100 fpm reaches 3 W.
  */
 const WHEEL_COLLAPSE_W = 3;
 
@@ -157,7 +157,7 @@ export class GearModel {
       const fDotN = this.fw[0] * nrm[0] + this.fw[1] * nrm[1] + this.fw[2] * nrm[2];
       const t = this.t;
       t[0] = this.fw[0] - fDotN * nrm[0]; t[1] = this.fw[1] - fDotN * nrm[1]; t[2] = this.fw[2] - fDotN * nrm[2];
-      const tl = Math.sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]) || 1; // (Math.hypot allocates)
+      const tl = Math.sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]) || 1; // not Math.hypot: its varargs can allocate
       t[0] /= tl; t[1] /= tl; t[2] /= tl;
       // right = down × t, with down = −n
       const s = this.s;

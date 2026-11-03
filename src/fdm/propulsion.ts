@@ -206,7 +206,7 @@ export class PistonPropulsion {
 
     // ── Forces and moments on the airframe ───────────────────────────────────
     // P-factor: the effective thrust line moves toward the side whose blade sees more incidence.
-    const vt = Math.sqrt(air.v * air.v + air.w * air.w); // (Math.hypot allocates)
+    const vt = Math.sqrt(air.v * air.v + air.w * air.w); // not Math.hypot: its varargs can allocate
     const axial = uAx + (vi > 0 ? vi : 0);
     const f = vt > 1e-6 ? Math.atan2(vt, axial) / vt : axial > 0.1 ? 1 / axial : 0;
     let dy = sense * pr.pFactorM * f * air.w;

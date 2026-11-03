@@ -23,7 +23,12 @@ import { DrydenTurbulence, Rng } from './turbulence';
 const NS = 15; // pos 0-2, vel 3-5, quat 6-9, rates 10-12, crank ω 13, MAP 14
 const G = 9.80665;
 const EARTH_R = 6371000;
-const ALPHA_WARN = 0.235;
+/**
+ * Stall-warning angle of attack (the leading-edge reed responds to α): 10.3°, 5–8 kt above the
+ * 1 g stall flaps up and ≈ 5 kt with full flaps, as the 172S POH states. 0.235 rad (13.5°) gave
+ * only 1–3 kt of warning.
+ */
+const ALPHA_WARN = 0.18;
 const TWO_PI = 2 * Math.PI;
 const F2K = (f: number) => ((f - 32) * 5) / 9 + 273.15;
 const fin = (x: number, fallback: number): number => (Number.isFinite(x) ? x : fallback);
@@ -256,7 +261,7 @@ export class Fdm implements FlightModel {
     this.deriv(yt, k4);
     for (let i = 0; i < NS; i++) y[i] += (dt / 6) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
     // renormalise attitude, keep engine states physical
-    const qn = Math.sqrt(y[6] * y[6] + y[7] * y[7] + y[8] * y[8] + y[9] * y[9]) || 1; // (Math.hypot allocates)
+    const qn = Math.sqrt(y[6] * y[6] + y[7] * y[7] + y[8] * y[8] + y[9] * y[9]) || 1; // not Math.hypot: its varargs can allocate
     y[6] /= qn; y[7] /= qn; y[8] /= qn; y[9] /= qn;
     if (y[13] < 0) y[13] = 0;
     if (y[14] < 1000) y[14] = 1000;
