@@ -781,6 +781,9 @@
 /* pause menu during an activity */
 .fs-ui .pause-activity { text-align: center; margin: -6px 0 10px; font-size: 0.72em; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); line-height: 1.5; }
 .fs-ui .pause-menu .menu-btn.btn-danger { color: var(--err); }
+/* items greyed out after an abort (kept in place until the menu closes): no hover look */
+.fs-ui .pause-menu .menu-btn:disabled { cursor: default; background: transparent; border-left-color: transparent; color: var(--fg-faint); }
+.fs-ui .pause-menu .menu-btn:disabled .icon { color: var(--fg-faint); }
 
 @media (max-width: 1200px) {
   .fs-ui .act-modes-wrap { padding: 0 16px; }
