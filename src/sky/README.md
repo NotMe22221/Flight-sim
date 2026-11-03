@@ -259,6 +259,14 @@ the pixels agree across the three modes. `npm run smoke` covers the integrated a
 
 ## Known limitations
 
+- **Sun vs sky balance on built-in materials (interim).** The PMREM environment map is baked from
+  the dome in the sky's radiance scale; at full strength its diffuse light overpowered the sun
+  light on MeshStandard materials (white runway paint read light blue, asphalt navy). The
+  environment intensity is set to 0.4 (`ENV_MAP_INTENSITY`) and the hemisphere light keeps 25 %
+  while the map is bound, from real-app probes. A proper calibration should derive the IBL scale
+  from `ambientIrradiance` (the terrain's skylight) and re-check exposure so sunlit white paint
+  reads near-white and asphalt neutral grey.
+
 - Tier A planes are 2-D slabs: weak look at the layer altitude, no cumulus towers, no earth curvature
   (≈ 0.8 km drop at the 100 km plane edge). Inside a cloud the fog is global, so rays leaving the cloud stay
   fogged. Cloud shadows skip the edge erosion (softer than the planes' edges); built-in objects get the

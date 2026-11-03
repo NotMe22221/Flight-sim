@@ -32,12 +32,15 @@ export interface SimAutomation {
   /** set the cockpit free-look offsets (rad) for screenshots */
   look(yawRad: number, pitchRad: number): void;
   stats(): unknown;
+  /** the Simulator itself, for debugging and look-development experiments in a headless browser */
+  readonly sim: Simulator;
 }
 
 export function installAutomation(sim: Simulator): SimAutomation {
   const api: SimAutomation = {
     ready: false,
     get frameCount() { return sim.frameCount; },
+    get sim() { return sim; },
     flyNow: () => sim.flyNow(),
     startChallenge: (id) => sim.startChallenge(id),
     setCamera: (mode) => sim.cameras.setMode(mode),

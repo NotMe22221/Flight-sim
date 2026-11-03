@@ -31,6 +31,11 @@ import { StarField } from './stars';
 import { type SkyLighting, createSkyLighting } from './types';
 import { windAt } from './wind';
 
+/** Fraction of the hemisphere skylight kept for built-in materials while the environment map lights them. */
+const HEMI_SHARE_WITH_ENV = 0.25;
+/** scene.environmentIntensity for the baked sky (built-in materials' image-based light). */
+const ENV_MAP_INTENSITY = 0.4;
+
 export interface SkySystemOptions {
   /** exposure targets (day ≈ 0.5–0.7, night ≈ 1.5) and adaptation time */
   exposure?: Partial<ExposureOptions>;
@@ -415,11 +420,16 @@ export class SkySystem {
     normalizeColor(this.tmpC, this.tmpC);
     this.hemiLight.color.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
     this.hemiLight.groundColor.setRGB(this.tmpB[0] * 0.35, this.tmpB[1] * 0.35, this.tmpB[2] * 0.35);
-    this.hemiLight.intensity = hemisphereIntensity(el, cloudCover);
+    const hi = hemisphereIntensity(el, cloudCover);
+    // Built-in materials already receive the sky's diffuse light from the baked environment map
+    // (image-based lighting); a full-strength hemisphere light on top double-counts the sky and
+    // tints everything blue. Keep only a fraction of it while an environment map is bound. The
+    // terrain shades from ambientIrradiance below, which keeps the full skylight.
+    this.hemiLight.intensity = this.scene.environment ? hi * HEMI_SHARE_WITH_ENV : hi;
     this.ambientLight.color.setRGB(NIGHT_AMBIENT_COLOR[0], NIGHT_AMBIENT_COLOR[1], NIGHT_AMBIENT_COLOR[2]);
     this.ambientLight.intensity = ambientFloor(el, mp.illuminatedFraction, mp.elevation);
-    L.ambientIntensity = this.hemiLight.intensity + this.ambientLight.intensity;
-    const hi = this.hemiLight.intensity, ai = this.ambientLight.intensity;
+    L.ambientIntensity = hi + this.ambientLight.intensity;
+    const ai = this.ambientLight.intensity;
     L.ambientIrradiance.setRGB(
       this.tmpC[0] * hi + NIGHT_AMBIENT_COLOR[0] * ai, this.tmpC[1] * hi + NIGHT_AMBIENT_COLOR[1] * ai, this.tmpC[2] * hi + NIGHT_AMBIENT_COLOR[2] * ai);
 
@@ -552,6 +562,10 @@ export class SkySystem {
     if (this.envTarget) this.envTarget.dispose();
     this.envTarget = rt;
     this.scene.environment = rt.texture;
+    // The baked dome is in the sky's radiance scale, which overpowers the sun light on built-in
+    // materials at full strength (everything turned sky-blue: white paint read light blue, asphalt
+    // navy). Interim calibration from real-app probes; see README known limitations.
+    this.scene.environmentIntensity = ENV_MAP_INTENSITY;
   }
 
   dispose(): void {

@@ -61,8 +61,9 @@ export class AirportsLayer {
     this.opts = { ...DEFAULTS, ...options };
     this.group.name = 'airports';
     const asphaltTex = makeAsphaltTexture();
-    // aged asphalt albedo ~0.10-0.15 (0x6a6a6a x texture rendered near-black at noon)
-    this.asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, color: 0x8a8a8a, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    // the texture alone sets the albedo: sRGB ~100 is linear ~0.13, aged asphalt (a darker material
+    // colour multiplied it down to ~0.03 and the pavement rendered near-black at noon)
+    this.asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, color: 0xffffff, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     this.markings = new THREE.MeshStandardMaterial({ color: 0xf2f2ea, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
     this.lightSprite = makeLightSprite();
     this.lightMaterial = new THREE.PointsMaterial({ size: 3.2, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true, alphaTest: 0.01 });
