@@ -46,7 +46,7 @@ export interface SimPlugins {
   ui?: { update(s: SimSnapshot, dt: number): void; handleAction?(a: SimAction): boolean };
   g1000?: { update(s: SimSnapshot, dt: number): boolean; readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas };
   hud?: { update(s: SimSnapshot, dt: number): void; resize(w: number, h: number, dpr: number): void; readonly canvas: HTMLCanvasElement | OffscreenCanvas };
-  audio?: { update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; onTouchdown?(vsMs: number): void; setMarker?(m: string | null): void };
+  audio?: { update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; onTouchdown?(vsMs: number, lateralDriftMs?: number): void; setMarker?(m: string | null): void };
   atc?: { update(dt: number, ac: AircraftState, w: SimSnapshot['weather']): void; select(i: number): void; reset(a: Airport | null): void };
 }
 
@@ -149,7 +149,7 @@ export class Simulator {
     this.prev = structuredClone(this.fdm.state);
     this.interp = structuredClone(this.fdm.state);
     this.snapshot = this.buildSnapshot();
-    this.events.on('aircraft:touchdown', (e) => this.plugins.audio?.onTouchdown?.(e.verticalSpeedMs));
+    this.events.on('aircraft:touchdown', (e) => this.plugins.audio?.onTouchdown?.(e.verticalSpeedMs, e.lateralDriftMs));
     this.events.on('aircraft:crash', (e) => this.onCrash(e.reason));
     window.addEventListener('resize', this.onResize);
   }
@@ -307,6 +307,7 @@ export class Simulator {
     if (this.plugins.g1000 && this.plugins.g1000.update(snap, dt) && this.g1000Tex) this.g1000Tex.needsUpdate = true;
     this.plugins.hud?.update(snap, dt);
     this.plugins.audio?.update(dt, s, this.cameras.state, this.weather.state);
+    this.plugins.audio?.setMarker?.(this.radios.state.nav1.marker ?? null);
     if (this.inFlight) this.plugins.atc?.update(dt * (this.paused ? 0 : 1), s, this.weather.state);
     this.plugins.ui?.update(snap, dt);
     if ((this.frameCount & 15) === 0) this.events.emit('terrain:progress', { ready: snap.terrainReady });
@@ -567,7 +568,8 @@ export class Simulator {
   }
 
   private onCrash(reason: string): void {
-    this.events.emit('ui:toast', { text: `Crash: ${reason}. Press Ctrl+R to restart.`, kind: 'error', durationMs: 8000 });
+    const key = this.input.getBindingLabel('resetFlight' as never) || 'the menu';
+    this.events.emit('ui:toast', { text: `Crash: ${reason}. Press ${key} to restart.`, kind: 'error', durationMs: 8000 });
   }
 
   private readonly onResize = (): void => {

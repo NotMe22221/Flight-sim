@@ -11,7 +11,7 @@ type Ctor<T> = new (...args: never[]) => T;
 const ctor = <T>(mod: Record<string, unknown>, name: string): Ctor<T> | null => (typeof mod[name] === 'function' ? (mod[name] as Ctor<T>) : null);
 
 interface UiManagerLike { update(s: SimSnapshot, dt: number): void; show(screen: string): void; onStart?(cb: () => void): void; handleAction?(a: SimAction): boolean }
-interface AudioLike { resume(): Promise<void>; update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; onTouchdown?(vs: number): void; setVolume?(bus: string, v: number): void; setMasterVolume?(v: number): void; speak?(text: string, voice?: string): void; playUi?(s: string): void }
+interface AudioLike { resume(): Promise<void>; update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; onTouchdown?(vs: number, drift?: number): void; setMarker?(m: 'outer' | 'middle' | 'inner' | null): void; setVolume?(bus: string, v: number): void; setMasterVolume?(v: number): void; speak?(text: string, voice?: string): void; playUi?(s: string): void }
 interface HudLike { readonly canvas: HTMLCanvasElement; resize(w: number, h: number, dpr: number): void; update(s: SimSnapshot, dt: number): void }
 interface G1000Like { readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; update(s: SimSnapshot, dt: number): boolean; setNearestAirports?(l: { icao: string; lat: number; lon: number; type: string }[]): void }
 interface AtcLike { update(dt: number, ac: AircraftState, w: SimSnapshot['weather']): void; select(i: number): void; reset(a: Airport | null): void }
@@ -37,7 +37,11 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
     const AudioSystem = ctor<AudioLike>(mod, 'AudioSystem');
     if (!AudioSystem) return;
     audio = new (AudioSystem as unknown as new () => AudioLike)();
-    sim.plugins.audio = { update: (dt, ac, cam, w) => audio!.update(dt, ac, cam, w), onTouchdown: (vs) => audio!.onTouchdown?.(vs) };
+    sim.plugins.audio = {
+      update: (dt, ac, cam, w) => audio!.update(dt, ac, cam, w),
+      onTouchdown: (vs, drift) => audio!.onTouchdown?.(vs, drift),
+      setMarker: (m) => audio!.setMarker?.(m as 'outer' | 'middle' | 'inner' | null),
+    };
     host ??= new SimUiHost(sim);
     host.onAudioSettings = (a) => {
       audio?.setMasterVolume?.(a.master);
