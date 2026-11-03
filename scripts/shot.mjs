@@ -3,7 +3,7 @@
  * One-shot screenshot for visual iteration (run `npm run build` first).
  *
  *   node scripts/shot.mjs --out shot.png [--dist dist] [--camera cockpit] [--time morning] [--weather few]
- *        [--takeoff 40] [--look-yaw 0] [--look-pitch 0] [--width 1280] [--height 720] [--wait 4000]
+ *        [--no-fly] [--click '#sel1,#sel2'] [--takeoff 40] [--look-yaw 0] [--look-pitch 0] [--width 1280] [--height 720] [--wait 4000]
  *
  * Boots the built app with `vite preview`, spawns at KSFO 28R, optionally flies a scripted
  * takeoff for N seconds, sets the camera/time/weather and saves one PNG.
@@ -32,11 +32,18 @@ try {
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|net::ERR_/.test(m.text())) errors.push(m.text()); });
   await page.goto(`http://localhost:${port}/`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__sim && window.__sim.ready, null, { timeout: 60000 });
-  await page.evaluate(() => window.__sim.flyNow());
-  await page.waitForFunction(() => window.__sim.terrainReady() > 0.5, null, { timeout: 30000 }).catch(() => {});
+  const noFly = args.includes('--no-fly');
+  if (!noFly) {
+    await page.evaluate(() => window.__sim.flyNow());
+    await page.waitForFunction(() => window.__sim.terrainReady() > 0.5, null, { timeout: 30000 }).catch(() => {});
+  }
+  for (const sel of (opt('--click', '') || '').split(',').filter(Boolean)) {
+    await page.click(sel, { timeout: 10000 }).catch((e) => errors.push(`click ${sel}: ${e.message}`));
+    await page.waitForTimeout(800);
+  }
   const takeoff = Number(opt('--takeoff', '0'));
   if (takeoff > 0) await page.evaluate((s) => window.__sim.flyScriptedTakeoff(s), takeoff);
-  await page.evaluate(([cam, time, wx]) => { window.__sim.setCamera(cam); window.__sim.setTimePreset(time); window.__sim.setWeather(wx); }, [opt('--camera', 'cockpit'), opt('--time', 'morning'), opt('--weather', 'few')]);
+  if (!noFly) await page.evaluate(([cam, time, wx]) => { window.__sim.setCamera(cam); window.__sim.setTimePreset(time); window.__sim.setWeather(wx); }, [opt('--camera', 'cockpit'), opt('--time', 'morning'), opt('--weather', 'few')]);
   const ly = Number(opt('--look-yaw', '0')), lp = Number(opt('--look-pitch', '0'));
   if (ly || lp) await page.evaluate(([y, p]) => window.__sim.look?.(y, p), [ly, lp]);
   await page.waitForTimeout(Number(opt('--wait', '4000')));

@@ -20,7 +20,7 @@ let host: SimUiHost | null = null;
 let audio: AudioLike | null = null;
 
 export async function attachPlugin(sim: Simulator, path: string, mod: Record<string, unknown>, container: HTMLElement): Promise<void> {
-  if (path.endsWith('/UiManager.ts')) {
+  if (path.endsWith('/ui/index.ts')) {
     const UiManager = ctor<UiManagerLike>(mod, 'UiManager');
     if (!UiManager) return;
     host ??= new SimUiHost(sim);
@@ -85,8 +85,32 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
   if (path.endsWith('/G1000.ts')) {
     const G1000 = ctor<G1000Like>(mod, 'G1000');
     if (!G1000) return;
-    const g = new (G1000 as unknown as new (o?: object) => G1000Like)({});
-    sim.attachG1000({ pfdCanvas: g.pfdCanvas, update: (s, dt) => g.update(s, dt) });
+    type G1000Full = G1000Like & { readonly mfdCanvas: HTMLCanvasElement | OffscreenCanvas };
+    const g = new (G1000 as unknown as new (o?: object) => G1000Full)({});
+    // One panel texture with the PFD (left) and MFD (right) side by side, as in the 172 G1000.
+    const pfd = g.pfdCanvas, mfd = g.mfdCanvas;
+    const gap = Math.round(pfd.width * 0.06);
+    const panel = document.createElement('canvas');
+    panel.width = pfd.width + gap + mfd.width;
+    panel.height = Math.max(pfd.height, mfd.height);
+    const ctx = panel.getContext('2d')!;
+    ctx.fillStyle = '#16191d';
+    ctx.fillRect(0, 0, panel.width, panel.height);
+    let nearbyTimer = Infinity;
+    sim.attachG1000({
+      pfdCanvas: panel,
+      update: (s, dt) => {
+        nearbyTimer += dt;
+        if (nearbyTimer > 2 && g.setNearestAirports) {
+          nearbyTimer = 0;
+          g.setNearestAirports(sim.nearby.map((a) => ({ icao: a.icao, lat: a.position.lat, lon: a.position.lon, type: a.type })));
+        }
+        if (!g.update(s, dt)) return false;
+        ctx.drawImage(pfd as CanvasImageSource, 0, 0);
+        ctx.drawImage(mfd as CanvasImageSource, pfd.width + gap, 0);
+        return true;
+      },
+    });
     return;
   }
   if (path.endsWith('/AtcController.ts')) {

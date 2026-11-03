@@ -568,6 +568,9 @@ export class Simulator {
     return sn;
   }
 
+  /** Airports within ~40 nm of the aircraft (refreshed every 2 s). */
+  get nearby(): readonly Airport[] { return this.nearbyAirports; }
+
   /** Latest physics state (not interpolated). */
   get aircraft(): AircraftState { return this.fdm.state; }
 
