@@ -81,7 +81,8 @@ sky.notifyRebase(shift);
 - Readonly members: `sky`, `sunLight`, `moonLight`, `hemiLight`, `ambientLight`, `fog`, `stars`,
   `moon`, `clouds`, `precipitation`, `preetham` (CPU twin of the dome), `exposureOptions`.
 - `patchSkyDepth(material)` — keeps the r187 `Sky` dome at the far plane under reversed depth.
-- `patchSkyDome(material)` — the dome's look patches (in-scatter knee, night glow), mirrored by `PreethamSky`.
+- `patchSkyDome(material)` — the dome's look patches (in-scatter knee, night glow), mirrored by `PreethamSky`, plus
+  the `skySaturation` (environment bake) and `skyFogMix` / `skyFogColor` (inside a cloud) uniforms.
 
 ### `SkyLighting` (from `types.ts`, mutated in place every frame)
 `sunDirThree`, `sunColor` (hue, max channel 1), `sunIntensity`, `skyColorZenith`, `skyColorHorizon`,
@@ -286,8 +287,11 @@ medians, before → after):
 | noon overcast: the deck at 20° / 45° | 186/190/193 / 191/194/197 | 198/205/211 / 202/207/211 |
 | golden-hour overcast: paint top / deck at 45°; exposure | 136/137/141 / 80/75/73; 0.81 | 188/187/187 / 127/121/117; 1.61 |
 | on top of the noon overcast (2100 m): sunlit paint; exposure | 208/206/202; 0.67 | 239/238/235; 0.50 (the cover-dimmed exposure would be 0.82: clipped) |
-| inside the noon overcast: exposure; fog colour (linear) | 0.76; 0.81/1.16/1.73 (sky-blue) | 0.93; near-neutral grey (`IN_CLOUD_SATURATION` 0.15) |
-| scattered noon from 2600 m: lit cumulus tops | 231/233/235; 0.60 | 226/229/230; 0.50 |
+| inside the noon overcast: exposure; fog colour (linear) | 0.76; 0.81/1.16/1.73 (sky-blue) | 0.93; 1.08/1.13/1.22 (`IN_CLOUD_SATURATION` 0.15) |
+| inside the noon overcast, looking level | blue sky dome above the fog (the dome ignored the in-cloud fog) | the dome fades to the fog (`skyFogMix`) |
+| scattered noon from 2600 m: lit cumulus tops | 230/233/234; 0.60 | 227/230/232; 0.50 |
+| scattered golden hour from 2600 m: lit tops | 178/160/132; 0.94 | 206/192/168; 1.54 |
+| on top of the noon / golden overcast: the deck | 210/211/212 / 100/91/85 | 195/197/199 / 142/131/124 |
 | exposure climbing through the scattered layer | 0.60 constant (global cover) | 0.56 → 0.52, monotonic, no reversal |
 | exposure after a jump into the overcast | 0.67 → 0.75 in ≈ 12 s, monotonic | 0.82 → 0.92 in ≈ 12 s, monotonic |
 

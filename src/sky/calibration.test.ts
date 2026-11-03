@@ -163,6 +163,31 @@ describe('exposure follows the light where the camera is (review)', () => {
     sky.dispose();
   });
 
+  it('inside a cloud the dome is drawn in the fog colour (no blue sky through the deck); the bake keeps the clear dome', () => {
+    const noon = timeForElevation('noon');
+    const ovc = weatherFromPreset('overcast', 4);
+    const sky = settled(noon, ovc, 1000);
+    const u = sky.sky.material.uniforms as Record<string, { value: unknown }>;
+    expect(sky.sky.material.fragmentShader).toContain('skyFogMix');
+    expect(u.skyFogMix.value as number).toBeGreaterThan(0.99); // camera deep in the deck
+    const fc = u.skyFogColor.value as THREE.Vector3, L = sky.lighting;
+    expect(fc.x).toBeCloseTo(L.fogColor.r, 9); expect(fc.z).toBeCloseTo(L.fogColor.b, 9);
+    let during = NaN;
+    (sky as unknown as { pmrem: unknown }).pmrem = {
+      fromScene: () => { during = u.skyFogMix.value as number; throw new Error('no GPU in Node'); },
+      dispose: () => {},
+    };
+    const warn = console.warn;
+    console.warn = () => {};
+    try { sky.bakeEnvironment(); } finally { console.warn = warn; }
+    expect(during).toBe(0); // the environment is the clear dome measureEnvironment integrates
+    expect(u.skyFogMix.value as number).toBeGreaterThan(0.99);
+    sky.dispose();
+    const below = settled(noon, ovc, 2);
+    expect((below.sky.material.uniforms as Record<string, { value: number }>).skyFogMix.value).toBe(0);
+    below.dispose();
+  });
+
   it('settles without overshoot after a step and never pumps on a steady scene', () => {
     const noon = timeForElevation('noon');
     const sky = settled(noon, weatherFromPreset('clear', 4));

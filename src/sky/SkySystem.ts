@@ -547,6 +547,9 @@ export class SkySystem {
     saturateColor(this.cloudGrey, IN_CLOUD_SATURATION, this.cloudGrey);
     mixVec3(this.haze, this.cloudGrey, inCloud, this.tmpC);
     L.fogColor.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
+    // the dome is at infinity: a few hundred metres of cloud along any ray hide it, so it fades out early
+    if (u.skyFogMix) u.skyFogMix.value = smoothstep(0, 0.35, inCloud);
+    (u.skyFogColor?.value as THREE.Vector3 | undefined)?.set(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
     mixVec3(this.hazeSun, this.cloudGrey, inCloud, this.tmpC);
     L.sunGlowColor.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
     // clouds fade into the sky behind them; below a closing deck that is the haze under it
@@ -685,6 +688,10 @@ export class SkySystem {
     // the dome lights surfaces with real skylight's hue (the dome you see keeps its saturation)
     const sat = u.skySaturation as { value: number } | undefined;
     if (sat) sat.value = this.envSaturation;
+    // … and the clear dome that `measureEnvironment` integrates, even while the camera is in a cloud
+    const fogMix = u.skyFogMix as { value: number } | undefined;
+    const fogMix0 = fogMix ? fogMix.value : 0;
+    if (fogMix) fogMix.value = 0;
     let rt: THREE.WebGLRenderTarget | null = null;
     try {
       rt = this.pmrem.fromScene(this.envScene, 0, 0.1, 1000);
@@ -693,6 +700,7 @@ export class SkySystem {
     }
     u.showSunDisc.value = disc;
     if (sat) sat.value = 1;
+    if (fogMix) fogMix.value = fogMix0;
     if (!rt) return;
     if (this.envTarget) this.envTarget.dispose();
     this.envTarget = rt;
@@ -740,8 +748,10 @@ export class SkySystem {
 /**
  * Look patches for the r187 `Sky` dome, mirrored by `PreethamSky` (its CPU twin): the in-scatter knee
  * (`INSCATTER_KNEE`, tames the white horizon band) and the night-sky glow (`NIGHT_GLOW_GLSL`; uniforms
- * `nightGlowHorizon` / `nightGlowZenith`, vec3 linear, added before tone mapping). Idempotent; a step
- * whose anchor is not found is skipped (the dome then renders as plain Sky.js for that part).
+ * `nightGlowHorizon` / `nightGlowZenith`, vec3 linear, added before tone mapping). Not mirrored (they never
+ * light anything): `skySaturation` (1; the environment bake lowers it) and `skyFogMix` / `skyFogColor` (the
+ * dome fading into the in-cloud fog). Idempotent; a step whose anchor is not found is skipped (the dome then
+ * renders as plain Sky.js for that part).
  */
 export function patchSkyDome(material: THREE.ShaderMaterial): void {
   let fs = material.fragmentShader;
@@ -756,10 +766,13 @@ export function patchSkyDome(material: THREE.ShaderMaterial): void {
     material.uniforms.nightGlowZenith = { value: new THREE.Vector3() };
     // luminance-preserving saturation, 1 on screen; the environment bake lowers it to the skylight's
     material.uniforms.skySaturation = { value: 1 };
+    // inside a cloud the dome fades to the in-cloud fog (linear, pre tone mapping like the dome)
+    material.uniforms.skyFogMix = { value: 0 };
+    material.uniforms.skyFogColor = { value: new THREE.Vector3() };
     fs = fs
-      .replace('void main()', `${NIGHT_GLOW_GLSL}\nuniform float skySaturation;\n\t\tvoid main()`)
+      .replace('void main()', `${NIGHT_GLOW_GLSL}\nuniform float skySaturation;\nuniform float skyFogMix;\nuniform vec3 skyFogColor;\n\t\tvoid main()`)
       .replace('gl_FragColor = vec4( texColor, 1.0 );',
-        'texColor += skyNightGlow( direction );\n\t\t\ttexColor = mix( vec3( dot( texColor, vec3( 0.2126, 0.7152, 0.0722 ) ) ), texColor, skySaturation );\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );');
+        'texColor += skyNightGlow( direction );\n\t\t\ttexColor = mix( vec3( dot( texColor, vec3( 0.2126, 0.7152, 0.0722 ) ) ), texColor, skySaturation );\n\t\t\ttexColor = mix( texColor, skyFogColor, skyFogMix );\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );');
   }
   material.fragmentShader = fs;
   material.needsUpdate = true;
