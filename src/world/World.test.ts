@@ -36,7 +36,7 @@ describe('World', () => {
     expect(w.surfaceAt(onRwy[0], onRwy[1])).toBe('paved');
     const land = w.frame.geodeticToNED(37.7, -122.45, 0);
     expect(w.surfaceAt(land[0], land[1])).toBe('grass');
-    expect(w.groundHeight(land[0], land[1])).toBeGreaterThan(3);
+    expect(w.groundHeight(land[0], land[1])! - w.seaLevelUp(land[0], land[1])).toBeCloseTo(4, 3); // 4 m MSL
   });
 
   it('falls back to the spawn elevation before terrain loads', () => {
