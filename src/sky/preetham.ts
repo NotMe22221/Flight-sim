@@ -48,14 +48,92 @@ export const INSCATTER_KNEE = 25;
 export const NIGHT_GLOW_SCALE_HEIGHT = 0.18;
 
 /**
- * GLSL for the dome: `texColor += skyNightGlow( direction );` with uniforms `nightGlowHorizon` and
- * `nightGlowZenith` (vec3, linear) — the twin of `PreethamSky.setNightGlow`.
+ * GLSL for the dome: `skyNightGlow( direction )` with uniforms `nightGlowHorizon` and `nightGlowZenith`
+ * (vec3, linear) — the twin of `PreethamSky.setNightGlow`. Composed with the sunlit sky by
+ * `skyLitMax` (see {@link TWILIGHT_GLSL}).
  */
 export const NIGHT_GLOW_GLSL = /* glsl */ `
 uniform vec3 nightGlowHorizon;
 uniform vec3 nightGlowZenith;
 vec3 skyNightGlow( vec3 dir ) {
   return nightGlowHorizon * exp( - max( dir.y, 0.0 ) / ${NIGHT_GLOW_SCALE_HEIGHT.toFixed(3)} ) + nightGlowZenith;
+}
+`;
+
+/**
+ * Civil / nautical twilight. Sky.js's sun term is cut off once the sun is ≈ 1–2° below the horizon (its
+ * `sunIntensity` earth-shadow hack), which left the dome black from ≈ −2° to −6° — darker than the night
+ * sky. The twilight term is a deep-blue sky over the whole dome plus a warm band toward the sun's azimuth
+ * (falling off with height as exp(−sin el / `TWILIGHT_BAND_SCALE_HEIGHT`) and away from the sun's azimuth),
+ * at full strength down to a sun at `TWILIGHT_FULL_DEG` and decaying by e every `TWILIGHT_DECAY_DEG` below.
+ * It and the night glow are composed with Sky.js's sunlit in-scatter by a smooth maximum (p = 4, per
+ * channel), so the day and golden-hour dome stay Sky.js's own, the twilight takes over as Sky.js fades, and
+ * the dome darkens monotonically from the sunset into the night glow (no black gap).
+ */
+export const TWILIGHT_FULL_DEG = -1;
+export const TWILIGHT_DECAY_DEG = 1.6;
+export const TWILIGHT_BAND_SCALE_HEIGHT = 0.2;
+/** Twilight radiance at full strength (linear, dome scale): the deep-blue dome … */
+export const TWILIGHT_ZENITH: Vec3 = [0.004, 0.01, 0.03];
+/** … and the warm band at the horizon toward the sun (× azimuth weight × height falloff). */
+export const TWILIGHT_BAND: Vec3 = [0.3, 0.15, 0.05];
+/** The twilight term and the night glow fade out over these (apparent) sun elevations (deg): none by day. */
+export const SKY_EXTRA_DAY_FADE_DEG: readonly [number, number] = [5, 15];
+
+const smooth01 = (a: number, b: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/** 1 at night … 0 by day: the night glow and the twilight term fade out above a ≈ 5–15° sun. */
+export function skyExtraDayFade(sunElDeg: number): number {
+  return Number.isFinite(sunElDeg) ? 1 - smooth01(SKY_EXTRA_DAY_FADE_DEG[0], SKY_EXTRA_DAY_FADE_DEG[1], sunElDeg) : 1;
+}
+
+/** Twilight strength 0…1 for an (apparent) sun elevation: full from −1° up (faded out by day), e-folding every 1.6° below. */
+export function twilightStrength(sunElDeg: number): number {
+  if (!Number.isFinite(sunElDeg)) return 0;
+  return Math.exp(Math.min(sunElDeg - TWILIGHT_FULL_DEG, 0) / TWILIGHT_DECAY_DEG) * skyExtraDayFade(sunElDeg);
+}
+
+/** Twilight colours for `PreethamSky.setTwilight` / the dome uniforms at this (apparent) sun elevation. */
+export function twilightColors(sunElDeg: number, zenith: Vec3 = [0, 0, 0], band: Vec3 = [0, 0, 0]): { zenith: Vec3; band: Vec3 } {
+  const k = twilightStrength(sunElDeg);
+  for (let i = 0; i < 3; i++) { zenith[i] = TWILIGHT_ZENITH[i] * k; band[i] = TWILIGHT_BAND[i] * k; }
+  return { zenith, band };
+}
+
+/** Azimuth weight of the twilight band: 1 toward the sun, ≈ 0.23 at 90°, 0.12 opposite. */
+export function twilightAzimuthWeight(dir: Vec3, sunDir: Vec3): number {
+  const ls = Math.hypot(sunDir[0], sunDir[2]), ld = Math.hypot(dir[0], dir[2]);
+  const c = ls > 1e-4 && ld > 1e-4 ? (sunDir[0] * dir[0] + sunDir[2] * dir[2]) / (ls * ld) : 0;
+  const a = 0.5 + 0.5 * c;
+  return 0.12 + 0.88 * a * a * a;
+}
+
+/** Smooth maximum (p = 4) of two non-negative radiances: the twin of GLSL `skyLitMax`. */
+export function skyLitMax(a: number, b: number): number {
+  const a2 = Math.max(a, 0) ** 2, b2 = Math.max(b, 0) ** 2;
+  return Math.sqrt(Math.sqrt(a2 * a2 + b2 * b2));
+}
+
+/**
+ * GLSL twin of the twilight term and the composition (uniforms `twilightZenith`, `twilightBand`, vec3 linear):
+ * `texColor += skyLitMax( Lin * 0.04, skyNightGlow( dir ) + skyTwilight( dir, sunDir ) ) - Lin * 0.04;`
+ */
+export const TWILIGHT_GLSL = /* glsl */ `
+uniform vec3 twilightZenith;
+uniform vec3 twilightBand;
+vec3 skyTwilight( vec3 dir, vec3 sunDir ) {
+  float ls = length( sunDir.xz ), ld = length( dir.xz );
+  float c = ( ls > 1e-4 && ld > 1e-4 ) ? dot( sunDir.xz, dir.xz ) / ( ls * ld ) : 0.0;
+  float a = 0.5 + 0.5 * c;
+  return twilightZenith + twilightBand * ( exp( - max( dir.y, 0.0 ) / ${TWILIGHT_BAND_SCALE_HEIGHT.toFixed(3)} ) * ( 0.12 + 0.88 * a * a * a ) );
+}
+vec3 skyLitMax( vec3 a, vec3 b ) {
+  vec3 a2 = max( a, vec3( 0.0 ) ); a2 *= a2;
+  vec3 b2 = max( b, vec3( 0.0 ) ); b2 *= b2;
+  return sqrt( sqrt( a2 * a2 + b2 * b2 ) );
 }
 `;
 
@@ -98,13 +176,25 @@ export class PreethamSky {
   readonly nightHorizon: Vec3 = [0, 0, 0];
   /** night-sky glow at the zenith, linear */
   readonly nightZenith: Vec3 = [0, 0, 0];
+  /** twilight: deep-blue dome radiance, linear (see `TWILIGHT_GLSL`) */
+  readonly twilightZenith: Vec3 = [0, 0, 0];
+  /** twilight: warm band at the horizon toward the sun, linear */
+  readonly twilightBand: Vec3 = [0, 0, 0];
   private g = 0.8;
   private readonly tmp: Vec3 = [0, 0, 0];
   private readonly tmpLin: Vec3 = [0, 0, 0];
 
-  /** Night glow added to every direction (see `NIGHT_GLOW_SCALE_HEIGHT`); zeros = the plain Sky.js model. */
+  /**
+   * Night glow (see `NIGHT_GLOW_SCALE_HEIGHT`); zeros = the plain Sky.js model. It adds to the dark sky and is
+   * composed with the sunlit in-scatter by the smooth maximum `skyLitMax` (it never brightens a day sky).
+   */
   setNightGlow(horizon: Vec3, zenith: Vec3): void {
     for (let i = 0; i < 3; i++) { this.nightHorizon[i] = Math.max(horizon[i], 0); this.nightZenith[i] = Math.max(zenith[i], 0); }
+  }
+
+  /** Twilight term (see `TWILIGHT_GLSL`, `twilightColors`); zeros = the plain Sky.js model. */
+  setTwilight(zenith: Vec3, band: Vec3): void {
+    for (let i = 0; i < 3; i++) { this.twilightZenith[i] = Math.max(zenith[i], 0); this.twilightBand[i] = Math.max(band[i], 0); }
   }
 
   /** `sunDir` must be a unit vector in the render frame (x East, y Up, z South). */
@@ -158,9 +248,11 @@ export class PreethamSky {
       lin[i] = Lin;
     }
     const knee = 1 / (1 + (0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]) / INSCATTER_KNEE);
+    const band = Math.exp(-Math.max(dir[1], 0) / TWILIGHT_BAND_SCALE_HEIGHT) * twilightAzimuthWeight(dir, sd);
     for (let i = 0; i < 3; i++) {
       const L0 = 0.1 * Fex[i];
-      out[i] = (lin[i] * knee + L0) * SKY_RADIANCE_SCALE + NIGHT_FLOOR[i] + this.nightHorizon[i] * glow + this.nightZenith[i];
+      const extra = this.nightHorizon[i] * glow + this.nightZenith[i] + this.twilightZenith[i] + this.twilightBand[i] * band;
+      out[i] = L0 * SKY_RADIANCE_SCALE + NIGHT_FLOOR[i] + skyLitMax(lin[i] * knee * SKY_RADIANCE_SCALE, extra);
     }
     return out;
   }
