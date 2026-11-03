@@ -70,6 +70,39 @@ describe('TileObject ground layers', () => {
     dispose();
   });
 
+  it('notices a terrain refinement under the tile through its probe grid (and only a real one)', () => {
+    const frame = KSFO_FRAME();
+    let h: HeightFn = () => 4;
+    const host = makeHost(frame, (lat, lon) => h(lat, lon));
+    const s = new GroundSampler(host.groundUp);
+    const { obj, dispose } = terminalTile();
+    obj.place(frame);
+    for (let i = 0; i < 1000 && obj.settling; i++) obj.groundStep(5000, s, true);
+    // unchanged ground: several full probe sweeps, never hot
+    for (let i = 0; i < 20; i++) obj.checkTerrain(s, 16);
+    expect(obj.hotSamples).toBe(0);
+    // the ground rises by 3 m under the southern half of the tile
+    const midLat = (obj.projector.toLonLat(0, 0).lat);
+    h = (lat) => (lat < midLat ? 7 : 4);
+    for (let i = 0; i < 20 && obj.hotSamples === 0; i++) obj.checkTerrain(s, 16);
+    expect(obj.hotSamples).toBeGreaterThan(0);
+    // one owed cycle brings every layer onto the new ground, then the tile cools down
+    for (let i = 0; i < 10000 && obj.hotSamples > 0; i++) obj.groundStep(400, s, false);
+    expect(obj.hotSamples).toBe(0);
+    const b = obj.result.buildings!;
+    obj.group.updateMatrixWorld(true);
+    const p = new THREE.Vector3();
+    for (let i = 0; i < b.count; i++) {
+      p.set(b.centroids[i * 2], obj.buildingGround(i), b.centroids[i * 2 + 1]).applyMatrix4(obj.group.matrixWorld);
+      const g = frame.threeToGeodetic(p.x, p.y, p.z);
+      // the base is the lowest of the building's samples: on the 3 m step it may sit on the low side
+      expect(g.alt, `building ${i}`).toBeGreaterThan((g.lat < midLat - 2e-4 ? 7 : 4) - 0.05);
+    }
+    for (let i = 0; i < 20; i++) obj.checkTerrain(s, 16);
+    expect(obj.hotSamples).toBe(0);
+    dispose();
+  });
+
   it('lets aprons, taxiways and their markings receive the sun shadow map like the runway slabs', () => {
     // AirportsLayer runway slabs receive the aircraft's shadow; without this the shadow vanishes
     // as soon as the aircraft rolls off the runway onto a taxiway or parks on an apron

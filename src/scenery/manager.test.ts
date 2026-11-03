@@ -164,9 +164,7 @@ describe('SceneryManager (sync path)', () => {
     };
     expect(worst()).toBeGreaterThan(5);
     let frames = 0;
-    let hotAt = -1;
-    while (frames < 2000 && worst() > 0.3) { m.update(1 / 60, cam, camera, 0.8); frames++; if (hotAt < 0 && target.hotSamples > 0) hotAt = frames; }
-    (await import('node:fs')).writeFileSync('/tmp/claude-0/-home-user-Flight-sim/7bee71d5-9f1f-55ef-9ffc-73df5cf9c113/scratchpad/rev-scenery/dbg.txt', JSON.stringify({ hotAt, frames, ready: m.tileObjects().length, cycle: (target as unknown as { cycleCost: number }).cycleCost, st: m.stats() }));
+    while (frames < 2000 && worst() > 0.3) { m.update(1 / 60, cam, camera, 0.8); frames++; }
     expect(frames, 'frames until every building of the refined tile sits on the new ground').toBeLessThan(150);
     m.dispose();
   });
