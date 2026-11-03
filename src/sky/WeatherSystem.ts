@@ -73,7 +73,26 @@ export class WeatherSystem {
   /** The weather being transitioned to (or the current state when idle). */
   get target(): WeatherState { return this.to ?? this.state; }
 
-  setAirportElevation(m: number): void { this.airportElevationM = m; }
+  /**
+   * New departure field elevation. Preset weather is defined above the field (cloud bases AGL, the
+   * surface wind 10 m AGL), so its layers move with the field — a preset picked in the menu at sea
+   * level keeps its 3,000 ft ceiling over a 5,000 ft airport. METAR, custom and live weather are
+   * already MSL and stay put. A transition in progress shifts whichever side is a preset.
+   */
+  setAirportElevation(m: number): void {
+    const d = m - this.airportElevationM;
+    this.airportElevationM = m;
+    if (d === 0 || !Number.isFinite(d)) return;
+    const shift = (w: WeatherState | null): boolean => {
+      if (!w || w.preset === 'custom' || w.preset === 'live') return false;
+      for (const c of w.clouds) { c.baseM += d; c.topM += d; }
+      for (const l of w.winds) l.altM += d;
+      return true;
+    };
+    if (!this.to) { shift(this.state); return; }
+    const a = shift(this.from), b = shift(this.to);
+    if (a || b) { this.prepareLayerArrays(); this.step(0); }
+  }
   setFrame(frame: LocalFrameInfo | null): void { this.frame = frame; }
 
   /** Switch to an MSFS-style preset, cross-fading over `transitionS` (0 = instant). */

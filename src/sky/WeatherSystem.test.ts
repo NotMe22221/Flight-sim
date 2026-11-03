@@ -121,4 +121,25 @@ describe('WeatherSystem', () => {
     expect(ws.state.winds).toEqual(target.winds);
     [500, 2500, 5000, 7000].forEach((h, i) => expect(dist(at(h), late[i])).toBeLessThan(0.02));
   });
+
+  it('a new departure elevation moves preset layers with the field and leaves MSL weather alone', () => {
+    const ws = new WeatherSystem({ airportElevationM: 0, initial: 'scattered' });
+    ws.setAirportElevation(1500);
+    expect(ws.state.clouds).toEqual(weatherFromPreset('scattered', 1500).clouds);
+    expect(ws.state.winds).toEqual(weatherFromPreset('scattered', 1500).winds);
+    // a METAR is MSL already: its layers stay where the report put them
+    ws.applyMetar('KXXX 121200Z 27010KT 9999 BKN030 15/10 Q1013', 1500);
+    const base = ws.state.clouds[0].baseM;
+    ws.setAirportElevation(0);
+    expect(ws.state.clouds[0].baseM).toBe(base);
+    // mid-transition between two presets: both sides move, the blend lands on the shifted target
+    const t = new WeatherSystem({ airportElevationM: 0, initial: 'clear' });
+    t.setPreset('overcast', 10);
+    t.update(5);
+    t.setAirportElevation(800);
+    t.update(6);
+    expect(t.transitioning).toBe(false);
+    expect(t.state.clouds).toEqual(weatherFromPreset('overcast', 800).clouds);
+    expect(t.state.winds).toEqual(weatherFromPreset('overcast', 800).winds);
+  });
 });
