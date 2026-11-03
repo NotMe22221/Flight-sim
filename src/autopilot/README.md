@@ -60,7 +60,7 @@ const u = ap.apply(effectiveControls);               // every frame; returns the
 | `setFlightDirector(on)`, `setYawDamper(on)` | FD (outer loops + bars without servos), yaw damper (independent of the AP) |
 | `setLateral(mode)`, `setVertical(mode)` | Contract modes. Selecting a mode with AP and FD off turns the FD on (GFC 700). `NAV`/`APR` arm until capture; `APR` arms `GS` on a localizer |
 | `setHeadingBug(deg)`, `setAltitudeTarget(m)`, `setVerticalSpeedTarget(ms)`, `setIasTarget(ms)`, `setPitchTarget(rad)` | Targets (heading bug magnetic) |
-| `press(button)` | Panel semantics: `AP FD YD HDG NAV APR ALT VS FLC LVL NOSE_UP NOSE_DN HDG_SYNC ALT_SYNC` (an active mode's key reverts to ROL/PIT; ALT/VS/FLC sync their target to the current value; UP/DN step pitch 0.5°, VS 100 fpm or IAS 1 kt) |
+| `press(button)` | Panel semantics: `AP FD YD HDG NAV APR ALT VS FLC LVL NOSE_UP NOSE_DN HDG_SYNC ALT_SYNC` (an active mode's key reverts to ROL/PIT; an armed NAV/APR key only disarms it, the active HDG/ROL carries on; ALT/VS/FLC sync their target to the current value; UP/DN step pitch 0.5°, VS 100 fpm or IAS 1 kt) |
 | `level()` | LVL: AP on at any attitude, wings level, zero VS, everything disarmed (see below) |
 | `setNavSource('auto' \| 'gps' \| 'nav1' \| 'nav2')` | What NAV follows (`auto`: the flight plan when it has waypoints, else NAV1). LOC/APR/GS always use the selected radio (NAV1 unless `nav2`) |
 | `reset()` | Power-on state (new flight) |
@@ -206,8 +206,8 @@ Acceptance on the test plant at 120 Hz (`Autopilot.test.ts`, `pid.test.ts`, `lev
 
 | Requirement | Test plant | C172S FDM |
 |---|---|---|
-| HDG 000→090 at 100 kt: capture < 60 s, overshoot < 3°, bank ≤ 25.5° | ±2° at 36.7 s, 0.00°, 16.0° | ±2° at 44.9 s (103° turn: magvar 13°), 0.00°, 16.4° |
-| ALT 3000→3500 ft: capture < 120 s, VS ≤ 800 fpm, overshoot < 40 ft, error < 10 ft | 46 s, 749 fpm, 14.8 ft, 0.7 ft | 44 s, 795 fpm, 12.0 ft, 1.8 ft |
+| HDG 000→090 at 100 kt: capture < 60 s, overshoot < 3°, bank ≤ 25.5° | ±2° at 36.7 s, 0.00°, 16.0° | ±2° at 44.6 s (103° turn: magvar 13°), 0.00°, 16.9° |
+| ALT 3000→3500 ft: capture < 120 s, VS ≤ 800 fpm, overshoot < 40 ft, error < 10 ft | 46 s, 749 fpm, 14.8 ft, 0.7 ft | 44 s, 782 fpm, 12.2 ft, 1.7 ft |
 | VS ±500 fpm within ±50 fpm | 33 / 11 fpm | 15 / 7 fpm |
 | FLC 90 kt within ±3 kt while climbing | 0.99 kt (≥ 593 fpm) | 0.59 kt (≥ 745 fpm) |
 | NAV from 2 nm right: < 0.1 nm, intercept ≤ 45° | 134 s, 44.0° | 127 s, 44.4° |
@@ -226,6 +226,8 @@ Acceptance on the test plant at 120 Hz (`Autopilot.test.ts`, `pid.test.ts`, `lev
 | Review: NaN targets / deviations / air data | servos, trim and assists stay finite and recover | — |
 | Review: engage before the first `apply()` | trim and stick kept (was: trim zeroed) | — |
 | Review: altitude alerter bands | approach 1 000→200 ft only, no deviation during a 1 500 fpm capture | — |
+| Review: panel keys | NAV/APR pressed while armed disarm only (was: HDG dropped to ROL and kept the turn's bank) | — |
+| Review: `apply()` copy | carries every `ControlInputs` field incl. master / avionics / fuel-pump switches | — |
 | Real nav receivers (`realNav.test.ts`, src/nav) | — | APR (30° LOC intercept, GS from below): GS ≤ 0.17 dot, CDI ≤ 0.02; VOR TO 25/40 nm and FROM: needle < 0.1 in 4 min, no overshoot |
 | Simulator wiring (AP per frame, FDM sub-stepped) | — | 30 Hz vs 120 Hz: HDG within 1°, ALT within 10 ft; yaw damper halves the dutch-roll yaw rate (a flipped sign doubles it) |
 | LVL from unusual attitudes | 70° nose-low spiral, nose-high slow, FLC climb: wings < 10 s, < 2 g, zero VS | 143° rolling dive: ≤ 0.8 g inverted, ≤ 1.8 g, wings level 7 s |

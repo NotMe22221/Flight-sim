@@ -366,13 +366,19 @@ export class GfcAutopilot implements Autopilot {
       case 'FD': this.setFlightDirector(!s.flightDirector); break;
       case 'YD': this.setYawDamper(!s.yawDamper); break;
       case 'HDG': this.setLateral(s.lateral === 'HDG' ? 'ROL' : 'HDG'); break;
+      // active mode's key → ROL; an armed mode's key only disarms it (the active HDG/ROL carries on)
       case 'NAV':
-        if (s.lateral === 'NAV' || s.armedLateral === 'NAV') { s.armedLateral = null; this.setLateral('ROL'); }
+        if (s.lateral === 'NAV') { s.armedLateral = null; this.setLateral('ROL'); }
+        else if (s.armedLateral === 'NAV') { s.armedLateral = null; this.modeChanged(); }
         else this.setLateral('NAV');
         break;
       case 'APR':
-        if (s.lateral === 'APR' || s.armedLateral === 'APR') { s.armedLateral = null; this.setLateral('ROL'); }
-        else this.setLateral('APR');
+        if (s.lateral === 'APR') { s.armedLateral = null; this.setLateral('ROL'); }
+        else if (s.armedLateral === 'APR') {
+          s.armedLateral = null;
+          if (s.armedVertical === 'GS') s.armedVertical = null;
+          this.modeChanged();
+        } else this.setLateral('APR');
         break;
       case 'ALT':
         if (s.vertical === 'ALT' || s.vertical === 'ALTS') this.setVertical('PIT');

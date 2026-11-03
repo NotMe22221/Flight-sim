@@ -62,7 +62,11 @@ export class RadioStack {
         const khz = this.tuning[i].activeKHz;
         this.lookupKHz[i] = khz;
         const ils = this.nav.findIlsEntry(khz, pos);
+        const prev = this.stations[i];
         this.stations[i] = ils ? ils.geometry : this.nav.findNavaidByFrequency(khz, pos);
+        // auto-course (G1000 / MSFS): a newly tuned localizer sets the OBS to its front course,
+        // which the HSI course pointer and the autopilot's LOC/APR law fly
+        if (ils && ils.geometry !== prev) this.tuning[i].obsDeg = ((Math.round(ils.geometry.courseDeg - magVarDeg) % 360) + 360) % 360;
       }
     }
     computeNavRadio(pos, magVarDeg, this.stations[0], this.tuning[0], this.state.nav1);

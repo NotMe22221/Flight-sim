@@ -9,6 +9,7 @@ import { DEG, FPM, FT, KT, NM } from '../core/units';
 import { airborne, makeEnv, makeFdm } from '../fdm/testing';
 import { GfcAutopilot } from './Autopilot';
 import { FlightAssists } from './assists';
+import { headingToBank } from './lateral';
 import { FDM_DT, ZohSim } from './reviewHarness';
 import { makeNavRadioState } from './testPlant';
 import { type TestIls } from './testPlant';
@@ -105,6 +106,42 @@ describe('review: engagement', () => {
 });
 
 describe('review: lateral mode logic', () => {
+  it('pressing NAV / APR while only armed disarms it and leaves the active HDG turn alone', () => {
+    for (const key of ['NAV', 'APR'] as const) {
+      const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 0, eastM: 8 * NM });
+      sim.course = { startNorthM: -5 * NM, startEastM: 0, endNorthM: 60 * NM, endEastM: 0 }; // 8 nm away: stays armed
+      sim.usePlan = true;
+      Object.assign(sim.nav1, { valid: true, isLocalizer: true, cdi: 1, obsDeg: 0, dmeNm: 15 }); // pegged localizer for APR
+      sim.frame();
+      sim.ap.engage(true);
+      sim.ap.setHeadingBug(90);
+      sim.ap.setLateral('HDG');
+      sim.ap.press(key);
+      expect(sim.s.armedLateral).toBe(key);
+      sim.run(8); // well into the right turn
+      expect(sim.ac.euler[0]).toBeGreaterThan(10 * DEG);
+      sim.ap.press(key);
+      expect(sim.s.armedLateral).toBeNull();
+      expect(sim.s.lateral).toBe('HDG');
+      sim.run(60);
+      expect(Math.abs(deltaDeg(sim.ac.headingMagRad / DEG, 90))).toBeLessThan(2); // rolled out on the bug, not circling
+      expect(Math.abs(sim.ac.euler[0])).toBeLessThan(2 * DEG);
+    }
+  });
+
+  it('heading error wraps the short way across north, for [0, 2π) and (−π, π] headings', () => {
+    for (const cur of [359 * DEG, -1 * DEG]) expect(headingToBank(1 * DEG, cur, 1, 25 * DEG)).toBeCloseTo(2 * DEG, 12); // right
+    for (const cur of [1 * DEG, 361 * DEG]) expect(headingToBank(359 * DEG, cur, 1, 25 * DEG)).toBeCloseTo(-2 * DEG, 12); // left
+    const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 350 * DEG });
+    sim.ap.engage(true);
+    sim.ap.setHeadingBug(10);
+    sim.ap.setLateral('HDG');
+    let minRoll = 0;
+    sim.run(40, (s) => { minRoll = Math.min(minRoll, s.ac.euler[0]); });
+    expect(minRoll).toBeGreaterThan(-0.5 * DEG); // never rolled left (the long way round)
+    expect(Math.abs(deltaDeg(sim.ac.headingMagRad / DEG, 10))).toBeLessThan(1);
+  });
+
   it('NAV selected from ROL before the first update still auto-intercepts (no armed-forever while flying parallel)', () => {
     const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 0, eastM: 2 * NM });
     sim.course = { startNorthM: -5 * NM, startEastM: 0, endNorthM: 60 * NM, endEastM: 0 };
