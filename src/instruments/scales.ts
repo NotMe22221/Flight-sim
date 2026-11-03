@@ -45,15 +45,23 @@ export function linearAngleDeg(value: number, min: number, max: number, startDeg
  * C172 airspeed dial: 0–40 kt compressed into the first 20°, 40–200 kt linear over 320°.
  * Returns degrees of dial travel from the 0-kt position (0 → 0°, 40 → 20°, 120 → 180°, 200 → 340°).
  */
-export function asiDialTravelDeg(kt: number, d: AsiDialGeometry = ASI_DIAL): number {
+export function asiDialTravelDeg(kt: number): number { return asiTravelOnDial(ASI_DIAL, kt); }
+
+/** Dial travel (deg from the 0-kt position) for an airspeed on any `AsiDial`. */
+export function asiTravelOnDial(d: AsiDialGeometry, kt: number): number {
   const v = clamp(kt, d.minKt, d.maxKt);
   if (v <= d.kneeKt) return (v / d.kneeKt) * d.kneeDeg;
   return d.kneeDeg + ((v - d.kneeKt) / (d.maxKt - d.kneeKt)) * d.sweepDeg;
 }
 
-/** Needle angle (deg clockwise from 12 o'clock) for an airspeed on the C172 dial (or another `dial`). */
-export function asiNeedleDeg(kt: number, dial: AsiDialGeometry = ASI_DIAL): number {
-  return dial.zeroDeg + asiDialTravelDeg(kt, dial);
+/** Needle angle (deg clockwise from 12 o'clock) for an airspeed on the C172 dial. */
+export function asiNeedleDeg(kt: number): number {
+  return ASI_DIAL.zeroDeg + asiDialTravelDeg(kt);
+}
+
+/** Needle angle (deg clockwise from 12 o'clock) for an airspeed on any `AsiDial`. */
+export function asiNeedleOnDial(dial: AsiDialGeometry, kt: number): number {
+  return dial.zeroDeg + asiTravelOnDial(dial, kt);
 }
 
 /** Degrees → radians for canvas arcs, where 0° is 12 o'clock and positive is clockwise. */

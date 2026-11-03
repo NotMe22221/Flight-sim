@@ -18,6 +18,8 @@ export {
   FlightAssists,
   defaultAssistsConfig,
   stallAlphaFromConfig,
+  assistsConfigFor,
+  isTailDragger,
   type AssistsConfig,
   type AssistFlags,
   type AutoRudderConfig,

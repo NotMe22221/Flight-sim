@@ -8,7 +8,9 @@
  *    for adverse yaw); on the ground with assisted take-off, a runway-heading hold (nosewheel /
  *    rudder) on the heading captured at brake release, blended out after lift-off;
  *  - anti-stall: scales the nose-up pitch input down as α (with α̇ lead) approaches the stall α,
- *    and pushes gently if α still goes past the protected value;
+ *    and pushes gently if α still goes past the protected value; optionally (light tail-draggers,
+ *    `assistsConfigFor`) also as the airspeed (with its trend) falls towards a speed floor, so a
+ *    zoom climb cannot run the aircraft out of airspeed at a nose-high attitude;
  *  - LVL emergency: wings level + zero vertical speed from any attitude, flown by the autopilot's
  *    own roll / pitch / VS loops (`GfcAutopilot.level()`).
  *
@@ -81,6 +83,15 @@ export interface AntiStallConfig {
   maxPush: number;
   /** below this IAS α is not trusted and nothing is done, m/s */
   minIasMs: number;
+  /**
+   * Speed floor, m/s (0 = off): nose-up authority also fades as IAS + `speedLeadS`·dIAS/dt falls from
+   * `speedStartMs` to `speedFloorMs`, and below the floor a push of `speedPushPerMs` per m/s of deficit
+   * (up to `maxPush`) is added.
+   */
+  speedFloorMs: number;
+  speedStartMs: number;
+  speedLeadS: number;
+  speedPushPerMs: number;
 }
 
 export interface AssistsConfig {
@@ -100,8 +111,31 @@ export const defaultAssistsConfig = (): AssistsConfig => ({
   antiStall: {
     stallAlphaRad: 0.28, startMarginRad: 5 * DEG, endMarginRad: 1.5 * DEG, leadS: 0.3,
     pushGain: 4, maxPush: 0.3, minIasMs: 25 * KT,
+    speedFloorMs: 0, speedStartMs: 0, speedLeadS: 1.5, speedPushPerMs: 0.05,
   },
 });
+
+/**
+ * True for a tail-dragger: a steerable or castering wheel behind the CG (body x < 0) carries the
+ * tail (the Super Cub; the 172's nose wheel is ahead of the CG).
+ */
+export const isTailDragger = (config: AircraftConfig): boolean =>
+  config.gear.some((g) => g.type === 'wheel' && g.pos[0] < 0 && (g.maxSteerDeg > 0 || g.casters));
+
+/**
+ * Assists tuning for an aircraft: the stall α from its CL table; for a light tail-dragger (Super
+ * Cub) also the anti-stall speed floor at Vs1 (fading in from 1.3 Vs1, 1.5 s speed-trend lead) and
+ * protection down to 12 kt. Its strong elevator would otherwise zoom it to 50° nose-up with α held
+ * below the stall until the airspeed was gone (an α limiter cannot stop that). The take-off heading
+ * hold's C172 gains already hold the Cub's runway heading within 3° through tail-up and lift-off
+ * (cubAssists.test.ts), so they are kept.
+ */
+export function assistsConfigFor(config: AircraftConfig): DeepPartial<AssistsConfig> {
+  const stallAlphaRad = stallAlphaFromConfig(config);
+  if (!isTailDragger(config)) return { antiStall: { stallAlphaRad } };
+  const vs1 = config.limits.Vs1Kt * KT;
+  return { antiStall: { stallAlphaRad, minIasMs: 12 * KT, speedFloorMs: vs1, speedStartMs: 1.3 * vs1, speedLeadS: 1.5, speedPushPerMs: 0.05 } };
+}
 
 /**
  * Stall angle of attack of an aircraft: the α of the largest CL in the normal (pre-stall) column
@@ -133,6 +167,8 @@ export class FlightAssists {
   antiStallPush = 0;
   /** rudder added by the last `autoRudder` call */
   rudderAssist = 0;
+  /** filtered dIAS/dt seen by the anti-stall speed floor, m/s² */
+  iasRate = 0;
 
   private betaI = 0;
   private hdgI = 0;
@@ -143,6 +179,7 @@ export class FlightAssists {
   private releaseN = 0;
   private releaseE = 0;
   private airborneT = 0;
+  private iasPrev = Number.NaN;
 
   constructor(config?: DeepPartial<AssistsConfig>) {
     this.config = mergeConfig(defaultAssistsConfig(), config);
@@ -158,6 +195,7 @@ export class FlightAssists {
     this.betaI = 0; this.hdgI = 0; this.holding = false; this.holdHeading = Number.NaN;
     this.brakesWereSet = false; this.releaseHeading = Number.NaN; this.airborneT = 0;
     this.antiStallFactor = 1; this.antiStallPush = 0; this.rudderAssist = 0;
+    this.iasPrev = Number.NaN; this.iasRate = 0;
   }
 
   /** Run the enabled assists in the right order (rudder, then pitch limiter). */
@@ -211,15 +249,23 @@ export class FlightAssists {
    * reduced. Inactive on the ground and below `minIasMs`. Mutates `inputs.pitch`.
    */
   antiStall(inputs: ControlInputs, s: AircraftState, dt: number): void {
-    void dt;
     const c = this.config.antiStall;
+    if (c.speedFloorMs > 0) this.trackIas(s.aero.ias, dt);
     if (s.onGround || s.aero.ias < c.minIasMs) { this.antiStallFactor = 1; this.antiStallPush = 0; return; }
     const alphaEff = s.aero.alpha + c.leadS * s.aero.alphaDot;
     if (!Number.isFinite(alphaEff)) { this.antiStallFactor = 1; this.antiStallPush = 0; return; } // no α: leave the stick alone
     const start = c.stallAlphaRad - c.startMarginRad;
     const protect = c.stallAlphaRad - c.endMarginRad;
-    const factor = 1 - smoothstep(start, protect, alphaEff);
-    const push = alphaEff > protect ? -Math.min(c.maxPush, c.pushGain * (alphaEff - protect)) : 0;
+    let factor = 1 - smoothstep(start, protect, alphaEff);
+    let push = alphaEff > protect ? -Math.min(c.maxPush, c.pushGain * (alphaEff - protect)) : 0;
+    if (c.speedFloorMs > 0) {
+      // the speed floor: what the airspeed will be in `speedLeadS` at the present deceleration
+      const vEff = s.aero.ias + c.speedLeadS * Math.min(0, this.iasRate);
+      if (Number.isFinite(vEff)) {
+        factor *= smoothstep(c.speedFloorMs, Math.max(c.speedStartMs, c.speedFloorMs + 0.1), vEff);
+        if (vEff < c.speedFloorMs) push = Math.min(push, -Math.min(c.maxPush, c.speedPushPerMs * (c.speedFloorMs - vEff)));
+      }
+    }
     let pitch = inputs.pitch > 0 ? inputs.pitch * factor : inputs.pitch;
     pitch = clamp(pitch + push, -1, 1);
     this.antiStallFactor = factor;
@@ -238,6 +284,16 @@ export class FlightAssists {
   }
 
   // ───────────────────────────── internals ─────────────────────────────
+
+  /** dIAS/dt through a 0.5 s first-order filter (the speed floor's trend). */
+  private trackIas(ias: number, dt: number): void {
+    if (!(dt > 0) || !Number.isFinite(ias)) return;
+    if (Number.isFinite(this.iasPrev)) {
+      const raw = (ias - this.iasPrev) / dt;
+      if (Number.isFinite(raw)) this.iasRate += (raw - this.iasRate) * Math.min(1, dt / 0.5);
+    }
+    this.iasPrev = ias;
+  }
 
   private coordination(inputs: ControlInputs, s: AircraftState, dt: number): number {
     const c = this.config.autoRudder;

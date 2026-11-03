@@ -11,7 +11,7 @@ import { Gauge } from './Gauge';
 import { GAUGE_COLORS, drawText, gaugeFont } from './common';
 
 /** Key positions, deg clockwise from 12 o'clock: OFF, R, L, BOTH, START. */
-export const MAG_KEY_DEG: readonly [number, number, number, number, number] = [-70, -30, 5, 40, 80];
+export const MAG_KEY_DEG: readonly [number, number, number, number, number] = [-75, -40, -5, 30, 65];
 const MAG_LABELS = ['OFF', 'R', 'L', 'BOTH', 'START'] as const;
 
 /** Angle of the key for a magneto selection (0 off, 1 right, 2 left, 3 both) or the starter. */
@@ -36,13 +36,13 @@ export class MagnetoSwitch extends Gauge {
 
   protected paintStatic(ctx: Ctx2D, size: number): void {
     plate(ctx, size, size, size * 0.08);
-    const cx = size / 2, cy = size * 0.5, R = size * 0.27;
+    const cx = size / 2, cy = size * 0.5, R = size * 0.24;
     ctx.fillStyle = '#0c0c0e';
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#8a8a90'; ctx.lineWidth = Math.max(1, size * 0.02); ctx.stroke();
-    const font = gaugeFont(size * 0.085, true);
+    const font = gaugeFont(size * 0.075, true);
     for (let i = 0; i < MAG_LABELS.length; i++) {
-      const a = dialRad(MAG_KEY_DEG[i]), rr = R + size * 0.13;
+      const a = dialRad(MAG_KEY_DEG[i]), rr = R + size * 0.12;
       drawText(ctx, MAG_LABELS[i], cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, font, i === 4 ? GAUGE_COLORS.yellow : GAUGE_COLORS.white);
     }
     drawText(ctx, 'MAGNETO', cx, size * 0.92, gaugeFont(size * 0.08, true), GAUGE_COLORS.grey);
@@ -51,7 +51,6 @@ export class MagnetoSwitch extends Gauge {
   protected paintDynamic(ctx: Ctx2D, size: number, r: InstrumentReadings): void {
     const s = r.switches;
     ctx.save();
-    ctx.translate(0, 0);
     ctx.rotate((magKeyDeg(s.magnetos, s.starter) * Math.PI) / 180);
     const w = size * 0.1, l = size * 0.42;
     ctx.fillStyle = '#c9cbd0';
@@ -88,13 +87,13 @@ function rocker(ctx: Ctx2D, cx: number, size: number, on: boolean): void {
   const w = size * 0.24, h = size * 0.6, top = -size * 0.24;
   ctx.fillStyle = '#060607';
   ctx.fillRect(cx - w / 2 - 2, top - 2, w + 4, h + 4);
-  // the pressed half is darker and sunk; the raised half catches the light
-  ctx.fillStyle = on ? '#2b2c30' : '#c43a2e';
-  ctx.fillRect(cx - w / 2, top, w, h / 2);
+  // the half pressed in is red (ON at the top), the other half is the dark rocker body
   ctx.fillStyle = on ? '#c43a2e' : '#2b2c30';
+  ctx.fillRect(cx - w / 2, top, w, h / 2);
+  ctx.fillStyle = on ? '#2b2c30' : '#c43a2e';
   ctx.fillRect(cx - w / 2, top + h / 2, w, h / 2);
   ctx.fillStyle = 'rgba(255,255,255,0.18)';
-  ctx.fillRect(cx - w / 2, on ? top + h / 2 : top, w, h * 0.08);
+  ctx.fillRect(cx - w / 2, on ? top : top + h / 2, w, h * 0.08);
 }
 
 /** Push-pull knob (carb heat: pulled = hot; primer: locked in). */

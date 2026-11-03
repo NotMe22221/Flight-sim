@@ -25,7 +25,7 @@ export class ClockOat extends Gauge {
     ctx.fillStyle = '#06100a'; ctx.fillRect(size * 0.05, h * 0.1, size * 0.9, h * 0.8);
     drawText(ctx, 'UTC', size * 0.1, h * 0.22, gaugeFont(h * 0.12), GAUGE_COLORS.grey, 'left');
     drawText(ctx, 'OAT', size * 0.1, h * 0.58, gaugeFont(h * 0.12), GAUGE_COLORS.grey, 'left');
-    drawText(ctx, 'TMR', size * 0.55, h * 0.58, gaugeFont(h * 0.12), GAUGE_COLORS.grey, 'left');
+    drawText(ctx, 'TMR', size * 0.6, h * 0.58, gaugeFont(h * 0.12), GAUGE_COLORS.grey, 'left');
   }
 
   protected paintDynamic(ctx: Ctx2D, size: number, r: InstrumentReadings): void {
@@ -34,9 +34,10 @@ export class ClockOat extends Gauge {
     ctx.fillStyle = green; ctx.textBaseline = 'middle';
     ctx.font = gaugeFont(h * 0.28, true);
     fillTabular(ctx, utcLabels.get(r.clock.utcMs), size * 0.42, -h / 2 + h * 0.3, 'right');
-    ctx.font = gaugeFont(h * 0.2, true);
-    fillTabular(ctx, degC.get(r.oatC), -size / 2 + size * 0.1, -h / 2 + h * 0.78, 'left');
-    fillTabular(ctx, degF.get(r.oatC * 1.8 + 32), -size / 2 + size * 0.28, -h / 2 + h * 0.78, 'left');
-    fillTabular(ctx, timerLabels.get(r.clock.timerS), -size / 2 + size * 0.55, -h / 2 + h * 0.78, 'left');
+    // OAT °C, °F and the timer side by side: sized so '-40°C −40°F 00:00' never runs together
+    ctx.font = gaugeFont(h * 0.17, true);
+    fillTabular(ctx, degC.get(r.oatC), -size / 2 + size * 0.08, -h / 2 + h * 0.78, 'left');
+    fillTabular(ctx, degF.get(r.oatC * 1.8 + 32), -size / 2 + size * 0.31, -h / 2 + h * 0.78, 'left');
+    fillTabular(ctx, timerLabels.get(r.clock.timerS), -size / 2 + size * 0.6, -h / 2 + h * 0.78, 'left');
   }
 }

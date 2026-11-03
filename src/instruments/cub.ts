@@ -39,7 +39,9 @@ export function cubPanelSpec(cfg: AircraftConfig): PanelSpec {
     nameplate: 'PIPER SUPER CUB',
     vspeeds,
     asiDial: CUB_ASI_DIAL,
-    asiPlacard: `Va ${Math.round(vspeeds.va)} KIAS @ ${lb.toLocaleString('en-US')} LB`,
+    // the Cub dial has its 80 kt label at the bottom: the Va placard goes on the panel instead
+    asiPlacard: '',
+    panelPlacard: `MANEUVERING SPEED ${Math.round(vspeeds.va)} KIAS\nAT ${lb.toLocaleString('en-US')} LB GROSS WEIGHT`,
     tach: { ...CUB_TACH, greenHi: Math.min(CUB_TACH.greenHi, red), redline: red },
     oilTemp: CUB_OIL_TEMP,
     oilPress: CUB_OIL_PRESS,
@@ -59,7 +61,7 @@ export function cubPanelSpec(cfg: AircraftConfig): PanelSpec {
  */
 export const CUB_STEAM_LAYOUT: PanelLayout = {
   width: 1024, height: 512, background: '#33302b',
-  nameplate: { text: 'PIPER  SUPER CUB', x: 520, y: 470, px: 15 },
+  nameplate: { text: 'PIPER  SUPER CUB', x: 528, y: 448, px: 15 },
   items: [
     { id: 'asi', x: 20, y: 20, size: 190 }, { id: 'alt', x: 222, y: 20, size: 190 },
     { id: 'tc', x: 40, y: 226, size: 150 }, { id: 'vsi', x: 242, y: 226, size: 150 },

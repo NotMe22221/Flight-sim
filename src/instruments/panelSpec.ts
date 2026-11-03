@@ -44,8 +44,10 @@ export interface PanelSpec {
   nameplate: string;
   vspeeds: VSpeeds;
   asiDial: AsiDial;
-  /** placard on the airspeed dial (e.g. the manoeuvring speed) */
+  /** placard on the airspeed dial (e.g. the manoeuvring speed); '' for none */
   asiPlacard: string;
+  /** operating-limitations placard on the panel, under the nameplate (optional; '\n' separates lines) */
+  panelPlacard?: string;
   tach: TachMarkings;
   oilTemp: OilTempMarkings;
   oilPress: OilPressMarkings;

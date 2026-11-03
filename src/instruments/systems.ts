@@ -96,7 +96,7 @@ export class ElectricalSystem {
 export class FuelGauge {
   private readonly lag = new Lag(2, 0);
   gal = 0;
-  constructor(private readonly unusableGal = FUEL.unusableGalPerTank, private readonly maxGal = FUEL.maxGal, private readonly kgPerGal = FUEL.kgPerGal) {}
+  constructor(private readonly unusableGal: number = FUEL.unusableGalPerTank, private readonly maxGal: number = FUEL.maxGal, private readonly kgPerGal: number = FUEL.kgPerGal) {}
   step(kg: number, rollRad: number, pitchRad: number, dt: number): number {
     const usable = Math.max(0, kg / this.kgPerGal - this.unusableGal);
     const fill = clamp(usable / this.maxGal, 0, 1);

@@ -6,7 +6,7 @@
 import type { CanvasFactory, Ctx2D } from '../canvas';
 import { ASI_DIAL, C172S_VSPEEDS, type VSpeeds } from '../c172';
 import type { AsiDial } from '../panelSpec';
-import { asiNeedleDeg } from '../scales';
+import { asiNeedleDeg, asiNeedleOnDial } from '../scales';
 import { ArcGauge } from './ArcGauge';
 import { GAUGE_COLORS, drawText, gaugeFont } from './common';
 
@@ -21,12 +21,12 @@ export class AirspeedIndicator extends ArcGauge {
       ],
       redlines: [vspeeds.vne],
       majorStep: 10, minorStep: 5, labelStep: 20, tickMin: dial.kneeKt, labelMin: dial.kneeKt,
-      title: 'AIRSPEED', unit: 'KNOTS', angleOf: dial === ASI_DIAL ? asiNeedleDeg : (v) => asiNeedleDeg(v, dial), labelFrac: 0.6,
+      title: 'AIRSPEED', unit: 'KNOTS', angleOf: dial === ASI_DIAL ? asiNeedleDeg : (v) => asiNeedleOnDial(dial, v), labelFrac: 0.6,
     }, (r) => r.iasKt, factory);
   }
 
   protected override paintExtraStatic(ctx: Ctx2D, size: number, fr: number): void {
     const cx = size / 2, cy = size / 2;
-    drawText(ctx, this.placard, cx, cy + fr * 0.6, gaugeFont(fr * 0.085), GAUGE_COLORS.grey);
+    if (this.placard) drawText(ctx, this.placard, cx, cy + fr * 0.6, gaugeFont(fr * 0.085), GAUGE_COLORS.grey);
   }
 }

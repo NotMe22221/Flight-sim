@@ -2,13 +2,20 @@
  * Cockpit instruments: 2D-canvas renderers the integrator wraps in `THREE.CanvasTexture`s (or
  * overlays in the DOM). No Three.js imports anywhere in this module. See README.md.
  *
- *  - `SteamPanel`  C172S six-pack + engine cluster + radio stack on one 1024×512 canvas
+ *  - `SteamPanel`  C172S six-pack + engine cluster + radio stack on one 1024×512 canvas, or the
+ *                  Super Cub panel (`CUB_STEAM_LAYOUT`, `panelSpecFor`)
  *  - `G1000`       PFD + MFD canvases (GDU bezel around 1024×768 screens), interactive like the
  *                  G1000 NXi (softkeys, knobs, D→, FPL, NRST, PROC); `G1000Panel` composites both
  *  - `Hud`         translucent DOM-overlay HUD for the external views
  *  - `InstrumentModel` the instrument dynamics shared by all of them
  */
-export { SteamPanel, C172_STEAM_LAYOUT, type GaugeId, type PanelItem, type PanelLayout, type SteamPanelOptions } from './SteamPanel';
+export { SteamPanel, C172_STEAM_LAYOUT, ITEM_ASPECT, hitTestPanel, itemHeight, type GaugeId, type PanelItem, type PanelLayout, type SteamPanelOptions } from './SteamPanel';
+export { CUB_STEAM_LAYOUT, CUB_ASI_DIAL, CUB_TACH, CUB_OIL_TEMP, CUB_OIL_PRESS, cubPanelSpec } from './cub';
+export { panelSpecFor, steamLayoutFor, hasAutopilot } from './panels';
+export {
+  C172S_PANEL_SPEC, vspeedsFromLimits, electricalMarkings, fuelMarkings, instrumentConfigFor, voltmeterScale,
+  type PanelSpec, type AsiDial, type TachMarkings, type OilTempMarkings, type OilPressMarkings, type FuelMarkings, type ElectricalMarkings,
+} from './panelSpec';
 export { G1000, type G1000Options, type NearestAirportInput } from './g1000/G1000';
 export { G1000Panel, type G1000PanelOptions, type PanelPoint } from './g1000/panel';
 export { BEZEL, bezelRegions, hitTest, controlInfo, controlKey, type BezelControl, type BezelHit, type HitRegion } from './g1000/bezel';
