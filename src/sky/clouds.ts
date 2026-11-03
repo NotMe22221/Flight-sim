@@ -245,6 +245,43 @@ export class CloudLayers {
     u.uCloudShadowCount.value = n;
   }
 
+  /**
+   * Radiance (linear, dome scale) of the most opaque visible layer's underside seen from below, at
+   * `elevationDeg` and 90° in azimuth from the sun: the CPU twin of the plane shader's back face at full
+   * density, before aerial perspective (`update` must have run this frame). The skylight under a closing deck
+   * is π × this (what the ground sees), so sunlit paint under an overcast reads like the deck above it.
+   * Returns that layer's coverage × opacity along the view (0 = no layer; `out` is then zero).
+   */
+  deckRadianceBelow(out: [number, number, number], elevationDeg = 45): number {
+    let best: CloudPlane | null = null, bestW = 0;
+    const sinEl = Math.max(Math.sin((elevationDeg * Math.PI) / 180), 0.08);
+    for (const p of this.planes) {
+      if (!p.mesh.visible) continue;
+      const u = p.u;
+      const od = (u.uTop.value - u.uBase.value) * u.uDensity.value * u.uSigmaT.value / sinEl;
+      const w = u.uCoverage.value * (1 - Math.exp(-od));
+      if (w > bestW) { bestW = w; best = p; }
+    }
+    out[0] = 0; out[1] = 0; out[2] = 0;
+    if (!best) return 0;
+    const u = best.u;
+    const thickness = (u.uTop.value - u.uBase.value) * u.uDensity.value;
+    const od = thickness * u.uSigmaT.value / sinEl;
+    const alpha = 1 - Math.exp(-od);
+    const sunT = Math.exp(-thickness * u.uSigmaT.value * 0.6);
+    const powder = 1 - Math.exp(-2 * od);
+    // view 90° from the sun's azimuth: only the vertical parts meet
+    const cosT = sinEl * (u.uSunDir.value as THREE.Vector3).y;
+    const hg = (0.0795775 * (1 - 0.36)) / Math.pow(1 + 0.36 - 1.2 * cosT, 1.5);
+    const sunK = u.uBrightness.value * (sunT * 0.9 + hg * 2.5 * powder * (1 - alpha));
+    const amb = u.uSkyAmbient.value as THREE.Color, sun = u.uSunRadiance.value as THREE.Color;
+    // front face, then the shader's underside (back face) darkening
+    out[0] = (amb.r * 0.8 + sun.r * sunK) * 0.55 + amb.r * 0.25;
+    out[1] = (amb.g * 0.8 + sun.g * sunK) * 0.55 + amb.g * 0.25;
+    out[2] = (amb.b * 0.8 + sun.b * sunK) * 0.55 + amb.b * 0.25;
+    return bestW;
+  }
+
   /** Cloud density 0..1 at a render-frame point (same field as the shader, max over layers). */
   cloudDensityAt(pos: THREE.Vector3): number {
     return cloudDensityAt(this.layers, pos.x, pos.y + this.altitudeOffsetM, pos.z, this.drifts, this.octaves);

@@ -81,7 +81,7 @@ sky.notifyRebase(shift);
 - Readonly members: `sky`, `sunLight`, `moonLight`, `hemiLight`, `ambientLight`, `fog`, `stars`,
   `moon`, `clouds`, `precipitation`, `preetham` (CPU twin of the dome), `exposureOptions`.
 - `patchSkyDepth(material)` — keeps the r187 `Sky` dome at the far plane under reversed depth.
-- `patchSkyDome(material)` — the dome's look patches (in-scatter knee, night glow), mirrored by `PreethamSky`, plus
+- `patchSkyDome(material)` — the dome's look patches (in-scatter knee, night glow, twilight; composed by `SKY_LIT_MAX_LINE`), mirrored by `PreethamSky`, plus
   the `skySaturation` (environment bake) and `skyFogMix` / `skyFogColor` (inside a cloud) uniforms.
 
 ### `SkyLighting` (from `types.ts`, mutated in place every frame)
@@ -93,6 +93,18 @@ surface, = hemisphere sky colour × intensity + ambient floor), `moonDirThree`, 
 `sunElevationDeg`, `cloudCover`, `starVisibility`, `inCloud`, `groundY`.
 `HEIGHT_FOG_GLSL` provides `heightFogOpticalDepth(...)` / `heightFogFactor(origin, dir, dist, beta0, invH, groundY)`;
 `HAZE_LOBE_GLSL` provides `hazeSunLobe(cosθ)` (mix `fogColor` → `sunGlowColor` by it).
+
+### Per-material image-based light (`iblScale.ts`)
+- `applyIblScale(material, diffuse, specular = diffuse)` — a material's share of the sky's environment light, relative
+  to `scene.environmentIntensity`: three r187 binds `scene.environment` to every MeshStandard/Physical/Lambert/Phong
+  material without its own `envMap` and overwrites `material.envMapIntensity` with `scene.environmentIntensity` on
+  every draw (`WebGLRenderer.setProgram`), so a per-material value does nothing. The helper chains an
+  `onBeforeCompile` that scales `iblIrradiance` (× diffuse) and `radiance` / `clearcoatRadiance` (× specular) right
+  after `lights_fragment_maps` (where they hold the environment only), with a per-material `iblScale` uniform and a
+  program cache key per value (`…|ibl:0.350,0.350`); earlier `onBeforeCompile` / `customProgramCacheKey` hooks are
+  kept (apply it after them). Unlit materials are left alone; calling it again updates the values. `iblScaleOf`,
+  `patchIblScaleSource`, `IBL_SCALE_ANCHOR`, `IBL_SCALE_GLSL`. Used by the cockpit (`aircraft3d` `CABIN_IBL_SHARE`
+  0.12–0.35) and the OSM scenery (diffuse 1, reflections 0, 0.03 on glass).
 
 ### Shared uniforms (`skyUniforms.ts`) and built-in fog (`builtinFog.ts`)
 - `SKY_UNIFORMS` / `createSkySharedUniforms()` / `SkySharedUniforms`: `uSkyLinked`, `uSkyIrradiance`,
@@ -124,19 +136,21 @@ surface, = hemisphere sky colour × intensity + ambient floor), `moonDirThree`, 
 - `wind.ts`: `windAt(layers, altMsl, agl, out?, z0?)`, `windVectorNED(fromDeg, speedMs, out?)`,
   `logProfileFactor(agl, z0?)`, `gustExcessAt(layers, altMsl)`, `gustEnvelope(x, rampM)`,
   `GustModel(seed, options?)` with `update(dt, relSpeed, excessMs, meanWindNED)`, `trigger(excessMs)`, `gustNED(out?)`.
-- `preetham.ts`: `PreethamSky` (`setSun`, `radiance`, `transmittance`, `sunTransmittance`, `zenith`,
-  `horizonAverage`, `horizonTowardSun`), `DEFAULT_PREETHAM`, `SKY_RADIANCE_SCALE`.
+- `preetham.ts`: `PreethamSky` (`setSun`, `setNightGlow`, `setTwilight`, `radiance`, `transmittance`, `sunTransmittance`,
+  `zenith`, `horizonAverage`, `horizonTowardSun`, `irradianceUp`), `DEFAULT_PREETHAM`, `SKY_RADIANCE_SCALE`, the twilight
+  (`twilightStrength`, `twilightColors`, `twilightAzimuthWeight`, `skyExtraDayFade`, `skyLitMax`, `TWILIGHT_GLSL`,
+  `TWILIGHT_*` constants) and the night glow (`NIGHT_GLOW_GLSL`).
 - `lighting.ts`: exposure/light/fog curves (`targetExposure`, `adaptExposure`, `sunLightIntensity`,
   `hemisphereIntensity`, `ambientFloor`, `moonLightIntensity`, `starVisibility`, `turbidityFromVisibility`,
   `mieFromVisibility`, `fogBetaFromVisibility`, `fogExp2DensityFromVisibility`, `hazeScaleHeight`,
   `heightFogOpticalDepth`), the haze model (`hazeColor`, `capBySky`, `hazeSunLobe`, `hgPhase`, `rayleighPhase`,
   `mieFraction`, `DEFAULT_HAZE`), the metered-free exposure (`exposureForIlluminance`, `surfaceIlluminance`,
-  `DAY_ILLUMINANCE`, `cloudCoverAbove`), the calibration (`SUN_INTENSITY_BASE`, `SKYLIGHT_SATURATION`, `GROUND_ALBEDO`,
+  `DAY_ILLUMINANCE`, `cloudCoverAbove`), cloud dimming of the sun (`cloudShadowFloor`, `cloudSunFactor`), the calibration (`SUN_INTENSITY_BASE`, `SKYLIGHT_SATURATION`, `GROUND_ALBEDO`,
   `skylightIrradiance`, `saturateColor`, `sunSkyRatio`, `skylightBalance`), `NIGHT_AMBIENT_COLOR`, ACES/sRGB ports
   (`acesFilmic`, `linearToSrgb`, `encodeDisplayColor`), helpers.
 - `cloudMath.ts`: `cloudDensityAt(layers, x, yMsl, z, drifts?)`, `cloudLayerDensityAt`, `cloudTypeParams`,
   `coverageMask`, `verticalProfile`, `fbm2`/`valueNoise2`/`hash2`, `CLOUD_NOISE_GLSL` (GPU twin).
-- Renderables usable on their own: `CloudLayers`, `Precipitation`, `StarField` (+ `generateStarCatalog`,
+- Renderables usable on their own: `CloudLayers` (+ `deckRadianceBelow`, the CPU twin of a deck's underside), `Precipitation`, `StarField` (+ `generateStarCatalog`,
   `equatorialToLocalMatrix`, `gmstDeg`, `blackbodyRGB`), `MoonDisc`.
 
 ## How it works
@@ -155,21 +169,29 @@ local sidereal time (`equatorialToLocalMatrix`: Polaris sits at azimuth 0°, ele
 that shader; each frame it samples the zenith, an 8-azimuth horizon average at +1°, the horizon 90° from
 the sun, the sun-ward horizon and the sun transmittance. Those samples drive the hemisphere light, the sun
 colour, the haze cap, water reflections and the cloud lighting. Turbidity and Mie coefficient follow
-visibility and aerosol. Two look patches (`patchSkyDome`, mirrored in the CPU twin): an in-scatter knee
+visibility and aerosol. Three look patches (`patchSkyDome`, mirrored in the CPU twin): an in-scatter knee
 `Lin · 1/(1 + lum(Lin)/25)` — Sky.js's single scattering puts the noon horizon at ≈ 16 × the zenith (real
 clear skies: 2–4 ×), which turned the lower 15° of the dome and everything derived from it white; the knee
-brings it to ≈ 3.5 ×, keeps the hue and barely touches the zenith and twilight skies — and a night glow
-(warm light-pollution band at the horizon, airglow at the zenith, a little brighter under a moon) that fades
-in through nautical twilight, so night skies have a gradient and hills silhouette against it.
+brings it to ≈ 3.5 ×, keeps the hue and barely touches the zenith and twilight skies —, a night glow
+(warm light-pollution band at the horizon, airglow at the zenith, a little brighter under a moon), so night
+skies have a gradient and hills silhouette against it, and a twilight term. Sky.js cuts its sun term once the
+sun is ≈ 1–2° below the horizon (its `sunIntensity` earth-shadow hack), and the glow used to fade in only below
+−3°: from ≈ −2° to −6° the dome was black (sRGB 0–4), darker than the night. The twilight is a deep-blue dome
+(`TWILIGHT_ZENITH`) plus a warm band toward the sun's azimuth (`TWILIGHT_BAND` × exp(−sin el / 0.2) × an azimuth
+weight 1 → 0.16 at 90° → 0.1 opposite), full down to a −1° (apparent) sun and e-folding every 1.6° below. The
+glow and the twilight are composed with Sky.js's sunlit in-scatter by a per-channel smooth maximum
+`skyLitMax(Lin·0.04, glow + twilight)` (p = 4; Sky.js's sun-independent floor L0 stays additive, so the night sky
+is unchanged) and both fade out above a 5–15° sun: the day dome is exactly Sky.js's, the golden-hour dome within
+a few percent, and the dome darkens monotonically from the sunset into the night glow with no gap.
 
 **Lights and exposure (§7).** One set of light units for everything: the sky dome's radiance scale (Sky.js,
 `SKY_RADIANCE_SCALE` included), so the sky you see is the sky that lights the ground (see "Calibration").
 Sun `DirectionalLight`: colour = normalised Preetham transmittance (≈ 5 800 K at the zenith, ≈ 3 000 K at
-5°), intensity `SUN_INTENSITY_BASE (12) · disc(el) · lum(T) · (1 − 0.85 cc)`, shadow camera a ±200 m box
+5°), intensity `SUN_INTENSITY_BASE (12) · disc(el) · lum(T) · cloudSunFactor(cc)` (1 − 0.85 cc up to half cover, 0.05 under a full deck), shadow camera a ±200 m box
 following the aircraft. Skylight (`ambientIrradiance`, up-facing): by day the dome's own irradiance
 (`PreethamSky.irradianceUp`, re-integrated when the sun moves ≈ 0.25° or the air changes, not per frame),
 desaturated to real skylight's hue (`SKYLIGHT_SATURATION` 0.3: Sky.js's irradiance is ≈ 30 000 K+, measured
-clear-sky diffuse light ≈ 10–15 000 K) and ×(1 + 0.3 cc), greyer under cloud; from sunset down the
+clear-sky diffuse light ≈ 10–15 000 K) and ×(1 + 0.3 cc), greyer under cloud, handing over to π × the deck's radiance as cover closes (0.5 → 1); from sunset down the
 twilight curve (zenith/horizon hue × `lerp(0.02, 0.9, smoothstep(−12°, 10°, el)) · (1 + 0.3 cc)`, the
 pre-calibration skylight, which keeps dusk readable where the dome is nearly black); the two hand over by a
 smooth maximum (`skylightIrradiance`) around a 10° sun. Plus a night-blue ambient floor (≈ 0.12 luminance
@@ -181,7 +203,7 @@ hemisphere light's ground colour carries whatever the environment does not. Expo
 partial adaptation to the light where the camera is, `day · (DAY_ILLUMINANCE / E)^0.5` bounded by
 [day 0.5, night 1.5 (+15 % moonless)], E = sun·sin el + skylight luminance with the sun dimmed only by the
 cloud layers ABOVE the camera (`cloudCoverAbove`) and by the cloud it is in: 0.5 at a clear noon, ≈ 0.6 at
-40°, ≈ 0.9 at 20°, the night bound from a ≈ 6° sun down, ≈ 0.85 under a noon overcast and back to ≈ 0.5
+40°, ≈ 0.9 at 20°, the night bound from a ≈ 6° sun down, ≈ 0.95 under a noon overcast (≈ 0.85 before the look pass 2 dimmed its residual sun) and back to ≈ 0.5
 on top of it. It adapts with a 1.5 s first-order filter (frame-rate independent, no overshoot; the first
 frame snaps). `targetExposure` (elevation curve) remains exported.
 
@@ -217,8 +239,13 @@ opacity along the slant path, HG(0.6) sun lighting with powder, a darker undersi
 height fog as the terrain; the skylight on a layer turns neutral grey as cover closes (an overcast base
 reads grey, not blue-white). Cloud shadows: `CloudLayers.writeShadowUniforms` publishes each layer's
 coverage, feature size, column optical depth, mid height and drift into the shared uniforms; terrain and
-ocean evaluate `skyCloudShadow` (the same noise field at the layer middle along the sun ray, floored at the
-overcast dimming and normalised by it, so gaps get the full sun and the average matches the dimmed sun).
+ocean evaluate `skyCloudShadow` (the same noise field at the layer middle along the sun ray, floored at
+`cloudShadowFloor(cover)` — 0.15 up to half cover, falling to 0.05 under a full deck — and normalised by the mean
+dimming `cloudSunFactor(cover)` = 1 − cover·(1 − floor) the sun intensity already carries, so gaps get the full
+sun and the average matches the dimmed sun; the old fixed floor kept 15 % of the sun under an overcast).
+Under a closing deck (cover 0.5 → 1) the skylight hands over to π × the deck's underside radiance
+(`CloudLayers.deckRadianceBelow`, the CPU twin of the planes' back face at full density) and the environment's
+overcast shell takes the deck's colour, so a surface under an overcast is lit by the deck it is seen against.
 Only layers whose middle is above the point count — the sun ray goes up — so the aircraft and peaks on top
 of a deck are in full sun (before the review a deck below them shadowed them as if it were above).
 The built-in materials share one sun light, so `cloudShadowAt` (CPU twin) scales its intensity by the
@@ -309,7 +336,7 @@ strong environment map" regression in a new form).
 
 ## Tests
 
-`npx vitest run src/sky` — 16 files, all Node (no WebGL):
+`npx vitest run src/sky` — 19 files, all Node (no WebGL):
 
 | File | Covers |
 |---|---|
@@ -318,6 +345,8 @@ strong environment map" regression in a new form).
 | `skyShared.test.ts` | shared uniforms (ambient irradiance = hemisphere + floor, cloud-shadow layers, no shadows at night, `null` publishes nothing), noon haze darker than the horizon and blue-grey on screen, night glow and ambient floor, built-in height-fog chunks + uniforms shared through `UniformsUtils.clone`, `patchSkyDome` idempotent |
 | `calibration.test.ts` | sun vs sky calibration end to end: direct sun 3–8 × the dome's skylight (20°–76°), clear-noon white paint 225–245 and neutral, shade 120–180 and slightly blue, sky ≥ 2.5 × darker than the paint, golden hour warm and unclipped with bluish shade, dusk/night dark but readable; exposure on top of an overcast = clear air (was ≈ 2 × too open), settles without overshoot or pumping; the dome irradiance is not re-integrated per frame; the environment's lower hemisphere is the lit ground (was default white) |
 | `lookReview.test.ts` | review regressions: a deck below the point casts no shadow (CPU twin, GLSL guard, the aircraft's sun light on top of an overcast), cloud-type parameters are shared constants, `uSkyGroundY` published, `irradianceUp` vs a fine quadrature (noon → sunset), `skylightBalance` parity and caps, built-in skylight = terrain skylight at a 40° sun and at sunset |
+| `lookPass2.test.ts` | the civil-dusk dome (CPU twin through `SkySystem`) at the zenith, 45°/20°/3° 90° from the sun, the anti-sun and sun-ward horizon every 1° from +4° to −12°: monotonic, no step > 2.5× (sun-ward 5×), never below the night sky; deep-blue zenith and a warm sun-ward band at −3.5°; GPU uniforms = the twin's; the day dome exactly Sky.js, golden hour within 6 %; `skyLitMax`; the cloud-shadow floor 0.15 → 0.05 and `cloudSunFactor`; under a noon overcast ≈ 5 % of the sun, skylight = π × the deck, white paint within the deck's brightness; the deck twin mirrors the planes' underside lines; broken / scattered shadows still visible |
+| `iblScale.test.ts` | three r187 still overrides `envMapIntensity` (the helper's reason); the chunks declare / fill / consume the scaled terms; the scale lands after `lights_fragment_maps` and before use for Standard, Physical, Lambert and Phong; unlit materials untouched, no stacking, values update in place; one cache key per value, earlier patches and keys kept |
 | `robustness.test.ts` | one running `SkySystem` fed zero / 50 m / 10⁹ m / NaN visibility, a ground-fog layer, 80 km altitude, in-cloud and storm, at noon, dusk and midnight: every `SkyLighting` number, shared uniform, built-in fog value and the fog optical depth stays finite (a NaN visibility used to latch NaN into the adapted exposure for good) |
 | `WeatherSystem.test.ts` | presets by reference, transitions (lerp, wrap through north, exact end state), `windNED`/`windAt` sign (FROM 270° 10 kt → +E 5.144 m/s), log profile, gusts, METAR/live application, cloud density + drift + rebase |
 | `wind.test.ts` | FROM→TO sign, log profile, vector interpolation, gust envelope, deterministic `GustModel` |
@@ -345,24 +374,18 @@ depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app
 
 ## Known limitations
 
-- **Albedos are not yet calibrated to the light.** Since the calibration (sun 12, the dome's skylight,
-  day exposure 0.5) white paint lands where a photograph puts it, but the albedos of other modules were
-  tuned against the old, ≈ 4 × too dim sun: the runway asphalt (≈ 0.15 linear, "aged") renders ≈ 150/255
-  sunlit at noon instead of 55–90, the procedural grass ≈ 160 (straw) instead of a mid green, the runway
-  markings (0xf2f2ea ≈ 0.89) at the paint's level. Proposed numbers are in the look-calibration review.
-  `environmentIntensity` still scales diffuse and specular alike, and the environment's lower hemisphere is
-  the lit ground even on top of a cloud deck (where it should be the bright deck).
-
-- **Civil-dusk sky.** Sky.js's sun term is cut off once the sun is ≈ 1.3° below the horizon and the night glow
-  only fades in below −3°, so between ≈ −2° and −6° the dome is black (sRGB ≈ 0–4 at the night exposure)
-  — darker than the moonlit night sky at −25° (horizon ≈ 56). The app's "dusk" preset (sunset − 20 min,
-  sun ≈ +3°) avoids it; flying through dusk does not. Needs a twilight term (blue zenith, warm band toward
-  the sun) decaying from the sunset dome to the night glow, mirrored in `PreethamSky`.
-- **Overcast residual sun.** Under a full deck the cloud-shadow floor (`uCloudShadowFloor` 0.15) keeps 15 % of
-  the direct sun, now ≈ 1.5 light units against a skylight of ≈ 2.6: sunlit white paint (223) reads a little
-  brighter than the deck behind it (198–211), where a white surface under a uniform overcast is ≈ 0.85 × the
-  deck's radiance. A floor that falls toward ≈ 0.05 as cover → 1, with the skylight under a deck set to
-  π × the deck's radiance (what the environment's overcast shell already shows), would fix it.
+- **Albedos** of the other modules were brought to the calibrated light by the look pass 2 (runway asphalt,
+  markings, procedural grass and fields, OSM pavement; see "Calibration"); imagery terrain (Sentinel-2) is
+  shown as delivered. The environment's lower hemisphere is the lit ground even on top of a cloud deck
+  (where it should be the bright deck).
+- **Twilight** is an empirical term (deep-blue dome, warm band toward the sun) composed with Sky.js by a
+  smooth maximum, not multiple scattering: no Belt of Venus / earth shadow on the anti-sun side, no ozone
+  colour; the sun-ward Mie glow of Sky.js still collapses ≈ 4× within a degree around −2.5° (continuous,
+  but quick). The night glow is the same light-pollution band at any sun elevation (faded out by day).
+- **Overcast**: the skylight under a closing deck is π × the deck's underside radiance as the cloud planes
+  draw it at full density 90° from the sun (no per-direction integral, no aerial perspective); the residual
+  sun under a full deck is 5 %. Under a low golden-hour or dusk overcast the ground is therefore as dark as
+  the deck (the twilight skylight curve no longer applies there).
 
 - Tier A planes are 2-D slabs: weak look at the layer altitude, no cumulus towers, no earth curvature
   (≈ 0.8 km drop at the 100 km plane edge). Inside a cloud the fog is global, so rays leaving the cloud stay
@@ -408,5 +431,6 @@ depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app
 | `PrecipitationOptions` | `maxParticles` (4000), `boxM` (60), `fullRateRain` (15 mm/h), `fullRateSnow` (6 mm/h), `seed` |
 | `WeatherSystemOptions` | `airportElevationM`, `seed` (7), `z0` (0.03 m), `initial` ('clear'), `defaultTransitionS` (60), `gust` {meanIntervalS 40, minIntervalS 12, rampMinM 30, rampMaxM 120, magMin 0.5, magMax 1} |
 | `lighting.ts` | `DEFAULT_HAZE` {omega 0.9, multiScatter 2.6, groundAlbedo 0.15, maxOfSky 0.8}, `HAZE_G` 0.7, `DAY_ILLUMINANCE` 11, `SKYLIGHT_SATURATION` 0.3, `GROUND_ALBEDO` (0.15, 0.15, 0.13), `NIGHT_AMBIENT_COLOR`, `ambientFloor` 0.22 + 0.22·moon |
-| `preetham.ts` / `SkySystem.ts` | `INSCATTER_KNEE` 25, `NIGHT_GLOW_SCALE_HEIGHT` 0.18, `NIGHT_GLOW_HORIZON`/`_ZENITH`, `SKYLIGHT_HORIZON_SHARE` 0.5 |
+| `preetham.ts` / `SkySystem.ts` | `INSCATTER_KNEE` 25, `NIGHT_GLOW_SCALE_HEIGHT` 0.18, `NIGHT_GLOW_HORIZON`/`_ZENITH`, `SKYLIGHT_HORIZON_SHARE` 0.5, `TWILIGHT_ZENITH` (0.004, 0.01, 0.03), `TWILIGHT_BAND` (0.26, 0.13, 0.045), `TWILIGHT_BAND_SCALE_HEIGHT` 0.2, `TWILIGHT_FULL_DEG` −1, `TWILIGHT_DECAY_DEG` 1.6, `SKY_EXTRA_DAY_FADE_DEG` [5, 15], `DECK_SKYLIGHT_COVER` [0.5, 1] |
+| `lighting.ts` (clouds) | `CLOUD_SHADOW_FLOOR_SCATTERED` 0.15, `CLOUD_SHADOW_FLOOR_OVERCAST` 0.05 (`cloudShadowFloor`: smoothstep over cover 0.5 → 1) |
 | runtime | `sky.stars.gain` (3.5), `sky.moon.brightness` (0.6), moon drawn at `MOON_APPARENT_DIAMETER_DEG` 1.0° (`SkySystem.ts`), `wind.ts` `LOG_PROFILE_MAX` (1.3), `lighting.ts` curves |

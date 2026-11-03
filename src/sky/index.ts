@@ -19,13 +19,16 @@ export { WEATHER_PRESETS, WEATHER_PRESET_IDS, COVERAGE, weatherFromPreset, clone
 export { parseMetar, weatherFromMetar, relativeHumidity, type MetarReport, type MetarCloudGroup } from './metar';
 export { fetchOpenMeteo, fetchMetarText, openMeteoToWeatherState, openMeteoUrl, nearestHourIndex, OPEN_METEO_ATTRIBUTION, type FetchOptions, type OpenMeteoResponse } from './liveWeather';
 export { windAt, windVectorNED, logProfileFactor, gustExcessAt, gustEnvelope, GustModel, type GustModelOptions, DEFAULT_GUST_OPTIONS, Z0_DEFAULT, LOG_PROFILE_MAX } from './wind';
-export { PreethamSky, DEFAULT_PREETHAM, type PreethamParams, SKY_RADIANCE_SCALE, INSCATTER_KNEE, NIGHT_GLOW_GLSL, NIGHT_GLOW_SCALE_HEIGHT } from './preetham';
+export {
+  PreethamSky, DEFAULT_PREETHAM, type PreethamParams, SKY_RADIANCE_SCALE, INSCATTER_KNEE, NIGHT_GLOW_GLSL, NIGHT_GLOW_SCALE_HEIGHT,
+  TWILIGHT_GLSL, twilightStrength, twilightColors, twilightAzimuthWeight, skyExtraDayFade, skyLitMax,
+} from './preetham';
 export {
   targetExposure, adaptExposure, sunLightIntensity, hemisphereIntensity, moonLightIntensity, ambientFloor, starVisibility,
   turbidityFromVisibility, mieFromVisibility, fogBetaFromVisibility, fogExp2DensityFromVisibility, hazeScaleHeight,
   heightFogOpticalDepth, MIN_FOG_INV_H,
   hazeColor, capBySky, hazeSunLobe, hgPhase, rayleighPhase, mieFraction, HAZE_G, DEFAULT_HAZE, type HazeOptions,
-  exposureForIlluminance, surfaceIlluminance, skylightBalance, DAY_ILLUMINANCE, NIGHT_AMBIENT_COLOR,
+  exposureForIlluminance, surfaceIlluminance, skylightBalance, DAY_ILLUMINANCE, NIGHT_AMBIENT_COLOR, cloudShadowFloor, cloudSunFactor,
   acesFilmic, linearToSrgb, encodeDisplayColor, cloudCoverFraction, colorTemperatureK, luminance, normalizeColor,
   DEFAULT_EXPOSURE, type ExposureOptions,
 } from './lighting';

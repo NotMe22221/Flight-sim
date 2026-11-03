@@ -19,7 +19,7 @@ import { CloudLayers, type CloudLayersOptions } from './clouds';
 import { installBuiltinHeightFog, setBuiltinHeightFog } from './builtinFog';
 import {
   DEFAULT_EXPOSURE, type ExposureOptions, GROUND_ALBEDO, MIN_FOG_INV_H, NIGHT_AMBIENT_COLOR, SKYLIGHT_SATURATION, SUN_INTENSITY_BASE, adaptExposure,
-  ambientFloor, capBySky, cloudCoverAbove, cloudCoverFraction, encodeDisplayColor, exposureForIlluminance, fogBetaFromVisibility, hazeColor, hazeScaleHeight,
+  ambientFloor, capBySky, cloudCoverAbove, cloudCoverFraction, cloudShadowFloor, cloudSunFactor, encodeDisplayColor, exposureForIlluminance, fogBetaFromVisibility, hazeColor, hazeScaleHeight,
   hemisphereIntensity, luminance, mieFromVisibility, mixVec3, moonLightIntensity, normalizeColor, saturateColor, skylightBalance, skylightIrradiance,
   starVisibility, sunLightIntensity, surfaceIlluminance, turbidityFromVisibility,
 } from './lighting';
@@ -48,6 +48,8 @@ const HEMI_SHARE_FOREIGN_ENV = 0.25;
 const ENV_MAP_INTENSITY_MAX = 1;
 /** saturation kept in the in-cloud fog colour (luminance-preserving; 1 = the zenith/horizon sky mix) */
 const IN_CLOUD_SATURATION = 0.15;
+/** cloud cover over which the skylight hands over to π × the deck's underside radiance (an overcast is the sky) */
+const DECK_SKYLIGHT_COVER: readonly [number, number] = [0.5, 1];
 /** the dome's own skylight fades in over these sun elevations (deg): below, Sky.js's constant floor is not twilight */
 const DOME_SKYLIGHT_FADE_DEG: readonly [number, number] = [-4, 2];
 
@@ -202,6 +204,8 @@ export class SkySystem {
   private readonly tmpB: Vec3 = [0, 0, 0];
   private readonly tmpC: Vec3 = [0, 0, 0];
   private readonly twZenith: Vec3 = [0, 0, 0];
+  /** underside radiance of the most opaque cloud layer (`CloudLayers.deckRadianceBelow`) */
+  private readonly deckRadiance: Vec3 = [0, 0, 0];
   private readonly twBand: Vec3 = [0, 0, 0];
   private readonly transmittance: Vec3 = [1, 1, 1];
   private readonly zenith: Vec3 = [0, 0, 0];
@@ -458,7 +462,10 @@ export class SkySystem {
     const shadowU = this.sharedUniforms ?? this.localShadow;
     this.clouds.writeShadowUniforms(shadowU, alt0);
     shadowU.uCloudShadowStrength.value = smoothstep(0, 4, el) * (1 - inCloud);
-    shadowU.uCloudShadowNorm.value = 1 / Math.max(1 - 0.85 * clamp(cloudCover, 0, 1), 0.15);
+    // shadows keep `floor` of the sun (0.15 under scattered cloud, 0.05 under a full deck), normalised by the mean
+    // dimming the sun intensity already has (`cloudSunFactor`), so gaps get the full sun
+    shadowU.uCloudShadowFloor.value = cloudShadowFloor(cloudCover);
+    shadowU.uCloudShadowNorm.value = 1 / Math.max(cloudSunFactor(cloudCover), 0.02);
 
     // ── lights (before the haze, which they light) ──
     normalizeColor(this.transmittance, this.tmpC);
@@ -502,6 +509,11 @@ export class SkySystem {
     const dayK = smoothstep(DOME_SKYLIGHT_FADE_DEG[0], DOME_SKYLIGHT_FADE_DEG[1], el) * (1 + 0.3 * clamp(cloudCover, 0, 1));
     this.tmpA[0] *= dayK; this.tmpA[1] *= dayK; this.tmpA[2] *= dayK;
     const sky = skylightIrradiance(this.tmpA, this.tmpD, this.skyIrradiance);
+    // under a closing deck the sky the ground sees IS the deck: its skylight is π × the deck's radiance (the
+    // cloud planes' underside, CPU twin), so sunlit paint reads like the deck above it instead of brighter
+    const deckOpacity = this.clouds.deckRadianceBelow(this.deckRadiance);
+    const deckW = smoothstep(DECK_SKYLIGHT_COVER[0], DECK_SKYLIGHT_COVER[1], cloudCover) * deckOpacity;
+    if (deckW > 0) for (let i = 0; i < 3; i++) sky[i] += (Math.PI * this.deckRadiance[i] - sky[i]) * deckW;
     const skyLum = luminance(sky);
     normalizeColor(sky, this.tmpC);
     this.hemiLight.color.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
@@ -623,9 +635,13 @@ export class SkySystem {
     this.precipitation.update(dt, camPos, this.camVel, this.windThree, w, L);
 
     // ── environment map (the overcast shell follows the cloud planes' skylight grey) ──
+    // (blending into the deck's underside as the cloud planes draw it, so the environment under a deck carries the
+    // skylight the ground gets)
     const envGrey = 0.9 * (0.2126 * (this.zenith[0] + this.horizon[0]) + 0.7152 * (this.zenith[1] + this.horizon[1]) + 0.0722 * (this.zenith[2] + this.horizon[2])) * 0.5;
-    this.envOvercast.material.color.setRGB(envGrey, envGrey, envGrey);
-    this.envOvercast.material.opacity = 0.9 * smoothstep(0.3, 1, cloudCover);
+    const shellK = smoothstep(0.3, 1, cloudCover);
+    const dk = this.deckRadiance, kd = shellK * deckOpacity;
+    this.envOvercast.material.color.setRGB(envGrey + (dk[0] - envGrey) * kd, envGrey + (dk[1] - envGrey) * kd, envGrey + (dk[2] - envGrey) * kd);
+    this.envOvercast.material.opacity = 0.9 * shellK;
     this.envOvercast.visible = this.envOvercast.material.opacity > 0.01;
     // the lower hemisphere: the lit ground's radiance (albedo/π · irradiance; the environment runs at ≈ intensity 1)
     this.envGround.material.color.setRGB(gi[0] / Math.PI, gi[1] / Math.PI, gi[2] / Math.PI);
@@ -671,7 +687,8 @@ export class SkySystem {
     this.updateDomeIrradiance();
     const E = saturateColor(this.domeIrradiance, this.envSaturation, this.envIrradiance);
     const shell = this.envOvercast.visible ? this.envOvercast.material.opacity : 0;
-    const grey = this.envOvercast.material.color.r;
+    const c = this.envOvercast.material.color;
+    const grey = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     this.envIrradianceLum = (1 - shell) * luminance(E) + shell * Math.PI * grey;
   }
   private readonly moonTint = new THREE.Color();

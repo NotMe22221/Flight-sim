@@ -86,10 +86,19 @@ camera.update(dtReal, state, pos, quat, input, model.eyePointLocal);
   47 % of the steam texture, so it lands straight ahead of the left-seat eye; from the seat the
   instruments fill the bottom ~35 % of a 65–75° view with the cowl top visible over the
   glareshield.
-- **Instrument lighting**: the panel planes are unlit, so `material.color` is the light on the
-  gauges: max(daylight, warm post lights at `ControlInputs.lights.panel`) with a dim floor
-  (≈ 35 % perceived) so a night spawn with the panel lights off stays readable; the G1000
-  screens are emissive and only dim to 55 %.
+- **Instrument lighting**: the panel planes are unlit (not tone-mapped), so `material.color` is the
+  light on the gauges: max(daylight, warm post lights at `ControlInputs.lights.panel`) with a dim
+  floor (0.1 linear, ≈ 35 % perceived) so a night spawn with the panel lights off stays readable.
+  `PANEL_NIGHT`: the post lights bring faces, markings and background to 0.3 of the daylight panel
+  (white markings ≈ 150 / 255 on black faces) — at 0.7 the panel read as a daylight panel against
+  the dark night scene (mean 37 at night vs 49 at noon); the G1000 screens are backlit and dim to 0.35.
+- **Cabin sky light** (`CABIN_IBL_SHARE`): the cabin sees the sky only through its windows, so each
+  lining, seat, door panel, glareshield and frame material receives a share of the environment light
+  (0.12–0.35, diffuse and reflections alike) through `applyIblScale` (`src/sky/iblScale.ts`). three r187
+  replaces `material.envMapIntensity` by `scene.environmentIntensity` for every material lit by
+  `scene.environment`, so the share cannot be set on the material itself; since the sky's light
+  calibration (environment intensity ≈ 1 by day) the cabin otherwise got the full sky (glare shield
+  ≈ 49 → 91 at noon). The exterior keeps the full environment.
 - **Control surfaces** (`hinge.ts`): each surface is built at zero deflection, then wrapped in
   a `mount` (on the hinge line, local X — or Y for the rudder — along the hinge) and a `pivot`
   child. `update` writes one Euler component on the pivot, so deflection is about the real,
@@ -228,6 +237,9 @@ and span come from it, so model and physics agree.
   prop blades/disc and spin direction; gear compression, steering and wheel spin; NaN samples
   do not poison accumulators; light timing and spotlight gating; cockpit/exterior switching;
   cockpit controls follow inputs; pose and idempotent dispose (shared sprite geometry kept).
+- `iblShare.test.ts`: every cabin material carries its `CABIN_IBL_SHARE` (diffuse and specular), the
+  exterior none; the scale reaches the compiled shader and distinct shares get distinct program keys;
+  the night panel at 25–35 % with the post lights, the G1000 at 35 %, the lights-off floor, daylight 1.
 
 ## Known limitations
 
@@ -241,8 +253,8 @@ and span come from it, so model and physics agree.
   night; a screen-space minimum size would need a custom shader.
 - The spring-steel main legs shorten along their axis instead of bending outward.
 - No damage states, doors, or reflections on the glass (no transmission pass).
-- The panel texture is one unlit plane: the radio displays dim with the gauges at night (they
-  are not separately self-lit), and there is no flood-light pooling on the panel.
+- The panel texture is one unlit plane: the radio displays dim with the gauges at night (to the same
+  0.3; they are not separately self-lit), and there is no flood-light pooling on the panel.
 - The cockpit has no magnetic compass, sun visors or headliner details; the cabin cross-section
   is a superellipse, so the door-window tops sit where the side wall turns into the roof.
 
