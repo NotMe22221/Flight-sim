@@ -330,13 +330,18 @@ describe('TerrainSystem (in-thread, injected fetch)', () => {
   });
 
   it('prefetch over resident tiles does not pin them forever: they are still evicted after flying away', async () => {
-    const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0), { maxResidentTiles: 10 });
-    await settle(ts, clock, cameraAt(0, 300, 0));
-    await ts.prefetch(KSFO.lat, KSFO.lon, 1500); // respawn at the same airport: everything is already loaded
-    await settle(ts, clock, cameraAt(40_000, 300, 0));
-    expect(ts.heightAt(KSFO.lat, KSFO.lon)).toBeNull();
-    expect(ts.stats().resident).toBeLessThanOrEqual(40);
-    ts.dispose();
+    const run = async (prefetch: boolean): Promise<TerrainSystem> => {
+      const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0), { maxResidentTiles: 10 });
+      await settle(ts, clock, cameraAt(0, 300, 0));
+      if (prefetch) await ts.prefetch(KSFO.lat, KSFO.lon, 1500); // respawn at the same airport: all loaded already
+      await settle(ts, clock, cameraAt(40_000, 300, 0));
+      return ts;
+    };
+    const [a, b] = [await run(true), await run(false)];
+    expect(a.heightAt(KSFO.lat, KSFO.lon)).toBeNull();
+    expect(a.stats().resident).toBe(b.stats().resident); // only the new selection stays (nothing pinned)
+    a.dispose();
+    b.dispose();
   });
 
   it('setSun / setFog write the shared uniforms', () => {

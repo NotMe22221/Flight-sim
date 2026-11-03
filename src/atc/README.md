@@ -70,8 +70,7 @@ research 05 §9.3).
     "exit runway when able,              leg detection, reports,             (entry by geometry)          ≤ 12 nm, closing    (flight following,
      contact Ground" (< 20 kt)            landing clearance at ≤ 3 nm final,                               and heading for a   ATIS, destinations)
                                           go-around, touch-and-go loop ───┐                                  towered field (or
-                                                                          │                                  "prepare to land at …")
-                                                        ▲                 │
+                                                        ▲                 │                                  "prepare to land at …")
                                                         └─────────────────┘
 ```
 
