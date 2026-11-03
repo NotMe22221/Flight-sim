@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EventBus } from '../core/events';
-import type { Airport } from '../core/types';
+import { defaultControlInputs, type Airport } from '../core/types';
+import { DT as FDM_DT, makeEnv, makeFdm, run as fdmRun } from '../fdm/testing';
 import { DEG, FT, KT, NM } from '../core/units';
 import { destinationPoint, greatCircleDistance, initialBearingDeg } from '../geo/wgs84';
 import { magneticDeclinationAtYearDeg } from '../geo/magvar';
@@ -8,7 +9,7 @@ import { ActivityRunner } from './ActivityRunner';
 import type { ActivityDef } from './activityTypes';
 import { FakeHost, ScriptedAircraft, compactAirport, dataAirport, flyState, inputsWith, recordActivityEvents } from './activityTestKit';
 import { BASIC_FLIGHT, KHAF_30, KHAF_30_TDZ, KHAF_POS, KSFO_28R, LANDING, LESSONS, TAKEOFF, lessonById } from './lessons';
-import { compileCondition, makeObjectiveContext, runwayEndRef, type RunwaySpec } from './objectives';
+import { compileCondition, compileObjective, makeObjectiveContext, runwayEndRef, type RunwaySpec } from './objectives';
 import { ProgressStore } from './progressStore';
 import { aimAlongM, relativeToRunway } from './runwayFrame';
 import { TouchdownDetector } from './TouchdownDetector';
@@ -93,7 +94,7 @@ describe('lesson set-ups', () => {
     const c = compactAirport('KSFO')!;
     expect(greatCircleDistance({ lat: c.la, lon: c.lo, alt: 0 }, { lat: s.anchor.lat, lon: s.anchor.lon, alt: 0 })).toBeLessThan(5000);
   });
-  it('landing: a 3 nm final to KHAF 30 on the 3° path to the aim point, 65 KIAS, flaps 20°', () => {
+  it('landing: a 3 nm final to KHAF 30 on the 3° path to the aim point, 63 KIAS, flaps 20°', () => {
     const s = LANDING.setup;
     if (s.spawn !== 'air') throw new Error('air start expected');
     const rel = relativeToRunway({ lat: s.lat, lon: s.lon, alt: 0 }, runwayEndRef(KHAF_30));
@@ -103,7 +104,7 @@ describe('lesson set-ups', () => {
     expect(s.altFt).toBeCloseTo(pathFt, 6);
     expect(s.altFt).toBeGreaterThan(1000);
     expect(s.altFt).toBeLessThan(1100);
-    expect([s.headingDeg, s.iasKt, s.flapsIndex, s.gammaDeg]).toEqual([317, 65, 2, -3]);
+    expect([s.headingDeg, s.iasKt, s.flapsIndex, s.gammaDeg]).toEqual([317, 63, 2, -3]);
   });
 });
 
@@ -175,7 +176,7 @@ describe('lesson: basic flight controls', () => {
     expect(texts(rec)).toContain(BASIC_FLIGHT.debrief!.pass.text);
     expect(rec.of('activity:finished')).toEqual([{ id: BASIC_FLIGHT.id, success: true, score: r.score, summary: r.summary }]);
     expect(host.lastAirSpawn).toMatchObject({ altM: 3000 * FT, iasMs: 100 * KT, opts: { flapsIndex: 0, gammaRad: 0 } });
-    expect(host.calls).toEqual(['weather clear', 'spawnInAir', 'time morning']);
+    expect(host.calls).toEqual(['weather clear', 'spawnInAir', 'weather clear', 'time morning']);
     expect(host.spoken[0]).toBe(BASIC_FLIGHT.steps[0].instruction.speech);
     expect(store.lesson(BASIC_FLIGHT.id)).toMatchObject({ completed: true, attempts: 1, bestScore: r.score });
   });
@@ -240,7 +241,7 @@ describe('lesson: takeoff', () => {
   it('checks wait for the pilot; then roll, rotate at 55, Vy, flaps up and level at 1,500 ft', async () => {
     const ac = takeoffAircraft();
     const { runner, rec, host } = await lesson(TAKEOFF, ac);
-    expect(host.calls).toEqual(['weather few', 'spawnAtRunway KSFO 28R', 'time morning']);
+    expect(host.calls).toEqual(['weather few', 'spawnAtRunway KSFO 28R', 'weather few', 'time morning']);
     expect(host.lastRunwaySpawn?.opts).toMatchObject({ parkingBrake: true });
     runnerFly(runner, ac, () => { /* brake still set */ }, 12);
     expect(runner.step?.id).toBe('checks');
@@ -318,7 +319,7 @@ describe('lesson: landing', () => {
   it('a stable approach and a touchdown in the zone completes it; the landing scorer grades it', async () => {
     const ac = landingAircraft();
     const { runner, rec, host } = await lesson(LANDING, ac, [dataAirport('KHAF')]);
-    expect(host.lastAirSpawn).toMatchObject({ headingDeg: 317, iasMs: 65 * KT, opts: { flapsIndex: 2 } });
+    expect(host.lastAirSpawn).toMatchObject({ headingDeg: 317, iasMs: 63 * KT, opts: { flapsIndex: 2 } });
     expect(host.lastAirSpawn!.opts!.gammaRad).toBeCloseTo(-3 * DEG, 9);
     runnerFly(runner, ac, landingPolicy(), 400);
     const r = runner.result!;
@@ -364,5 +365,68 @@ describe('lesson: landing', () => {
     Object.assign(ac, { lat: p.lat, lon: p.lon, hdgTrue: KHAF_30.headingDeg, altFt: (KHAF_30.elevM + (2 * NM + HAF_AIM) * Math.tan(3 * D2R)) / FT, flapDeg: 30 });
     runnerFly(runner, ac, landingPolicy(), 400);
     expect(runner.result?.success).toBe(true);
+  });
+});
+
+// ───────────────────────────── review findings (each failed before its fix) ─────────────────────────────
+
+describe('review: lessons start on target and follow their own instructions', () => {
+  it('basic flight: after drifting to 110 in the level-off, turning to 180 and back to 090 as instructed completes the turns', async () => {
+    const ac = basicAircraft();
+    const { runner } = await lesson(BASIC_FLIGHT, ac);
+    const drifting: Policy = (a, step, t) => {
+      if (step === 'levelOff') a.steer({ altFt: 3500, magHdgDeg: 110 }); // the level-off holds altitude, not heading
+      else basicPolicy(a, step, t);
+    };
+    const seen: string[] = [];
+    let t = 0;
+    while (runner.running && t < 900) {
+      const id = runner.step?.id ?? '';
+      if (seen[seen.length - 1] !== id) seen.push(id);
+      t += runnerFly(runner, ac, drifting, DT);
+    }
+    expect(seen).toEqual(BASIC_FLIGHT.steps.map((s) => s.id));
+    expect(runner.result?.success, runner.result?.summary).toBe(true);
+    const turnRight = runner.result!.steps.find((s) => s.id === 'turnRight')!;
+    expect(turnRight.completed).toBe(true);
+  });
+
+  it('landing: the spawn speed is inside the scoring dead band of the speed objective (on target, not at its edge)', () => {
+    const s = LANDING.setup;
+    if (s.spawn !== 'air') throw new Error('air start expected');
+    const speed = LANDING.steps[0].objectives.find((o) => o.label.includes('KIAS'))!;
+    if (speed.type !== 'maintain') throw new Error('maintain expected');
+    const band = speed.all.find((c) => c.c === 'airspeed');
+    if (!band || band.c !== 'airspeed' || band.minKt === undefined || band.maxKt === undefined) throw new Error('airspeed band expected');
+    const c = compileCondition(band);
+    const ctx = makeObjectiveContext(flyState({ iasKt: s.iasKt }), inputsWith());
+    expect(c.test(ctx)).toBe(true);
+    expect(c.err, `${s.iasKt} kt in ${band.minKt}-${band.maxKt}`).toBeLessThanOrEqual(0.4);
+  });
+});
+
+describe('review: the takeoff rotate objective with the real C172 flight model', () => {
+  it('sits at ~4-4.6° nose-up on the roll (not a rotation); neutral elevator to 55 KIAS then back pressure rotates at 55', () => {
+    const roll = TAKEOFF.steps.find((s) => s.id === 'roll')!;
+    const spec = roll.objectives.find((o) => o.type === 'rotate')!;
+    const env = makeEnv();
+    const f = makeFdm(1000);
+    f.reset({ geo: { lat: KSFO_28R.lat, lon: KSFO_28R.lon, alt: KSFO_28R.elevM }, headingRad: KSFO_28R.headingDeg * DEG, speedMs: 0, onGround: true, engineRunning: true }, env);
+    const u = defaultControlInputs();
+    Object.assign(u, { parkingBrake: false, throttle: 1, flapsIndex: 0, magnetos: 3, mixture: 1 });
+    const o = compileObjective(spec);
+    const ctx = makeObjectiveContext(f.state, u);
+    o.activate(ctx);
+    let groundPitchMax = -90;
+    fdmRun(f, env, u, 60, () => {
+      const s = f.state;
+      u.pitch = s.aero.ias / KT >= 55 ? 0.4 : 0;
+      if (s.onGround && s.aero.ias / KT < 50) groundPitchMax = Math.max(groundPitchMax, s.euler[1] / DEG);
+      ctx.dt = FDM_DT; ctx.state = s;
+      if (!o.finished) o.update(ctx);
+    });
+    expect(groundPitchMax).toBeGreaterThan(3);
+    expect(o.view.state).toBe('done');
+    expect(o.view.note).toMatch(/^Rotated at 5[5-7] kt$/);
   });
 });

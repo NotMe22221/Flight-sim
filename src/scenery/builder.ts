@@ -62,13 +62,37 @@ export function runwayZone(f: Pick<TileFeatures, 'runwayLines' | 'runwayPolys'>,
   };
 }
 
-function apronZone(f: TileFeatures): ZoneFn {
+/** Point test "on an apron" (holes excluded); with `margin`, points that close to an apron's outline count too. */
+function apronZone(f: TileFeatures, margin = 0): ZoneFn {
   const polys = f.aprons.map((p) => ({ p, b: ringBounds(p.outer) }));
   if (polys.length === 0) return () => false;
+  const m2 = margin * margin;
+  return (x, z) => {
+    for (const { p, b } of polys) {
+      if (x < b.x0 - margin || x > b.x1 + margin || z < b.y0 - margin || z > b.y1 + margin) continue;
+      if (pointInPolygon(x, z, p.outer, p.holes)) return true;
+      if (margin > 0 && distToRingSq(x, z, p.outer) <= m2) return true;
+    }
+    return false;
+  };
+}
+
+/**
+ * Point test "deep inside an apron": on it and at least `inset` metres from its outline and
+ * holes. Taxiway lines switch to apron height there only, so the yellow line never dips under
+ * the asphalt ribbon triangles that still reach a little way onto the apron at its edge.
+ */
+function apronInterior(f: TileFeatures, inset: number): ZoneFn {
+  const polys = f.aprons.map((p) => ({ p, b: ringBounds(p.outer) }));
+  if (polys.length === 0) return () => false;
+  const i2 = inset * inset;
   return (x, z) => {
     for (const { p, b } of polys) {
       if (x < b.x0 || x > b.x1 || z < b.y0 || z > b.y1) continue;
-      if (pointInPolygon(x, z, p.outer, p.holes)) return true;
+      if (!pointInPolygon(x, z, p.outer, p.holes)) continue;
+      if (distToRingSq(x, z, p.outer) < i2) return false;
+      for (const h of p.holes) if (distToRingSq(x, z, h) < i2) return false;
+      return true;
     }
     return false;
   };
@@ -84,6 +108,8 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
   const seed = tileSeed(z, x, y);
   const nearRunway = runwayZone(f, RUNWAY_MARGIN_M);
   const onApron = apronZone(f);
+  // also the apron outline itself (a ribbon clipped at the tile border ends exactly on it)
+  const onApronOrEdge = apronZone(f, 0.5);
   const taxiLines = f.taxiwayLines.map((t) => ({ ...t, line: cleanLine(t.line) }));
   const parking = findParking({
     gates: f.gates,
@@ -118,11 +144,15 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
   f.aprons.forEach((p, i) => drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, concrete(i)));
   for (const p of f.helipads) drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, { ...concrete(97), lift: areaLift });
   for (const p of f.taxiwayPolys) drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, asphalt(areaLift));
-  for (const t of taxiLines) drapeRibbon(surfaces, t.line, t.width / 2, s.ribbonStepM, asphalt(ribbonLift));
+  // taxiways / taxilanes crossing an apron are lead-in lines painted on its concrete: no asphalt
+  // strip there (triangles wholly on the apron are dropped), only the yellow line below
+  for (const t of taxiLines) drapeRibbon(surfaces, t.line, t.width / 2, s.ribbonStepM, { ...asphalt(ribbonLift), drop: onApronOrEdge, dropMode: 'all' });
   result.surfaces = surfaces.finish();
 
   const markings = new DrapeBuilder(10, 1024);
-  const yellow: DrapeStyle = { r: lin8(0.86), g: lin8(0.66), b: lin8(0.12), lift: (px, pz) => ribbonLift(px, pz) + MARKING_LIFT_M, drop: nearRunway, dropMode: 'any' };
+  const apronDeep = apronInterior(f, s.ribbonStepM + 2);
+  const markLift = (px: number, pz: number): number => (apronDeep(px, pz) ? apronLift(px, pz) : ribbonLift(px, pz)) + MARKING_LIFT_M;
+  const yellow: DrapeStyle = { r: lin8(0.86), g: lin8(0.66), b: lin8(0.12), lift: markLift, drop: nearRunway, dropMode: 'any' };
   for (const t of taxiLines) drapeRibbon(markings, t.line, 0.25, s.ribbonStepM, yellow);
   result.markings = markings.finish();
 

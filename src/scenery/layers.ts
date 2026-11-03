@@ -66,7 +66,7 @@ export class BuildingLayer extends GroundLayer {
     }
     this.noteGround(g);
     if (!Number.isFinite(prev)) this.place(b, g);
-    else if (Math.abs(g - prev) > REGROUND_EPS_M) this.shift(b, g - prev);
+    else if (Math.abs(g - prev) > REGROUND_EPS_M) { this.noteMove(g - prev); this.shift(b, g - prev); }
     else return true;
     this.ground[b] = g;
     if (this.template && this.groundedCount + 1 >= this.n && !Number.isFinite(prev)) {
@@ -147,6 +147,7 @@ export class DrapeLayer extends GroundLayer {
     if (Number.isNaN(y)) return Number.isFinite(prev);
     this.noteGround(y);
     if (Math.abs(y - prev) > 0.01 || !Number.isFinite(prev)) {
+      if (Number.isFinite(prev)) this.noteMove(y - prev);
       this.g[i] = y;
       this.pos[i * 3 + 1] = y + this.lift[i];
       this.touch(i, i + 1);
@@ -193,6 +194,7 @@ export class PointLayer extends GroundLayer {
     if (Number.isNaN(y)) return Number.isFinite(prev);
     this.noteGround(y);
     if (Math.abs(y - prev) > 0.05 || !Number.isFinite(prev)) {
+      if (Number.isFinite(prev)) this.noteMove(y - prev);
       this.g[i] = y;
       this.pos[i * 3 + 1] = y + this.h[i];
       this.touch(i, i + 1);
@@ -244,6 +246,7 @@ export class TreeLayer extends GroundLayer {
     if (Number.isNaN(y)) return Number.isFinite(prev);
     this.noteGround(y);
     if (Math.abs(y - prev) > 0.05 || !Number.isFinite(prev)) {
+      if (Number.isFinite(prev)) this.noteMove(y - prev);
       this.g[i] = y;
       const h = this.src[o + 2], rot = this.src[o + 3];
       const c = Math.cos(rot), sn = Math.sin(rot);

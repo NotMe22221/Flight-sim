@@ -113,6 +113,8 @@ export class ProgressStore {
   /** the last write failed (quota, blocked storage); progress lives in memory until the next good write */
   lastWriteFailed = false;
   private readonly storage: KeyValueStorage | null;
+  /** false when the stored document could not be read: writing would replace saved progress with this empty one */
+  private readonly writable: boolean;
 
   constructor(storage: KeyValueStorage | null | undefined = undefined, private readonly key = PROGRESS_KEY) {
     this.storage = storage === undefined ? defaultStorage() : storage;
@@ -122,6 +124,7 @@ export class ProgressStore {
     const { doc, corrupt } = parseProgress(json);
     this.doc = doc;
     this.loadedCorrupt = corrupt || readFailed;
+    this.writable = !readFailed;
   }
 
   // ─────────────── bush trips ───────────────
@@ -221,6 +224,8 @@ export class ProgressStore {
 
   private save(): void {
     if (!this.storage) return;
+    // unreadable storage: keep progress in memory rather than overwrite what is saved there
+    if (!this.writable) { this.lastWriteFailed = true; return; }
     try {
       this.storage.setItem(this.key, JSON.stringify(this.doc));
       this.lastWriteFailed = false;

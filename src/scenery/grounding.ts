@@ -15,6 +15,9 @@ import type { LocalFrame } from '../geo/wgs84';
 
 export type GroundUpFn = (north: number, east: number) => number | null;
 
+/** A re-sampled item that moved more than this (m) reveals a terrain change the probes missed. */
+export const MOVE_NOTICE_M = 0.5;
+
 export interface UpdateRange { start: number; count: number }
 
 /**
@@ -107,6 +110,8 @@ export abstract class GroundLayer {
   passes = 0;
   /** times the cursor wrapped, grounded or not (pass ends for round-robin bookkeeping) */
   wraps = 0;
+  /** re-samples that found an already grounded item more than MOVE_NOTICE_M off (terrain changed there) */
+  moves = 0;
   minG = Infinity;
   maxG = -Infinity;
   private sumG = 0;
@@ -127,6 +132,9 @@ export abstract class GroundLayer {
   get complete(): boolean { return this.groundedCount === this.n; }
   /** mean ground of the grounded items (0 before any) */
   get meanGround(): number { return this.sumN > 0 ? this.sumG / this.sumN : 0; }
+
+  /** Count a re-sample that moved a grounded item by `d` metres (see `moves`). */
+  protected noteMove(d: number): void { if (Math.abs(d) > MOVE_NOTICE_M) this.moves++; }
 
   protected noteGround(g: number): void {
     if (g < this.minG) this.minG = g;

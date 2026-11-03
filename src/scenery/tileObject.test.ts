@@ -3,8 +3,9 @@ import * as THREE from 'three';
 import { buildTile } from './builder';
 import { qualityProfile } from './config';
 import { GroundSampler } from './grounding';
+import { TreeLayer } from './layers';
 import { SceneryMaterials, makeTreeGeometries } from './materials';
-import { TileObject, type SharedTreeGeometry } from './tileObject';
+import { PROBE_GRID, TileObject, type SharedTreeGeometry } from './tileObject';
 import { KSFO_FRAME, makeHost, tileBytesAt, type HeightFn } from './testUtil';
 
 // terminal apron of the synthetic KSFO world: buildings, aprons, taxiways, airport lights, trees
@@ -78,7 +79,12 @@ describe('TileObject ground layers', () => {
     const { obj, dispose } = terminalTile();
     obj.place(frame);
     for (let i = 0; i < 1000 && obj.settling; i++) obj.groundStep(5000, s, true);
-    // unchanged ground: several full probe sweeps, never hot
+    // the first sweep sets the baseline and owes one cycle (things grounded before it may stand
+    // on older terrain than the baseline)
+    for (let i = 0; i < (PROBE_GRID * PROBE_GRID) / 16; i++) obj.checkTerrain(s, 16);
+    expect(obj.hotSamples).toBeGreaterThan(0);
+    for (let i = 0; i < 10000 && obj.hotSamples > 0; i++) obj.groundStep(400, s, false);
+    // unchanged ground: several full probe sweeps, never hot again
     for (let i = 0; i < 20; i++) obj.checkTerrain(s, 16);
     expect(obj.hotSamples).toBe(0);
     // the ground rises by 3 m under the southern half of the tile
@@ -100,6 +106,42 @@ describe('TileObject ground layers', () => {
     }
     for (let i = 0; i < 20; i++) obj.checkTerrain(s, 16);
     expect(obj.hotSamples).toBe(0);
+    dispose();
+  });
+
+  it('re-samples once what was grounded before the probe baseline existed (refinement in between)', () => {
+    const frame = KSFO_FRAME();
+    let h: HeightFn = () => 4;
+    const host = makeHost(frame, (lat, lon) => h(lat, lon));
+    const s = new GroundSampler(host.groundUp);
+    const { obj, dispose } = terminalTile();
+    obj.place(frame);
+    for (let i = 0; i < 1000 && obj.settling; i++) obj.groundStep(5000, s, true);
+    h = () => 9; // refined after the first passes, before the first probe sweep
+    for (let i = 0; i < (PROBE_GRID * PROBE_GRID) / 16 && obj.hotSamples === 0; i++) obj.checkTerrain(s, 16);
+    expect(obj.hotSamples).toBeGreaterThan(0);
+    for (let i = 0; i < 10000 && obj.hotSamples > 0; i++) obj.groundStep(400, s, false);
+    // everything moved up by ~5 m (trees stand 0.3 m into the ground, tile corners ~0.1 m below the tangent plane)
+    for (const [k, v] of Object.entries(heights(obj))) for (const y of v) expect(y, k).toBeGreaterThan(8.4);
+    dispose();
+  });
+
+  it('keeps re-sampling the other layers while one layer still has no ground at all', () => {
+    const frame = KSFO_FRAME();
+    let h: HeightFn = () => 4;
+    const host = makeHost(frame, (lat, lon) => h(lat, lon));
+    const s = new GroundSampler(host.groundUp);
+    const { obj, dispose } = terminalTile();
+    obj.place(frame);
+    // the trees stand where no terrain has loaded yet: their layer never gets a first pass
+    const trees = obj.layers.filter((l) => l instanceof TreeLayer);
+    expect(trees.length).toBeGreaterThan(0);
+    for (const t of trees) (t as unknown as { sampleItem: () => boolean }).sampleItem = () => false;
+    for (let i = 0; i < 200; i++) obj.groundStep(5000, s, true);
+    for (let i = 0; i < 200; i++) obj.groundStep(400, s, false); // background re-sampling reaches the trees
+    h = () => 9;
+    for (let i = 0; i < 400; i++) obj.groundStep(400, s, false);
+    for (let i = 0; i < obj.result.buildings!.count; i++) expect(obj.buildingGround(i), `building ${i}`).toBeGreaterThan(8.6);
     dispose();
   });
 

@@ -132,11 +132,12 @@ export class ActivityRunner {
 
   /**
    * Set up the flight and begin the first step. Weather is applied before the spawn (runway
-   * selection may depend on the wind), the time preset and the route after it (sunrise-relative
-   * presets depend on the new position). Rejects if the host cannot spawn.
+   * selection may depend on the wind) and again after it (its layers are AGL at the current field),
+   * the time preset and the route after it (sunrise-relative presets depend on the new position).
+   * Rejects if the host cannot spawn.
    */
   async start(def: ActivityDef): Promise<void> {
-    if (this.phase === 'running') this.finish(false, 'Replaced by another activity');
+    if (this.phase === 'running') this.finish(false, 'Replaced by another activity', false);
     const token = ++this.token;
     this.def = def;
     this.phase = 'starting';
@@ -157,6 +158,9 @@ export class ActivityRunner {
     }
     if (token !== this.token) return; // aborted or superseded while spawning
     this.expectingReset = false;
+    // again after the spawn: preset cloud and wind layers are AGL at the field current when it is applied, which
+    // before the spawn was the previous flight's (a leg out of a 250 m field otherwise had its clouds 250 m low)
+    if (s.weather) this.host.setWeatherPreset(s.weather);
     if (s.time) this.host.setTimePreset(s.time);
     if (s.route) this.host.loadRoute(s.route);
     this.phase = 'running';
@@ -177,7 +181,7 @@ export class ActivityRunner {
       this.phase = 'idle';
       this.def = null;
       this.expectingReset = false;
-    } else if (this.phase === 'running') this.finish(false, reason);
+    } else if (this.phase === 'running') this.finish(false, reason, false);
   }
 
   /** Reset the current step's objectives and repeat its instruction (the aircraft is not moved). */
@@ -365,11 +369,15 @@ export class ActivityRunner {
     if (this.expectingReset || this.phase !== 'running' || !this.def) return;
     const a = this.anchor(this.def);
     if (a && flatDistanceM(spawn.geo.lat, spawn.geo.lon, a.lat, a.lon) <= this.resetRadiusM) {
-      // the pilot restarted the flight: back to the first step (a reset clears the flight plan, so reload the route)
+      // the pilot restarted the flight: back to the first step with the set-up's conditions (the clock has run on:
+      // a dusk leg restarted 20 minutes in would otherwise fly into the night) and its route (a reset clears the plan)
       this.resetRunState();
-      if (this.def.setup.route) this.host.loadRoute(this.def.setup.route);
+      const s = this.def.setup;
+      if (s.weather) this.host.setWeatherPreset(s.weather);
+      if (s.time) this.host.setTimePreset(s.time);
+      if (s.route) this.host.loadRoute(s.route);
       this.beginStep(0);
-    } else this.finish(false, 'Flight changed');
+    } else this.finish(false, 'Flight changed', false);
   }
 
   private anchor(def: ActivityDef): { lat: number; lon: number } | null {
@@ -379,7 +387,11 @@ export class ActivityRunner {
 
   // ─────────────────────────────── debrief ───────────────────────────────
 
-  private finish(success: boolean, reason: string | null): void {
+  /**
+   * End the activity with a debrief. `sayClosing` false (Retry, another activity, Abort, a flight change: the pilot
+   * ended it, not the flying) keeps the closing "Lesson incomplete…" line out of the subtitles and speech.
+   */
+  private finish(success: boolean, reason: string | null, sayClosing = true): void {
     const def = this.def;
     if (this.phase !== 'running' || !def) return;
     const cur = this.cur;
@@ -418,7 +430,7 @@ export class ActivityRunner {
     this.liveHint = null;
     try { this.progress?.recordResult(def, result); } catch { /* progress is best effort */ }
     if (def.setup.route) this.host.clearRoute?.();
-    if (closing) this.say(closing, true, true);
+    if (closing && sayClosing) this.say(closing, true, true);
     this.events.emit('activity:finished', { id: def.id, success: pass, score, summary });
   }
 }

@@ -32,6 +32,7 @@ export class DebriefCard {
   show(vm: DebriefVm, a: DebriefActions): void {
     this.actions = a;
     clear(this.card);
+    this.card.classList.toggle('fail', !vm.success);
     const kv: HTMLElement[] = [h('span', { class: 'kv-k', text: 'Time' }), h('span', { class: 'kv-v', text: vm.duration })];
     if (vm.landing) kv.push(h('span', { class: 'kv-k', text: 'Landing' }), h('span', { class: 'kv-v', text: vm.landing.text }));
     const steps = h('div', { class: 'debrief-steps scroll' },

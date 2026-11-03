@@ -421,3 +421,93 @@ describe('waypoint objective', () => {
     expect(r.t).toBeCloseTo((8.5 * NM) / 51.4, 0);
   });
 });
+
+// ───────────────────────────── review findings (each failed before its fix) ─────────────────────────────
+
+describe('review: rotate against a real tricycle ground attitude', () => {
+  const spec: ObjectiveSpec = { type: 'rotate', label: 'Rotate at 55', minKt: 48, maxKt: 65, targetKt: 55, strict: true };
+  // the C172 FDM sits at 4.0° on its gear and rolls at 4.2-4.6° at full power; light back pressure (yoke 0.1) gives 5.1-5.6°
+  const roll = (groundPitch: (kt: number) => number, rotateKt: number) => (t: number): Frame => {
+    const kt = 2.5 * t;
+    return at({ onGround: true, iasKt: kt, pitchDeg: kt >= rotateKt ? 10 : groundPitch(kt), aglFt: 0, altFt: 13 });
+  };
+  it('the nose-up attitude on the gear is not a rotation; raising the nose at 55 kt is', () => {
+    const neutral = run(spec, roll((kt) => (kt < 1 ? 4 : 4.6), 55), 40);
+    expect(neutral.o.view).toMatchObject({ state: 'done', note: 'Rotated at 55 kt' });
+    const lightBack = run(spec, roll((kt) => (kt < 1 ? 4 : 5.5), 55), 40);
+    expect(lightBack.o.view).toMatchObject({ state: 'done', note: 'Rotated at 55 kt' });
+  });
+  it('a real early rotation (nose well up at 35 kt) still fails', () => {
+    const early = run(spec, roll(() => 4.2, 35), 40);
+    expect(early.o.view.state).toBe('failed');
+    expect(early.o.view.note).toContain('too early at 35 kt');
+  });
+});
+
+describe('review: turn objective roll-out and absolute target', () => {
+  const turnTo = (h0: number, stopAtHdg: number, rate = 3) => {
+    let hdg = h0, last = 0;
+    return (t: number): Frame => {
+      const dt = t - last; last = t;
+      const banking = hdg < stopAtHdg;
+      if (banking) hdg = Math.min(stopAtHdg, hdg + rate * dt);
+      return at({ hdgDeg: hdg, magHdgDeg: hdg, bankDeg: banking ? 15 : 0, altFt: 3500 });
+    };
+  };
+  const right: ObjectiveSpec = { type: 'turn', label: 'right 90', byDeg: 90, bankMinDeg: 10, bankMaxDeg: 22, tolDeg: 10 };
+  it('rolling out 15° short of the target is coached to keep turning (not left silent)', () => {
+    const r = run(right, turnTo(90, 165), 60);
+    expect(r.o.view.state).toBe('active');
+    expect(r.o.view.hint?.text).toBe('Keep turning right to heading 180');
+    expect(r.o.view.hint?.speech).toBe('Keep turning right, heading one eight zero.');
+  });
+  it('toDeg: the turn ends on the heading the instruction names, wherever it started', () => {
+    const abs: ObjectiveSpec = { ...right, toDeg: 180 };
+    // started 14° right of 090 (the level-off does not hold a heading): rolled out on 180 as instructed
+    const r = run(abs, turnTo(104, 180), 60);
+    expect(r.o.view.state).toBe('done');
+    // and the hint names 180, not 104 + 90
+    const early = run(abs, () => at({ hdgDeg: 104, magHdgDeg: 104, altFt: 3500 }), 3);
+    expect(early.o.view.hint?.text).toBe('Roll right to turn to heading 180');
+    // magnetic: the target is the indicator's heading
+    const mag = run(abs, (t) => at({ hdgDeg: 117 + Math.min(3 * t, 76), magHdgDeg: 104 + Math.min(3 * t, 76), bankDeg: 3 * t < 76 ? 15 : 0, altFt: 3500 }), 60);
+    expect(mag.o.view.state).toBe('done');
+  });
+  it('toDeg to the left across north', () => {
+    const left: ObjectiveSpec = { type: 'turn', label: 'left to 330', byDeg: -90, toDeg: 330, bankMinDeg: 10, bankMaxDeg: 22, tolDeg: 10 };
+    let hdg = 50, last = 0;
+    const r = run(left, (t) => {
+      const dt = t - last; last = t;
+      const banking = ((hdg - 330) % 360 + 360) % 360 > 0.5 && ((hdg - 330) % 360 + 360) % 360 < 180;
+      if (banking) hdg = ((hdg - 3 * dt) % 360 + 360) % 360;
+      return at({ hdgDeg: hdg, magHdgDeg: hdg, bankDeg: banking ? -15 : 0, altFt: 3500 });
+    }, 60);
+    expect(r.o.view.state).toBe('done');
+  });
+});
+
+describe('review: landing objective after an unscored touchdown', () => {
+  const stoppedOnGrass = (o: Objective, seconds: number) => {
+    const ctx = makeObjectiveContext(flyState({ altFt: 500, aglFt: 400 }), inputsWith());
+    o.activate(ctx);
+    ctx.dt = 0.1;
+    for (let t = 0; t < 5; t += 0.1) o.update(ctx); // airborne
+    ctx.state = flyState({ altFt: 30, aglFt: 0, onGround: true, iasKt: 0, gsKt: 0 });
+    for (let t = 0; t < seconds; t += 0.1) o.update(ctx); // down off the runway: no 'landing:scored' ever comes
+    return o;
+  };
+  it('a lesson landing that is never scored (off the runway) fails once stopped instead of waiting forever', () => {
+    const o = stoppedOnGrass(compileObjective({ type: 'landing', label: 'Land on 30', minScore: 4000, runway: 'KHAF 30' }), 10);
+    expect(o.view.state).toBe('failed');
+    expect(o.view.note).toBe('Stopped without a scored landing: touched down off the runway');
+  });
+  it('bush legs (elsewhere: ignore) keep waiting; on the ground from the start is not a landing', () => {
+    expect(stoppedOnGrass(compileObjective({ type: 'landing', label: 'Land at KRHV', minScore: 0, airport: 'KRHV', elsewhere: 'ignore' }), 10).view.state).toBe('active');
+    const o = compileObjective({ type: 'landing', label: 'Land on 30', minScore: 4000, runway: 'KHAF 30' });
+    const ctx = makeObjectiveContext(flyState({ altFt: 30, aglFt: 0, onGround: true, iasKt: 0, gsKt: 0 }), inputsWith());
+    o.activate(ctx);
+    ctx.dt = 0.1;
+    for (let t = 0; t < 10; t += 0.1) o.update(ctx);
+    expect(o.view.state).toBe('active');
+  });
+});

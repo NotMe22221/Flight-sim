@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EventBus } from '../core/events';
 import { FT, KT, NM } from '../core/units';
 import { destinationPoint, greatCircleDistance, initialBearingDeg } from '../geo/wgs84';
-import { WEATHER_PRESETS } from '../sky/presets';
+import { COVERAGE, WEATHER_PRESETS } from '../sky/presets';
 import { ActivityRunner } from './ActivityRunner';
 import { FakeHost, ScriptedAircraft, compactAirport, dataAirport, inputsWith, recordActivityEvents } from './activityTestKit';
 import {
@@ -356,7 +356,7 @@ describe('bush trip leg: wrong airport, restart and crash', () => {
 
   it('builds the leg activity with fuel carried over and the briefing in the first instruction', () => {
     const def = bushLegActivity(PACIFIC_COAST, 1, { fuelFraction: 0.62 });
-    expect(def.setup).toMatchObject({ spawn: 'runway', icao: 'KRHV', runway: '31R', fuelFraction: 0.62, weather: 'scattered' });
+    expect(def.setup).toMatchObject({ spawn: 'runway', icao: 'KRHV', runway: '31R', fuelFraction: 0.62, weather: 'high-level' });
     expect(def.trip).toEqual({ tripId: 'pacific-coast', legIndex: 1 });
     expect(def.steps.map((s) => s.id)).toEqual(['depart', 'enroute']);
     expect(def.steps[0].instruction.text).toContain('Highest terrain near the route: Loma Prieta, 3,786 ft.');
@@ -385,3 +385,58 @@ function flyStateOnGround() {
   const ac = new ScriptedAircraft({ lat: 37.509, lon: -122.496, altFt: 36, groundFt: 36, hdgTrue: 317, iasKt: 0, onGround: true });
   return ac.state();
 }
+
+// ───────────────────────────── review findings (each failed before its fix) ─────────────────────────────
+
+describe('review: bush trip weather vs the suggested cruise', () => {
+  it('the cruise keeps VFR clearance (500 ft below / 1,000 ft above) from every scattered-or-thicker layer, and the terrain is under the base', () => {
+    for (const trip of BUSH_TRIPS) {
+      for (const { leg, i, dep } of legsOf(trip)) {
+        // the runner re-applies the preset after the spawn, so the layers are AGL at the departure field
+        for (const c of WEATHER_PRESETS[leg.weather ?? 'few'].clouds) {
+          if (c.coverage < COVERAGE.SCT) continue;
+          const baseFt = (dep.elevM + c.baseAglM) / FT, topFt = (dep.elevM + c.topAglM) / FT;
+          const what = `leg ${i + 1} cruise ${leg.cruiseFt} ft in '${leg.weather}' (${Math.round(baseFt)}-${Math.round(topFt)} ft)`;
+          expect(leg.cruiseFt <= baseFt - 500 || leg.cruiseFt >= topFt + 1000, what).toBe(true);
+          expect(leg.terrain.ft, `${what}: ${leg.terrain.name}`).toBeLessThan(baseFt - 500);
+        }
+      }
+    }
+  });
+});
+
+describe('review: a leg flown low still completes', () => {
+  it('never above 500 ft AGL: landing and stopping at the destination completes the leg', async () => {
+    const trip = PACIFIC_COAST, i = 2; // KWVI → KMRY along Monterey Bay
+    const leg = trip.legs[i];
+    const dep = trip.airports[leg.from], dest = trip.airports[leg.to];
+    const runner = new ActivityRunner({ host: new FakeHost(), events: new EventBus(), progress: null });
+    await runner.start(bushLegActivity(trip, i));
+    const ap = dataAirport(leg.from);
+    const depEnd = ap.runways.flatMap((r) => runwayEnds(ap, r)).find((e) => e.ident === leg.departureRunway)!;
+    const start = destinationPoint(depEnd.threshold, depEnd.headingDeg, depEnd.displacedM + 30);
+    const ac = new ScriptedAircraft({ lat: start.lat, lon: start.lon, altFt: depEnd.threshold.alt / FT, groundFt: depEnd.threshold.alt / FT, hdgTrue: depEnd.headingDeg, iasKt: 0, onGround: true });
+    ac.inputs.parkingBrake = false;
+    ac.inputs.throttle = 1;
+    let maxAglFt = 0, landed = false;
+    const dt = 0.25;
+    for (let t = 0; t < 3600 && runner.running; t += dt) {
+      const here = { lat: ac.lat, lon: ac.lon, alt: 0 };
+      const dDep = greatCircleDistance(here, geo(dep)), dDest = greatCircleDistance(here, geo(dest));
+      ac.groundFt = dDep < 3 * NM ? dep.elevM / FT : dDest < 3 * NM ? dest.elevM / FT : 0;
+      if (ac.onGround) {
+        if (!landed) { ac.iasKt += 6 * dt; if (ac.iasKt >= 60) { ac.onGround = false; ac.altFt += 1; } } else ac.iasKt = Math.max(0, ac.iasKt - 5 * dt);
+      } else {
+        ac.iasKt = 90;
+        ac.steer({ altFt: dDest < 1.5 * NM ? ac.groundFt - 50 : ac.groundFt + 300, magHdgDeg: initialBearingDeg(here, geo(dest)), maxVsFpm: 600 });
+        if (ac.altFt + (ac.vsFpm / 60) * dt <= ac.groundFt) { Object.assign(ac, { onGround: true, altFt: ac.groundFt, vsFpm: 0, bankDeg: 0 }); landed = true; }
+      }
+      ac.step(dt);
+      maxAglFt = Math.max(maxAglFt, ac.aglFt);
+      runner.update(dt, ac.state(), ac.inputs);
+    }
+    expect(landed).toBe(true);
+    expect(maxAglFt).toBeLessThan(500);
+    expect(runner.result?.success, runner.result?.summary ?? `still in step ${runner.step?.id}`).toBe(true);
+  });
+});

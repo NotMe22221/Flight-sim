@@ -434,9 +434,15 @@ export type ObjectiveSpec =
   | (ObjectiveBase & { type: 'reach'; all: ConditionSpec[]; confirmS?: number; during?: ConditionSpec[]; progress?: ProgressSpec })
   /** keep `all` true until `until` is true; fails after failAfterS continuous seconds out of tolerance (if set) */
   | (ObjectiveBase & { type: 'maintain'; all: ConditionSpec[]; until: ConditionSpec[]; failAfterS?: number; progress?: ProgressSpec })
-  /** turn by byDeg (+ right, − left) with the bank in band, roll out within tolDeg (default 10) */
-  | (ObjectiveBase & { type: 'turn'; byDeg: number; bankMinDeg: number; bankMaxDeg: number; tolDeg?: number; during?: ConditionSpec[] })
-  /** lift the nose (pitch ≥ pitchDeg, default 5°) or lift off between minKt and maxKt; strict = outside the band fails */
+  /**
+   * turn by byDeg (+ right, − left) with the bank in band, roll out within tolDeg (default 10). With `toDeg` (magnetic, as
+   * the heading indicator reads) the turn ends on that heading wherever it started; byDeg then only gives the direction.
+   */
+  | (ObjectiveBase & { type: 'turn'; byDeg: number; toDeg?: number; bankMinDeg: number; bankMaxDeg: number; tolDeg?: number; during?: ConditionSpec[] })
+  /**
+   * lift the nose pitchDeg (default 3°) above its attitude on the gear when the objective started (a tricycle sits
+   * nose-up: the C172 at ~4°), or lift off, between minKt and maxKt; strict = outside the band fails
+   */
   | (ObjectiveBase & { type: 'rotate'; minKt: number; maxKt: number; targetKt?: number; strict?: boolean; pitchDeg?: number })
   /** on the ground, stopped (≤ maxKt, default 1) for stopS (default 2 s) within radiusM (default 2 500 m) of the airport, after flying */
   | (ObjectiveBase & { type: 'stopAt'; icao: string; name?: string; lat: number; lon: number; radiusM?: number; maxKt?: number; stopS?: number })
@@ -622,7 +628,9 @@ class TurnObjective extends Objective {
   private inBand = 0;
   private duringOut = 0;
   private settle = 0;
-  private hints = { start: line(''), shallow: line(''), steep: line(''), rollout: line(''), overshoot: line('') };
+  /** signed heading change this activation asks for, deg (byDeg, or the way to toDeg in byDeg's direction) */
+  private by = 0;
+  private hints = { start: line(''), more: line(''), shallow: line(''), steep: line(''), rollout: line(''), overshoot: line('') };
   constructor(readonly s: Extract<ObjectiveSpec, { type: 'turn' }>) {
     super(s);
     this.during = s.during && s.during.length > 0 ? new ConditionSet(s.during) : null;
@@ -631,12 +639,22 @@ class TurnObjective extends Objective {
     this.during?.activate(ctx);
     this.prev = ctx.state.headingTrueRad * RAD;
     this.turned = 0; this.turning = 0; this.inBand = 0; this.duringOut = 0; this.settle = 0;
-    const right = this.s.byDeg > 0;
-    const target = Math.round(ctx.state.headingMagRad * RAD + this.s.byDeg);
+    const dir = Math.sign(this.s.byDeg) || 1;
+    const right = dir > 0;
+    const mag = ctx.state.headingMagRad * RAD;
+    if (this.s.toDeg !== undefined) {
+      // the way to the named heading in the commanded direction; just past it is a small overshoot, not a full circle
+      let by = (((this.s.toDeg - mag) * dir) % 360 + 360) % 360;
+      if (by > 330) by -= 360;
+      this.by = by * dir;
+    } else this.by = this.s.byDeg;
+    const target = this.s.toDeg ?? Math.round(mag + this.s.byDeg);
     const h = headingText(target), hs = spellHeading(target);
     const mid = Math.round((this.s.bankMinDeg + this.s.bankMaxDeg) / 2);
+    const side = right ? 'right' : 'left';
     this.hints = {
       start: right ? line(`Roll right to turn to heading ${h}`, `Roll right. Turn to ${hs}.`) : line(`Roll left to turn to heading ${h}`, `Roll left. Turn to ${hs}.`),
+      more: line(`Keep turning ${side} to heading ${h}`, `Keep turning ${side}, ${hs}.`),
       shallow: line(`Bank a little more: about ${mid}°`, `Steepen the bank a little, to about ${spellNumber(mid)} degrees.`),
       steep: line(`Too steep: reduce the bank to about ${mid}°`, `Too steep. Reduce the bank to about ${spellNumber(mid)} degrees.`),
       rollout: line(`Roll out on heading ${h}`, `Roll out now, on ${hs}.`),
@@ -644,7 +662,7 @@ class TurnObjective extends Objective {
     };
   }
   /** signed heading change still to go, deg (positive = keep turning) */
-  get remainingDeg(): number { return (this.s.byDeg - this.turned) * Math.sign(this.s.byDeg); }
+  get remainingDeg(): number { return (this.by - this.turned) * (Math.sign(this.s.byDeg) || 1); }
   protected evaluate(ctx: ObjectiveContext): void {
     const st = ctx.state, v = this.view, dir = Math.sign(this.s.byDeg) || 1;
     const h = st.headingTrueRad * RAD;
@@ -655,7 +673,7 @@ class TurnObjective extends Objective {
     const bankToward = st.euler[0] * RAD * dir;
     const duringOk = this.during ? this.during.test(ctx) : true;
     if (!duringOk) this.duringOut += ctx.dt;
-    v.progress = clamp(this.turned / this.s.byDeg, 0, 1);
+    v.progress = Math.abs(this.by) < 1e-6 ? 1 : clamp(this.turned / this.by, 0, 1);
     let hint: Line | null = null;
     if (remaining > tol + 10) {
       this.settle = 0;
@@ -667,10 +685,14 @@ class TurnObjective extends Objective {
       else if (bankToward > this.s.bankMaxDeg) hint = this.hints.steep;
       else if (!duringOk && this.during) hint = this.during.hint;
     } else if (remaining >= -tol) {
-      if (Math.abs(st.euler[0] * RAD) <= 5) {
+      if (Math.abs(st.euler[0] * RAD) <= 5 && remaining > tol) {
+        // rolled out short of the heading: say so (a level-wings pilot otherwise gets no hint at all)
+        this.settle = 0;
+        hint = this.hints.more;
+      } else if (Math.abs(st.euler[0] * RAD) <= 5) {
         this.settle += ctx.dt;
         if (!duringOk && this.during) hint = this.during.hint;
-        if (this.settle >= 1 && remaining <= tol) {
+        if (this.settle >= 1) {
           const bankScore = this.turning > 0 ? this.inBand / this.turning : 1;
           const holdScore = 1 - this.duringOut / Math.max(this.elapsed, 1e-6);
           const accuracy = 1 - Math.min(Math.abs(remaining) / Math.max(tol, 1e-6), 1);
@@ -687,17 +709,23 @@ class TurnObjective extends Objective {
 class RotateObjective extends Objective {
   private readonly target: number;
   private readonly now: Line;
+  /** pitch attitude on the gear (deg): at activation, lowered by what the slow roll shows */
+  private groundPitch = 0;
   constructor(readonly s: Extract<ObjectiveSpec, { type: 'rotate' }>) {
     super(s);
     this.target = s.targetKt ?? (s.minKt + s.maxKt) / 2;
     this.now = line(`Rotate: ease back on the yoke at ${ktText(this.target)}`, `Rotate. Ease back on the yoke.`);
   }
-  protected begin(): void { /* nothing to capture */ }
+  protected begin(ctx: ObjectiveContext): void {
+    this.groundPitch = ctx.state.onGround ? ctx.state.euler[1] * RAD : 0;
+  }
   protected evaluate(ctx: ObjectiveContext): void {
     const st = ctx.state, v = this.view;
     const kt = st.aero.ias / KT;
     const pitch = st.euler[1] * RAD;
-    const rotated = kt >= 20 && ((st.onGround && pitch >= (this.s.pitchDeg ?? 5)) || (!st.onGround && st.altitudeAglM > 1));
+    if (st.onGround && kt < 20 && pitch < this.groundPitch) this.groundPitch = pitch;
+    // the nose raised above the attitude the aircraft sits at on its gear (not an absolute pitch), or a lift-off
+    const rotated = kt >= 20 && ((st.onGround && pitch >= this.groundPitch + (this.s.pitchDeg ?? 3)) || (!st.onGround && st.altitudeAglM > 1));
     if (!rotated) {
       v.progress = clamp(kt / this.target, 0, 0.99);
       v.hint = st.onGround && kt >= this.s.minKt ? this.now : null;
@@ -751,13 +779,27 @@ class StopAtObjective extends Objective {
   }
 }
 
+/** Seconds stopped on the ground after a flight with no 'landing:scored' before a landing objective gives up. */
+const UNSCORED_STOP_S = 5;
+
 class LandingObjective extends Objective {
   private seq = 0;
+  private airborne = false;
+  private stoppedT = 0;
   constructor(readonly s: Extract<ObjectiveSpec, { type: 'landing' }>) { super(s); }
-  protected begin(ctx: ObjectiveContext): void { this.seq = ctx.landingSeq; }
+  protected begin(ctx: ObjectiveContext): void { this.seq = ctx.landingSeq; this.airborne = !ctx.state.onGround; this.stoppedT = 0; }
   protected evaluate(ctx: ObjectiveContext): void {
-    const L = ctx.landing;
-    if (ctx.landingSeq === this.seq || !L) return;
+    const L = ctx.landing, st = ctx.state;
+    if (!st.onGround) this.airborne = true;
+    if (ctx.landingSeq === this.seq || !L) {
+      // TouchdownDetector scores identified runways only (when the rollout stops): down and stopped after a flight with
+      // no score means a touchdown off the runway, so fail instead of waiting forever (bush legs keep waiting: 'ignore')
+      if (this.s.elsewhere !== 'ignore' && this.airborne && st.onGround && st.groundSpeedMs < 0.5) {
+        this.stoppedT += ctx.dt;
+        if (this.stoppedT >= UNSCORED_STOP_S) this.fail('Stopped without a scored landing: touched down off the runway');
+      } else this.stoppedT = 0;
+      return;
+    }
     this.seq = ctx.landingSeq;
     const s = this.s;
     const wrongRunway = !!s.runway && L.runway !== s.runway;

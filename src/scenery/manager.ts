@@ -55,8 +55,13 @@ const RESELECT_S = 0.5;
 const RESAMPLE_CHUNK = 48;
 /** share of the ground budget spent on background re-sampling once tiles are placed */
 const RESAMPLE_SHARE = 0.3;
-/** terrain-change probes per frame over all resident tiles, and per tile visit */
-const PROBE_SAMPLES_PER_FRAME = 32;
+/**
+ * Terrain-change probes per second over the wanted tiles (~32 per frame at 60 fps; scaled with
+ * the frame time so a slow frame rate does not stretch the sweep), at least this many per frame,
+ * and at most this many per tile visit.
+ */
+const PROBES_PER_SECOND = 2000;
+const PROBES_MIN_PER_FRAME = 8;
 const PROBE_CHUNK = 16;
 
 export class SceneryManager implements SceneryLike {
@@ -90,6 +95,8 @@ export class SceneryManager implements SceneryLike {
   private readonly geo = { lat: 0, lon: 0, alt: 0 };
   private resampleCursor = 0;
   private probeCursor = 0;
+  /** last frame time (s), for the probe rate */
+  private dt = 1 / 60;
   private night = 0;
   private disposed = false;
   private visible = true;
@@ -140,6 +147,7 @@ export class SceneryManager implements SceneryLike {
       // airport surfaces come down near the camera only while it is near the ground
       const groundUnderCam = this.host.groundUp(-cam.z, cam.x);
       if (groundUnderCam !== null && Number.isFinite(groundUnderCam)) this.materials.nearDrop.value = nearDropForCameraHeight(cam.y - groundUnderCam);
+      this.dt = Number.isFinite(_dt) ? Math.min(Math.max(_dt, 0), 0.25) : 1 / 60;
       this.sinceSelect += Math.max(0, Number.isFinite(_dt) ? _dt : 0);
       const moved = Number.isNaN(this.lastSelect.x) || this.lastSelect.distanceToSquared(cam) > MOVE_RESELECT_M * MOVE_RESELECT_M;
       if (moved || this.sinceSelect >= RESELECT_S) this.select(cam);
@@ -380,7 +388,7 @@ export class SceneryManager implements SceneryLike {
     //    ground moved ("hot": the terrain refined there) is re-sampled first, nearest first, with
     //    the rest of the budget, so its buildings, pavement, lights and trees follow within a second
     const n = this.ready.length, nw = this.wanted.length;
-    let probe = Math.min(left, PROBE_SAMPLES_PER_FRAME);
+    let probe = Math.min(left, Math.max(PROBES_MIN_PER_FRAME, Math.ceil(PROBES_PER_SECOND * this.dt)));
     for (let k = 0; k < nw && probe > 0; k++) {
       // wanted tiles only (LRU leftovers beyond the radius keep the background round-robin)
       this.probeCursor = (this.probeCursor + 1) % nw;

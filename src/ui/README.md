@@ -2,12 +2,17 @@
 
 MSFS-style user interface in plain DOM + CSS (no framework, no dependencies): loading splash,
 main menu, World Map flight planner, aircraft / weather / settings / credits screens, Activities
-(landing challenges), and the in-flight toolbar with draggable panels, status bar, flight info
-strip, ATC subtitles, pause menu, keyboard help and landing report.
+(landing challenges, Flight Training lessons, bush trips), and the in-flight toolbar with draggable
+panels (including the activity objectives), status bar, flight info strip, ATC and instructor
+subtitles, pause menu, keyboard help, landing report and activity debrief.
 
 The UI talks to the simulator **only** through `UiHost` (`UiHost.ts`) and the event bus it
-exposes. The single exception is the pure landing-challenge table (`src/activities/landingChallenges.ts`,
-types-only dependency on core), read in one adapter (`activities.ts`).
+exposes. The exceptions are pure activity data from `src/activities`, imported directly: the
+landing-challenge table (read in `activities.ts`), `LESSONS` and `BUSH_TRIPS` with the pure
+bush-trip helpers `navLog` / `legRouteNm` / `legDistanceNm` and `gradeFor` (read in
+`activityModels.ts` and the Activities tabs). The runner and the progress store reach the UI only
+through the host (`host.activityRunner`, `host.activityProgress`, typed as the read-only views
+`ActivityRunnerView` / `ActivityProgressView` in `UiHost.ts`).
 
 ## Integrating
 
@@ -56,7 +61,21 @@ otherwise the header shows the last transmission's frequency), `setInfoStrip(vis
 `magneticVariationDeg(lat, lon)` (runway headings and nav-log bearings in °M; without it the
 World Map shows true headings marked 'T').
 
-Events consumed: `ui:toast`, `terrain:progress` (flight loading bar), `landing:scored` (report +
+Activities (src/activities, all optional; the bundled `SimUiHost` implements them):
+`startLesson(id)` / `startBushLeg(tripId, legIndex)` (Activities "Start", "Resume", debrief "Next
+leg"; without them Start is disabled), `restartActivity()` (debrief "Retry", pause menu "Restart
+activity"; otherwise the pause menu's restart is the plain `resetFlight`, which the runner also
+treats as a restart at its start point), `restartActivityStep()` and `abortActivity()` (pause menu
+"Restart step" / "Abort activity", hidden when absent), `activityRunner` (polled: `phase` gates the
+Start buttons while `'starting'`, `objectives`/`stepIndex` feed the live progress bars, `liveHint`
+the "what to correct now" line, `result` the debrief) and `activityProgress` (completed badges, best
+scores, unlocked legs, Resume, Reset trip; without it every leg is open and nothing shows as
+completed).
+
+Events consumed: `ui:toast`, `terrain:progress` (flight loading bar), `activity:started` (objectives
+panel shown, toolbar button on), `activity:instruction` (instructor subtitle), `activity:progress`
+(objective rows of the current step; the runner's extra `step` / `optional` / `progress` fields are
+read when present), `activity:finished` (debrief, or a toast), `landing:scored` (report +
 challenge best score; `landingReportModel.ts` maps the scorer's `centre/smooth/zone/stop` percentages,
 `centrelineOffsetM`, `verticalSpeedFpm`, `touchdownFromThresholdM`, `stopDistanceM`, `peakG`,
 `crabDeg`, `bounces`, `grade`, and also accepts 0..1 fractions or other spellings), `atc:message`, `atc:options`, `aircraft:crash` (pause menu titled
@@ -101,12 +120,57 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
   re-queried only after a > 25 % pan/zoom and at most every 250 ms; zoomed in, `nav.loadRegion`
   fetches small-airport shards. Flight conditions: 9 presets + Live + Custom, time Now / Dawn /
   Noon / Dusk / Night / custom slider with the sun-elevation hint (`timeOfDay.ts`, `solar.ts`).
-- **Activities** (`screens/Activities.ts`, `activities.ts`): category tabs (All / Famous / Epic /
-  Strong Wind), cards with best score, briefing (approach, weather, wind, time), Start.
-  `ChallengeSession` attributes `landing:scored` to the running challenge (kept across
-  "Restart", dropped when a different flight spawns); best scores in `flightsim.activities.best.v1`.
+- **Activities** (`screens/Activities.ts` + `screens/activities/*`, tab remembered in
+  `flightsim.ui.activitiesTab.v1`): three tabs.
+  - *Landing challenges* (`ChallengesTab.ts`, `activities.ts`): category filter (All / Famous / Epic /
+    Strong Wind), cards with best score, briefing (approach, weather, wind, time), Start.
+    `ChallengeSession` attributes `landing:scored` to the running challenge (kept across
+    "Restart", dropped when a different flight spawns); best scores in `flightsim.activities.best.v1`.
+  - *Flight training* (`TrainingTab.ts`): a card per lesson (`LESSONS`) with the step count, start,
+    weather and time, the completed badge and best score / attempts from `activityProgress.lesson(id)`;
+    the detail card has the briefing (start in the user's units, weather, time, aircraft, duration
+    and level when a lesson carries `durationMin` / `difficulty`), the lesson plan (step titles) and
+    Start. The first lesson not yet completed is preselected.
+  - *Bush trips* (`BushTripsTab.ts`): a card per trip (`BUSH_TRIPS`) with its legs-completed bar; with
+    a single trip it opens directly. An opened trip lists its legs: from → to with the airport names,
+    distance through the landmarks (`legRouteNm`), cruise altitude, highest terrain (`leg.terrain`)
+    and landmarks; completed legs ticked with the best score, the next leg highlighted, locked legs
+    greyed (`activityProgress.isLegUnlocked`). The leg card shows the briefing, the flight plan and a
+    nav log (`navLog`: courses magnetic with `host.magneticVariationDeg`, else marked T, distances in
+    the user's unit) and Start (disabled and locked-labelled until the previous leg is flown).
+    "Resume · leg N" starts `nextLeg` ("Fly again" from leg 1 once the trip is done); "Reset trip"
+    asks for an inline confirmation before `activityProgress.resetTrip`.
+  - The view models are pure (`activityModels.ts`); every Start (challenges too) is disabled while
+    `activityRunner.phase === 'starting'` (`StartGate`, polled in `update`, DOM written on change).
+    Lessons and legs start like challenges (`FlightLauncher.startActivity`): loading screen, the host
+    call, then the flight view; a failure toasts and returns to Activities. A free flight or a
+    challenge started while an activity runs ends it quietly first (`endActivity`).
+- **Activities in flight** (`flight/ObjectivesPanel.ts`, `flight/InstructorSubtitle.ts`,
+  `flight/DebriefCard.ts`, wired in `FlightUi`): `activity:started` opens the *Objectives* panel (top
+  left, a FloatingPanel whose toolbar button exists only while there is an activity): activity title,
+  "Step 2 of 7 · Climb 500 ft", the current step's objectives with status icons (optional ones
+  dimmed and tagged), a thin progress bar each, "Next: …", and the live hint
+  (`activityRunner.liveHint`, held 1 s after it clears so it does not flicker). Rows are rebuilt only
+  on `activity:progress`; between events the panel reads the runner's live objective views at most
+  10 Hz and writes a bar only when its whole percent changes. Instructor lines
+  (`activity:instruction`) show at the bottom centre, just above the instruments HUD's controls
+  strip (its height is mirrored in CSS from the HUD's scale formula): ~6 s, 9 s when important,
+  60 ms per character for long lines, at most 25 s; bursts are queued (`subtitleQueue.ts`: each line
+  readable ≥ 2.5 s, paused time and time off the flight view not counted, so the first instruction is
+  still there after the loading screen). Toasts move above the subtitle while it shows.
+  `activity:finished` shows the *debrief* 1.8 s later (after the closing line): outcome, score /100
+  and grade, the reason when failed, summary, time, landing score, every step with its objectives
+  and notes ('Missed' optional ones dimmed, 'Not reached'), and Retry (`restartActivity`), Next leg
+  (bush trips, when the next leg exists and is unlocked), Landing report (re-opens the full report
+  of the activity's landing) and Close. During an activity a full-stop landing is a toast (the pilot
+  may still have to stop; the debrief carries the score). After a crash the debrief replaces the
+  crash menu; closing it opens the menu ('Crashed'). An abort from the pause menu, or a flight
+  changed under the activity, is a toast; a replaced activity (Retry, another Start) shows nothing.
+- **Pause menu during an activity**: a line with the activity and step, "Restart step"
+  (`restartActivityStep`, resumes), "Restart activity" (instead of "Restart flight") and "Abort
+  activity" (stays paused, noted "Activity aborted · you are in free flight").
 - **In flight** (`flight/FlightUi.ts`, `flight/FlightPanels.ts`): toolbar revealed at the top edge
-  (Camera · ATC · Checklist · Nav log · VFR map · Weather · Controls · Menu), draggable /
+  (Camera · Objectives (during an activity) · ATC · Checklist · Nav log · VFR map · Weather · Controls · Menu), draggable /
   resizable panels with persisted positions (`flightsim.ui.layout.v1`), status bar, info strip,
   ATC subtitles, toasts (also in menus). The Weather panel highlights the preset the simulator is
   actually flying (a challenge sets its own) and its time card follows the simulator clock at the
@@ -137,7 +201,8 @@ headings); the World Map shows runway headings magnetic when the host implements
 runways cross at their real angles). Weather summaries and the custom editor follow the unit
 settings (inHg/hPa, °C/°F, nm/km, ft/m, kt/km/h/mph).
 
-Phones (≤ 720 px wide): one scrolling column per screen, World Map order search → map → airport →
+Phones (≤ 720 px wide): one scrolling column per screen (Activities: short tab labels Challenges ·
+Training · Bush trips sharing the width, leg rows stacked, the briefing scrolled into view on select), World Map order search → map → airport →
 conditions with the departure summary and FLY pinned at the bottom; icon-only toolbar opened from a
 tab at the top edge on touch screens; pinch-zoom on the World Map; text fields are not auto-focused
 on touch screens (no on-screen keyboard popping up).
@@ -161,7 +226,13 @@ Pure modules only: routing + Esc de-duplication + capture rules, landing report 
 TouchdownDetector payload: percent components, raw measurements, touch-and-go), debounced search (fake timers,
 stale async results), settings reducer (changed groups, presets vs. per-item, sanitizing,
 resets), bindings view model (groups, conflicts, filters), activities (filters, briefing text,
-best scores, challenge session), World Map model (zoom filtering, dot sizes, query radius,
+best scores, challenge session), activity view models (`activityModels.test.ts`: lesson cards with
+completed / attempted / new states, units and optional metadata, trip cards and resume, the leg list
+locked / next / completed with a real in-memory `ProgressStore`, no store = all open, leg briefing
+and nav log incl. magnetic courses and km/m, objective rows and step filtering, subtitle timing,
+debrief content incl. the next-leg rule, finish presentation; compile-time check that the real
+`ActivityRunner` / `ProgressStore` satisfy the UI's views), the subtitle queue (bursts, minimum
+reading time, pause, gaps, repeats, overflow), World Map model (zoom filtering, dot sizes, query radius,
 refetch throttling incl. antimeridian, hit-testing, scale bar, runway line), time-of-day
 mapping, sun hint and the in-flight clock choice, autopilot annunciator (LVL, disconnect flash
 baseline/rebase, alerter), settings version-2 migrations (FOV, anti-stall), plus the pre-existing format, projection, solar, runways, weather presets,
@@ -187,6 +258,13 @@ DOM classes and the CSS-importing barrel) in Node to prove nothing touches the D
   and the cockpit PFD, and the UI adds only the disconnect toast.
 - Settings › Controls and the help sheet list SimActions only: keyboard flight-control axes
   (pitch/roll/rudder/throttle keys) are not reported by `host.bindings()`.
+- Activities: the Objectives panel has no hotkey (there is no SimAction for it; toolbar only). The
+  instructor subtitle lives in the HUD layer, so an open floating panel (e.g. the VFR map at its
+  default bottom-right place on narrow windows) can cover part of it. In the cockpit view it sits
+  over the upper edge of the instrument panel (the HUD controls strip it clears is drawn in the
+  external views). The UI speaks nothing: TTS of instructor lines is the host's (`speakInstructor`).
+  Lesson cards show duration / level only when the lesson data carries them (the bundled lessons do
+  not).
 
 ## Tuning knobs
 
@@ -196,6 +274,8 @@ DOM classes and the CSS-importing barrel) in Node to prove nothing touches the D
 | `screens/worldmap/MapCanvas.ts` | `FETCH_INTERVAL_MS` (250), `DRAG_THRESHOLD_PX` (4), `MAX_REGION_NM` (250), wheel sensitivity |
 | `searchDebounce.ts` / `AirportSearch.ts` | debounce 180 ms, min query length 2, 30 results, 15 nearby within 150 nm |
 | `routing.ts` | `EscapeDeduper` window (600 ms) |
-| `flight/FlightUi.ts` | crash menu delay 1.5 s, AP toast grace after spawn 1.5 s, subtitle duration (≥ 4 s, 70 ms/char) |
+| `flight/FlightUi.ts` | crash menu delay 1.5 s, AP toast grace after spawn 1.5 s, ATC subtitle duration (≥ 4 s, 70 ms/char), `DEBRIEF_DELAY_MS` 1.8 s |
+| `activityModels.ts` / `subtitleQueue.ts` | instructor subtitle `SUBTITLE_MIN_MS` 6 s, `SUBTITLE_IMPORTANT_MS` 9 s, 60 ms/char, max 25 s; queue minimum reading time 2.5 s, 3 waiting lines, frame gaps > 250 ms not counted |
+| `flight/ObjectivesPanel.ts` | live progress at most 10 Hz (`LIVE_INTERVAL_MS`), hint hold 1 s (`HINT_HOLD_MS`) |
 | `settingsStore.ts` | defaults, graphics quality presets, `UI_SCALE_MIN/MAX` |
 | `ui.css` | tokens on `.fs-ui` (`--accent #4cc3ff`, `--ui-bg`, `--radius`, `--ui-scale`) |

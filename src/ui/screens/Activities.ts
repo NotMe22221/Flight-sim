@@ -27,7 +27,8 @@ export class Activities extends Screen {
     this.views = { challenges: new ChallengesTab(ctx), training: new TrainingTab(ctx), bush: new BushTripsTab(ctx) };
     const bar = h('div', { class: 'tabs act-modes', role: 'tablist', aria: { label: 'Activity types' } });
     ACTIVITY_TABS.forEach((t, i) => {
-      const b = h('button', { class: 'tab', type: 'button', role: 'tab', dataset: { tab: t.id }, onClick: () => this.select(t.id) }, icon(t.icon), h('span', { text: t.label }));
+      const b = h('button', { class: 'tab', type: 'button', role: 'tab', title: t.label, aria: { label: t.label }, dataset: { tab: t.id }, onClick: () => this.select(t.id) },
+        icon(t.icon), h('span', { class: 'tab-long', text: t.label }), h('span', { class: 'tab-short', text: t.short }));
       b.addEventListener('keydown', (e) => {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
         e.preventDefault();

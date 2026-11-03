@@ -77,12 +77,16 @@ tile's own vertical (one fixed-point step from the previous value). Buildings st
 their first pass is done.
 
 Terrain refinements are caught in two ways. Every wanted tile has an 8 × 8 probe grid (about
-240 m apart) that is re-sampled round-robin, 32 probes per frame over all tiles; when a probe's
+240 m apart) that is re-sampled round-robin over the wanted tiles, about 2000 probes per second
+(32 per frame at 60 fps, more per frame when frames are slow); when a probe's
 ground moves by more than 0.1 m (or ground appears where there was none), the tile becomes
 **hot**: its whole grid is taken in, every layer restarts its pass (buildings first) and the tile
 owes one full re-sampling cycle, which it gets before anything else (hot tiles nearest first,
 with the rest of the frame's sample budget). A refinement under a tile is followed within about
-a second at the shipped budget (`stats().tilesHot` counts the tiles catching up). Besides that,
+a second at the shipped budget (`stats().tilesHot` counts the tiles catching up). A re-sample
+that finds an already grounded item more than 0.5 m off (a change smaller than the probe
+spacing) makes its tile hot as well, and a hot tile keeps its priority until a full cycle finds
+no such move. Besides that,
 background re-sampling continues forever at a reduced share of the budget (30 %): half of it
 goes to the tile under the camera, the rest round-robin over all resident tiles, and inside a
 tile the layers take turns (one full pass each: buildings, pavement, markings, light pools,
@@ -93,10 +97,14 @@ GPU uploads use one persistent update range per attribute (no per-frame allocati
 
 Aprons (0.20 m), taxiway areas (0.22 m) and taxiway ribbons (0.24 m, 18 m wide or the OSM
 `width`) sit above the terrain in that order so overlaps never z-fight; yellow centre lines
-are 0.03 m above the ribbons. Within the runway zone (OSM runway centre line ± half width
-(30 m default) + 12 m, or runway polygons + 12 m) every vertex drops to 0.03–0.05 m, i.e.
-**under** the runway slab that `src/world/AirportsLayer` draws 0.12 m up, and markings /
-taxiway lights stop. Draped materials carry a small relative depth bias (0.25 % of the view
+are 0.03 m above the ribbons. Where a taxiway or taxilane crosses an apron it is a lead-in line
+painted on the concrete: no asphalt ribbon there (triangles on the apron or its outline are
+dropped) and the yellow line sits 0.03 m above the apron (from one ribbon step inside the
+apron edge; nearer the edge it keeps the ribbon height so it never dips under the asphalt
+triangles that still reach onto the apron there). Within the runway zone (OSM runway
+centre line ± half width (30 m default) + 12 m, or runway polygons + 12 m) every vertex drops
+to 0.03–0.05 m, i.e. **under** the runway slab that `src/world/AirportsLayer` draws 0.12 m up,
+and markings / taxiway lights stop. Draped materials carry a small relative depth bias (0.25 % of the view
 distance, injected after three's `project_vertex`, so both the logarithmic and the reversed
 depth buffer work) that wins over the coarser terrain mesh; it is zero next to runways.
 
@@ -204,43 +212,57 @@ following a terrain change, probe grids noticing a refinement and nothing else),
 kinds, gzip, failover, cancellation), the manager (grounding through `groundUp`, `setFrame`
 re-expression to the centimetre, LRU eviction and dispose, TileJSON success / failure,
 404 / network retries, parking on demand, night fade and LOD, a local terrain refinement
-followed within ~1 s at the shipped budget), the tile object (every ground layer follows a
-terrain change, layers take turns in re-sampling, pavement receives shadows), floodlights only
-along real apron edges, and the material patches
+followed within ~1 s at the shipped budget, and one smaller than the probe spacing), the tile
+object (every ground layer follows a terrain change, layers take turns in re-sampling even
+while one layer has no ground yet, probe baselines, pavement receives shadows), extents other
+than 4096, floodlights only along real apron edges, taxiways on aprons painted as lines, and
+the material patches
 (depth bias, near-camera drop and point size, with the logdepthbuf chunks kept).
 
 ## Integration (app side)
 
 `src/app/plugins.ts` already creates the plugin (`createScenery` with `parent`, `frame`,
 `groundUp`, `heightAt`, `depthMode`, `quality`, `tileUrl` from `?osm=`) and `Simulator` calls
-`update` after the terrain and `setFrame` on a new flight / rebase. Still to wire in the app:
-
-- **Credits**: `SimUiHost.dataCredits()` (`src/app/uiHost.ts`) should append
-  `this.sim.plugins.scenery?.attribution?.() ?? []` (ODbL / OpenMapTiles attribution).
-- **Quality**: `SimUiHost.setGraphics(g)` should call
-  `this.sim.plugins.scenery?.setQuality?.(g.quality)` (same `'low' | 'medium' | 'high' |
-  'ultra'` names).
-- Optional: a graphics toggle calling `setVisible(on)`, and a "spawn at gate" option using
-  `parkingSpots(lat, lon, radiusM)` (gates first, then apron stands, each with `headingDeg`
-  facing the nearest taxiway).
+`update` after the terrain and `setFrame` on a new flight / rebase. `SimUiHost` (`src/app/uiHost.ts`)
+appends `attribution()` to the data credits (ODbL / OpenMapTiles) and forwards the graphics
+quality through `setQuality` (same `'low' | 'medium' | 'high' | 'ultra'` names), and
+`Simulator.spawnAtParking` parks at `parkingSpots(...)[0]`. Note that `parkingSpots` sorts by
+distance only (gates win ties): to prefer a gate, pick the first spot named `Gate …`.
+Optional: a graphics toggle calling `setVisible(on)`.
 
 ## Known limitations
 
 - OpenMapTiles has no building type: houses are recognised by size and height only, and
-  facade variety is one window texture (tinted per building) plus plain cladding.
+  facade variety is one window texture (tinted per building) plus plain cladding. Terminal
+  and hangar buildings (plain cladding) have no lit windows at night.
 - Buildings cut by a tile edge are split; on slopes the two halves may sit at different bases.
 - Taxiway widths default to 18 m (OpenMapTiles carries no `width`); runway zones assume
   60 m wide runways unless OSM provides a polygon or width, so taxiways stay lowered slightly
   further from narrow runways than needed (still under or beside the slab, never above it).
 - Ground heights follow `groundUp` (the finest loaded terrain); where the rendered terrain LOD
   is coarser than that (concave ground in the distance), the 0.2 m lift and the depth bias hide
-  small differences only. Flattening the terrain mesh under aprons and taxiways, as the
-  terrain module already does for runways (`TerrainSystem.setRunways`), would remove both
-  this and the remaining tyre sinking; the scenery has the polygons (`TileFeatures.aprons`,
+  small differences only. On the bumpy procedural terrain of the offline check, the draped
+  pavement matched `groundUp` to 4 cm, yet the terrain mesh still poked through aprons in a
+  few places 150–500 m from a camera at the gate (the depth bias is worth almost nothing at
+  such grazing angles). Flattening the terrain mesh under aprons and taxiways, as the terrain
+  module already does for runways (`TerrainSystem.setRunways`), would remove both this and the
+  remaining tyre sinking; the scenery has the polygons (`TileFeatures.aprons`,
   `taxiwayPolys`, taxiway lines) if the lead wants to feed them to the terrain.
 - Near the camera aprons are only 0.06 m above the sampled ground (see Airport surfaces), so
   rough terrain between two drape vertices (16 m grid on high) can show through right next to
   the aircraft, and wheels still sink 0.06–0.13 m into aprons / taxiways.
-- No shadows from autogen; trees are instanced low-poly meshes without impostors.
+- Terrain refinements are noticed through probe grids about 240 m apart (see Ground): a change
+  confined between probe points waits until the background re-sampling meets one of its moved
+  items (a few seconds for a 90 m patch of buildings; a single small building can take a full
+  background cycle, tens of seconds at 60 fps). A change counter or per-tile load event from
+  the terrain module would let the scenery re-sample exactly where heights changed.
+- No shadows cast by autogen (pavement receives the aircraft's shadow, nothing casts); trees
+  are instanced low-poly meshes without impostors. Apron floodlights are sprites 22 m up
+  without mast geometry.
+- Parking: apron stands also keep their 16 m edge clearance from the tile border where an
+  apron is clipped (fewer stands along tile borders), and a gate only steps clear of the
+  buildings of its own tile.
+- `debugView` moves the render camera only; the terrain LOD keeps following the simulator's
+  camera (see the screenshot tips above).
 - The headless visual check ran in SwiftShader at a few fps with procedural terrain and
   imagery (no network), not representative of performance on a GPU.

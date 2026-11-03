@@ -189,7 +189,8 @@ export class TileObject {
     while (used < budget) {
       const i = this.probeCursor;
       const swept = this.probeSweeps > 0;
-      if (++this.probeCursor >= n) { this.probeCursor = 0; this.probeSweeps++; }
+      let firstSweepDone = false;
+      if (++this.probeCursor >= n) { this.probeCursor = 0; firstSweepDone = this.probeSweeps++ === 0; }
       used++;
       if (this.probe(s, i) && swept) {
         for (let k = 0; k < n; k++) this.probe(s, k);
@@ -197,6 +198,9 @@ export class TileObject {
         this.markHot();
         break;
       }
+      // the first sweep sets the baseline: whatever was grounded before it may stand on older
+      // (coarser) terrain than the baseline, so it is re-sampled once against the current one
+      if (firstSweepDone && this.layers.some((l) => l.groundedCount > 0)) { this.markHot(); break; }
     }
     return used;
   }
@@ -250,6 +254,8 @@ export class TileObject {
         used += l.step(budget - used, s, this.placement, true);
       }
     } else {
+      let moves = 0;
+      for (let i = 0; i < ls.length; i++) moves += ls[i].moves;
       for (let k = 0; k < ls.length && used < budget; k++) {
         if (this.resampleLayer >= ls.length) this.resampleLayer = 0;
         const l = ls[this.resampleLayer];
@@ -260,6 +266,10 @@ export class TileObject {
         this.resampleLayer++;
       }
       if (this.hotSamples > 0) this.hotSamples = Math.max(0, this.hotSamples - used);
+      // an item that had to move a lot reveals a terrain change the probe grid missed (smaller
+      // than its spacing): the whole tile is owed a priority cycle, until one finds no such move
+      for (let i = 0; i < ls.length; i++) moves -= ls[i].moves;
+      if (moves < 0) this.markHot();
     }
     for (let i = 0; i < ls.length; i++) ls[i].flush();
     this.refreshVisibility();

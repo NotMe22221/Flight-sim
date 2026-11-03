@@ -6,7 +6,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, normalize, resolve } from 'node:path';
+import { join, normalize, resolve, sep } from 'node:path';
 
 // rootDir defaults to $OSM_FIXTURES, else <os tmpdir>/osm-fixtures (generateFixtures.ts writes there too)
 const root = resolve(process.argv[2] ?? process.env.OSM_FIXTURES ?? join(tmpdir(), 'osm-fixtures'));
@@ -24,7 +24,8 @@ const server = createServer(async (req, res) => {
   }
   if (url.pathname.startsWith('/empty/')) { res.writeHead(204, cors); res.end(); return; }
   const path = normalize(join(root, decodeURIComponent(url.pathname)));
-  if (!path.startsWith(root)) { res.writeHead(403, cors); res.end(); return; }
+  // inside root only (a bare prefix test would let /../osm-fixtures-x/... reach a sibling folder)
+  if (!path.startsWith(root + sep)) { res.writeHead(403, cors); res.end(); return; }
   try {
     const data = await readFile(path);
     res.writeHead(200, { ...cors, 'Content-Type': 'application/x-protobuf', 'Content-Length': data.length, 'Cache-Control': 'no-cache' });

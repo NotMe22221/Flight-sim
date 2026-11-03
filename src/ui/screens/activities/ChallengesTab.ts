@@ -10,7 +10,7 @@ import {
 } from '../../activities';
 import { scoreBand } from '../../landingReportModel';
 import { formatDateUtc } from '../../format';
-import type { ActivityTabView } from './types';
+import { StartGate, type ActivityTabView } from './types';
 
 export class ChallengesTab implements ActivityTabView {
   readonly el: HTMLElement;
@@ -23,8 +23,11 @@ export class ChallengesTab implements ActivityTabView {
   private cards = new Map<string, HTMLElement>();
   private startBtn: HTMLButtonElement | null = null;
   private status: Txt;
+  /** Start is disabled while a lesson / bush leg is still being set up (spawns are serialised) */
+  private gate: StartGate;
 
   constructor(private readonly ctx: ScreenContext) {
+    this.gate = new StartGate(ctx);
     const bar = h('div', { class: 'tabs act-filters', role: 'tablist', aria: { label: 'Challenge categories' } });
     for (const f of CHALLENGE_FILTERS) {
       const b = h('button', { class: 'tab', type: 'button', role: 'tab', onClick: () => this.setFilter(f) });
@@ -48,7 +51,7 @@ export class ChallengesTab implements ActivityTabView {
     this.renderDetail();
   }
 
-  update(): void { /* nothing live */ }
+  update(): void { this.gate.update(); }
 
   // no scroll: on a phone the briefing (and its Start button) sits below the list
   focus(): void { (this.startBtn ?? this.tabs.get(this.filter))?.focus({ preventScroll: true }); }
@@ -111,7 +114,8 @@ export class ChallengesTab implements ActivityTabView {
     const b = challengeConditions(c);
     const best = this.best[c.id];
     const canStart = typeof this.ctx.host.startChallenge === 'function';
-    this.startBtn = button('Start', () => this.start(c), { primary: true, big: true, icon: 'play', disabled: !canStart, title: canStart ? `Fly ${c.title}` : 'Not available in this build' });
+    this.gate.reset();
+    this.startBtn = this.gate.add(button('Start', () => this.start(c), { primary: true, big: true, icon: 'play', title: canStart ? `Fly ${c.title}` : 'Not available in this build' }), canStart);
     this.status.set(canStart ? 'You start trimmed on final with approach flaps. Land on the centreline, gently, near the aiming point, and stop.' : 'Landing challenges are not available in this build.');
     this.detail.append(
       h('div', { class: 'row' }, h('span', { class: 'badge', text: c.category }), h('span', { class: 'spacer' }), h('span', { class: 'airport-icao', text: c.icao })),
@@ -134,7 +138,7 @@ export class ChallengesTab implements ActivityTabView {
   }
 
   private start(c: LandingChallenge): void {
-    if (typeof this.ctx.host.startChallenge !== 'function') return;
+    if (typeof this.ctx.host.startChallenge !== 'function' || this.gate.starting) return;
     if (this.ctx.startChallenge) this.ctx.startChallenge(c.id);
     else void this.ctx.host.startChallenge(c.id).catch((e: unknown) => this.ctx.toast(`Could not start ${c.title}: ${e instanceof Error ? e.message : String(e)}`, 'error'));
   }

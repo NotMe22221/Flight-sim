@@ -50,7 +50,7 @@ describe('ActivityRunner: start and event sequence', () => {
   it('sets the flight up in order and emits started, the first instruction and progress exactly once', async () => {
     const { runner, rec, host } = setup();
     await runner.start(SIMPLE);
-    expect(host.calls).toEqual(['weather clear', 'spawnInAir', 'time noon']);
+    expect(host.calls).toEqual(['weather clear', 'spawnInAir', 'weather clear', 'time noon']);
     expect(host.lastAirSpawn).toMatchObject({ lat: 37.5, lon: -122.6, headingDeg: 90 });
     expect(host.lastAirSpawn!.altM).toBeCloseTo(3000 * FT, 9);
     expect(host.lastAirSpawn!.iasMs).toBeCloseTo(100 * KT, 9);
@@ -112,7 +112,7 @@ describe('ActivityRunner: start and event sequence', () => {
     const def: ActivityDef = { ...SIMPLE, setup: { ...SIMPLE.setup, route: [{ id: 'A', type: 'user', position: { lat: 37, lon: -122, alt: 1000 } }] } };
     const { runner, host } = setup();
     await runner.start(def);
-    expect(host.calls).toEqual(['weather clear', 'spawnInAir', 'time noon', 'route 1']);
+    expect(host.calls).toEqual(['weather clear', 'spawnInAir', 'weather clear', 'time noon', 'route 1']);
     runner.abort();
     expect(host.calls[host.calls.length - 1]).toBe('clearRoute');
   });
@@ -317,5 +317,52 @@ describe('ActivityRunner: lifecycle edges', () => {
     await runner.start(SIMPLE);
     events.emit('aircraft:crash', { reason: 'x' });
     expect(runner.running).toBe(true);
+  });
+});
+
+// ───────────────────────────── review findings (each failed before its fix) ─────────────────────────────
+
+describe('review: weather layers at the activity field', () => {
+  it('the preset is applied before the spawn (wind for the runway choice) and again after it (cloud layers AGL at the new field)', async () => {
+    const { runner, host } = setup();
+    await runner.start(SIMPLE);
+    expect(host.calls).toEqual(['weather clear', 'spawnInAir', 'weather clear', 'time noon']);
+  });
+});
+
+describe('review: no scolding when the pilot restarts, replaces or aborts', () => {
+  it('the closing debrief line is said for an outcome (crash, failure, completion), not for Retry / Next / Abort / a flight change', async () => {
+    const quiet = async (end: (r: ActivityRunner, e: EventBus) => Promise<void> | void) => {
+      const { runner, events, said, host } = setup();
+      await runner.start(SIMPLE);
+      await end(runner, events);
+      return { texts: said.map((x) => x.text), spoken: host.spoken };
+    };
+    for (const end of [
+      (r: ActivityRunner) => r.restart(),
+      (r: ActivityRunner) => r.start({ ...SIMPLE, id: 'other' }),
+      (r: ActivityRunner) => r.abort(),
+      (_r: ActivityRunner, e: EventBus) => { e.emit('flight:reset', { spawn: spawnAt(40, -120) }); },
+    ]) {
+      const { texts, spoken } = await quiet(end);
+      expect(texts).not.toContain('Try again');
+      expect(spoken).not.toContain('Try again');
+    }
+    const crash = await quiet((_r, e) => { e.emit('aircraft:crash', { reason: 'terrain' }); });
+    expect(crash.texts).toContain('Try again');
+  });
+});
+
+describe('review: a restart by reset restores the set-up conditions', () => {
+  it('a reset at the start re-applies the weather and time presets (a dusk leg restarted later must not run into the night)', async () => {
+    const events = new EventBus();
+    const host = new FakeHost();
+    const runner = new ActivityRunner({ host, events });
+    await runner.start(SIMPLE);
+    for (let t = 0; t < 8; t += 0.1) runner.update(0.1, flyState({ altFt: 3000 }), inputsWith());
+    host.calls.length = 0;
+    events.emit('flight:reset', { spawn: spawnAt(37.51, -122.61) });
+    expect(runner.step?.id).toBe('a');
+    expect(host.calls).toEqual(['weather clear', 'time noon']);
   });
 });

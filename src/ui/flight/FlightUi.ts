@@ -67,6 +67,8 @@ export class FlightUi {
   /** the landing scored during the running activity (the debrief can re-open its report) */
   private activityLanding: SimEvents['landing:scored'] | null = null;
   private crashReason: string | null = null;
+  /** the debrief paused the simulator (it takes the keyboard; a lesson can end in the air) */
+  private debriefPaused = false;
   private hud: HudStrip;
   private subtitle: HTMLElement;
   private subFrom: Txt;
@@ -147,7 +149,12 @@ export class FlightUi {
       this.hud.rebase(); this.panels.clampAll();
       if (this.pausedByMenu && !this.pause.visible) this.showPause();
       else if (this.pendingDebrief) this.scheduleDebrief(400);
-    } else { this.help.hide(); this.report.hide(); this.debrief.hide(); if (this.pause.visible) this.pause.hide(); }
+    } else {
+      // a debrief left for a menu keeps the simulator paused, as the pause menu does (back in the
+      // flight the pause menu shows)
+      if (this.debrief.visible && this.debriefPaused) { this.debriefPaused = false; this.pausedByMenu = true; this.resumePaused = false; }
+      this.help.hide(); this.report.hide(); this.debrief.hide(); if (this.pause.visible) this.pause.hide();
+    }
     this.d.onOverlayChange();
   }
 
@@ -176,6 +183,8 @@ export class FlightUi {
   closePause(resume: boolean): void {
     this.pause.hide();
     if (resume && this.pausedByMenu) { this.pausedByMenu = false; this.d.host.setPaused(this.resumePaused); }
+    // a debrief that came while the menu was open
+    if (resume && this.pendingDebrief && this.active) this.scheduleDebrief(300);
     this.d.onOverlayChange();
   }
 
@@ -274,6 +283,7 @@ export class FlightUi {
     // instruction is already queued), a spawn for a new activity is 'starting'; anything else
     // leaves no activity on this flight
     this.cancelDebrief();
+    this.debriefPaused = false; // the spawn unpaused the simulator
     this.debrief.hide();
     this.activityLanding = null;
     if (!this.activityRunning() && this.runnerPhase() !== 'starting') this.clearActivity();
@@ -392,8 +402,14 @@ export class FlightUi {
     let def = null as NonNullable<UiHost['activityRunner']>['def'];
     try { result = host.activityRunner?.result ?? null; def = host.activityRunner?.def ?? null; } catch { result = null; }
     if (!result || !this.active) { if (!this.active) this.pendingDebrief = true; return; }
-    if (this.pause.visible) this.closePause(false);
+    // the pilot is in the pause menu: show it when the menu closes
+    if (this.pause.visible) { this.pendingDebrief = true; return; }
     this.report.hide();
+    if (!this.debriefPaused) {
+      let paused = true;
+      try { paused = host.snapshot().paused; } catch { paused = true; }
+      if (!paused) { this.debriefPaused = true; host.setPaused(true); }
+    }
     const vm = debriefVm(result, def && def.id === result.id ? def : null, BUSH_TRIPS, host.activityProgress);
     const landing = this.activityLanding;
     const crashed = this.crashReason;
@@ -402,6 +418,9 @@ export class FlightUi {
       nextLeg: host.startBushLeg && this.d.ctx.startBushLeg ? (tripId, i) => this.d.ctx.startBushLeg!(tripId, i) : undefined,
       landingDetails: landing ? () => this.report.show(landing, this.d.units(), () => { this.d.onOverlayChange(); if (!this.debrief.visible && this.active && this.runnerPhase() === 'finished') this.showDebrief(); }) : undefined,
       onClose: (byAction) => {
+        // Close / Esc: back to the flight (resumed); Retry / Next leg respawn (which resumes); the
+        // landing report keeps the pause and brings the debrief back when it closes
+        if (!byAction && this.debriefPaused) { this.debriefPaused = false; host.setPaused(false); }
         // after a crash the menu (Restart flight, World map …) is the way on
         if (!byAction && crashed && this.active && this.runnerPhase() === 'finished') this.openPause('Crashed', crashed);
         this.d.onOverlayChange();

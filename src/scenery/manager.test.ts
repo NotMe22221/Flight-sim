@@ -169,6 +169,55 @@ describe('SceneryManager (sync path)', () => {
     m.dispose();
   });
 
+  it('also follows a refinement too small for the probe grid, once re-sampling meets a moved building', async () => {
+    // +6 m on a 90 m disc centred between four probe points (the nearest is ~170 m away)
+    const frame = KSFO_FRAME();
+    let disc: { lat: number; lon: number } | null = null;
+    const R = 90;
+    const terrain: HeightFn = (lat, lon) => {
+      if (!disc) return 4;
+      const d = Math.hypot((lat - disc.lat) * 111195, (lon - disc.lon) * 111195 * Math.cos((lat * Math.PI) / 180));
+      return d < R ? 10 : 4;
+    };
+    const host = makeHost(frame, terrain);
+    const m = manager(host, { stream: { radiusM: 2500, groundSamplesPerFrame: 20000, frameBudgetMs: 1e9 } });
+    const cam = new THREE.Vector3(-3500, 300, -300);
+    await pump(m, cam, 400, 0.8, () => m.stats().tilesPending === 0 && m.stats().tilesLoaded > 3 && m.tileObjects().every((o) => !o.settling));
+    m.setStreamOverrides({ groundSamplesPerFrame: qualityProfile('high').stream.groundSamplesPerFrame, frameBudgetMs: 1e9 });
+    await pump(m, cam, 120); // probe baselines everywhere, first-sweep cycles done
+    const objs = m.tileObjects().filter((o) => (o.result.buildings?.count ?? 0) > 50).sort((a, b) => a.distM - b.distM);
+    const target = objs[objs.length - 2];
+    const b = target.result.buildings!;
+    // the probe-cell corner with the most building centroids within 50 m
+    let best = { n: -1, x: 0, z: 0 };
+    const xz = [0, 0];
+    for (let j = 1; j < 8; j++) for (let i = 1; i < 8; i++) {
+      target.projector.toLocal((i / 8) * 4096, (j / 8) * 4096, xz, 0);
+      let n = 0;
+      for (let k = 0; k < b.count; k++) if (Math.hypot(b.centroids[k * 2] - xz[0], b.centroids[k * 2 + 1] - xz[1]) < 50) n++;
+      if (n > best.n) best = { n, x: xz[0], z: xz[1] };
+    }
+    expect(best.n).toBeGreaterThan(2);
+    const inside: number[] = [];
+    for (let k = 0; k < b.count; k++) if (Math.hypot(b.centroids[k * 2] - best.x, b.centroids[k * 2 + 1] - best.z) < 50) inside.push(k);
+    const g = target.projector.toLonLat(best.x, best.z);
+    disc = { lat: g.lat, lon: g.lon };
+    const p = new THREE.Vector3();
+    const worst = () => {
+      target.group.updateMatrixWorld(true);
+      let w = 0;
+      for (const k of inside) {
+        p.set(b.centroids[k * 2], target.buildingGround(k), b.centroids[k * 2 + 1]).applyMatrix4(target.group.matrixWorld);
+        w = Math.max(w, Math.abs(p.y - host.groundUp(-p.z, p.x)!));
+      }
+      return w;
+    };
+    let frames = 0;
+    while (frames < 3000 && worst() > 0.3) { m.update(1 / 60, cam, camera, 0.8); frames++; }
+    expect(frames, 'frames until the buildings on the small refined patch sit on the new ground').toBeLessThan(80);
+    m.dispose();
+  });
+
   it('evicts least recently wanted tiles beyond the budget and disposes them fully', async () => {
     const host = makeHost(KSFO_FRAME(), flat(0));
     const m = manager(host, { stream: { radiusM: 1500, maxResidentTiles: 4, groundSamplesPerFrame: 5000, frameBudgetMs: 1e9 } });

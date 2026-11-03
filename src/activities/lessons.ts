@@ -92,7 +92,8 @@ export const BASIC_FLIGHT: ActivityDef = {
         speech: 'Now a standard rate turn to the right, ninety degrees. Roll into about fifteen degrees of bank and hold your altitude. Start rolling out about ten degrees before heading one eight zero.',
       },
       objectives: [{
-        type: 'turn', label: 'Turn right 90° with 10–22° of bank, ±150 ft', byDeg: 90, bankMinDeg: 10, bankMaxDeg: 22, tolDeg: 10,
+        // toDeg: roll out on the heading the instruction names (the level-off before it does not hold a heading)
+        type: 'turn', label: 'Turn right to heading 180 with 10–22° of bank, ±150 ft', byDeg: 90, toDeg: 180, bankMinDeg: 10, bankMaxDeg: 22, tolDeg: 10,
         during: [{ c: 'altitude', ft: 3500, tolFt: 150 }],
       }],
       hints: [{ text: 'Standard rate is 3° per second: at 100 knots that is about 15° of bank. Add a little back pressure to hold altitude.', speech: 'Standard rate is three degrees per second. At a hundred knots that is about fifteen degrees of bank. Add a little back pressure to hold your altitude.' }],
@@ -106,7 +107,7 @@ export const BASIC_FLIGHT: ActivityDef = {
         speech: 'Now the same to the left. Ninety degrees, back to heading zero nine zero, with about fifteen degrees of bank.',
       },
       objectives: [{
-        type: 'turn', label: 'Turn left 90° with 10–22° of bank, ±150 ft', byDeg: -90, bankMinDeg: 10, bankMaxDeg: 22, tolDeg: 10,
+        type: 'turn', label: 'Turn left to heading 090 with 10–22° of bank, ±150 ft', byDeg: -90, toDeg: 90, bankMinDeg: 10, bankMaxDeg: 22, tolDeg: 10,
         during: [{ c: 'altitude', ft: 3500, tolFt: 150 }],
       }],
     },
@@ -259,7 +260,8 @@ export const LANDING: ActivityDef = {
   title: 'Landing',
   description: 'A 3 nm final to Half Moon Bay runway 30: flaps 30° by 1 nm, 60–65 KIAS on the 3° glidepath, then flare and touch down in the touchdown zone. The landing scorer grades it.',
   aircraft: 'c172',
-  setup: { spawn: 'air', lat: finalStart.lat, lon: finalStart.lon, altFt: finalAltFt, headingDeg: KHAF_30.headingDeg, iasKt: 65, flapsIndex: 2, gammaDeg: -3, weather: 'few', time: 'morning' },
+  // 63 KIAS: inside the 60-65 band's scoring dead band (a spawn at 65, its edge, scored the speed objective at zero)
+  setup: { spawn: 'air', lat: finalStart.lat, lon: finalStart.lon, altFt: finalAltFt, headingDeg: KHAF_30.headingDeg, iasKt: 63, flapsIndex: 2, gammaDeg: -3, weather: 'few', time: 'morning' },
   passScore: 0,
   steps: [
     {

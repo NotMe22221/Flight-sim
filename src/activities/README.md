@@ -33,9 +33,9 @@ number spelled out; tests check that no speech line contains a digit.
 
 | id | Start | Steps (objective, tolerance) |
 |---|---|---|
-| `lesson-basic-flight` "Basic flight controls" | Air start 8 nm west of KHAF over the Pacific, 3,000 ft MSL, 100 KIAS, wings level, true heading chosen so the indicator reads **090** (≈103° true, WMM 2026.5), clear, morning | 1 straight and level: hold 3,000 ±100 ft, heading 090 ±10°, bank ≤10° for 20 s · 2 climb: reach 3,500 ±60 ft, 200-1,200 fpm and heading ±15° coached · 3 level off: hold 3,500 ±100 ft and ±200 fpm for 10 s · 4 standard-rate turn right 90° with 10-22° of bank, ±150 ft, roll out ±10° · 5 the same to the left · 6 descend to 3,000 ±60 ft at 200-1,000 fpm · 7 trim: hold 3,000 ±100 ft, ±150 fpm, pitch input ≤0.05 (hands off) for 10 s |
-| `lesson-takeoff` "Takeoff" | Lined up on **KSFO 28R** (parking brake set), few clouds, morning; a reset at KSFO restarts it | 1 checks: parking brake released, mixture ≥0.95, flaps 0-10° · 2 roll: full power (≥0.95); within 10 m of the centreline until 20 ft AGL (fails after 5 s outside); rotate between 48 and 65 KIAS, target 55 (strict: outside fails) · 3 climb at Vy 74 ±5 KIAS to 500 ft AGL · 4 flaps up · 5 climb to 1,500 ±100 ft at 74 ±5 KIAS · 6 level at 1,500 ft (±100 ft, ±200 fpm, 10 s) |
-| `lesson-landing` "Landing" | 3 nm final to **KHAF 30**, on the 3° path to the aim point (≈1,057 ft MSL), 65 KIAS, flaps 20°, few clouds, morning | 1 final: flaps 30° by 1 nm (fails otherwise), 60-65 KIAS and the 3° glidepath ±0.7° (20 ft floor) until 100 ft AGL · 2 flare and touch down on KHAF 30 inside the touchdown zone (233-683 m past the pavement threshold, i.e. from the displaced threshold) with a landing score ≥4,000 from the existing scorer |
+| `lesson-basic-flight` "Basic flight controls" | Air start 8 nm west of KHAF over the Pacific, 3,000 ft MSL, 100 KIAS, wings level, true heading chosen so the indicator reads **090** (≈103° true, WMM 2026.5), clear, morning | 1 straight and level: hold 3,000 ±100 ft, heading 090 ±10°, bank ≤10° for 20 s · 2 climb: reach 3,500 ±60 ft, 200-1,200 fpm and heading ±15° coached · 3 level off: hold 3,500 ±100 ft and ±200 fpm for 10 s · 4 standard-rate turn right to heading 180 (`toDeg`: wherever the level-off left the nose) with 10-22° of bank, ±150 ft, roll out ±10° · 5 the same to the left, back to 090 · 6 descend to 3,000 ±60 ft at 200-1,000 fpm · 7 trim: hold 3,000 ±100 ft, ±150 fpm, pitch input ≤0.05 (hands off) for 10 s |
+| `lesson-takeoff` "Takeoff" | Lined up on **KSFO 28R** (parking brake set), few clouds, morning; a reset at KSFO restarts it | 1 checks: parking brake released, mixture ≥0.95, flaps 0-10° · 2 roll: full power (≥0.95); within 10 m of the centreline until 20 ft AGL (fails after 5 s outside); rotate between 48 and 65 KIAS, target 55 (strict: outside fails; rotation = the nose 3° above its attitude on the gear, the C172 rolls at ~4-4.6° nose-up, or a lift-off) · 3 climb at Vy 74 ±5 KIAS to 500 ft AGL · 4 flaps up · 5 climb to 1,500 ±100 ft at 74 ±5 KIAS · 6 level at 1,500 ft (±100 ft, ±200 fpm, 10 s) |
+| `lesson-landing` "Landing" | 3 nm final to **KHAF 30**, on the 3° path to the aim point (≈1,057 ft MSL), 63 KIAS (inside the 60-65 band's scoring dead band), flaps 20°, few clouds, morning | 1 final: flaps 30° by 1 nm (fails otherwise), 60-65 KIAS and the 3° glidepath ±0.7° (20 ft floor) until 100 ft AGL · 2 flare and touch down on KHAF 30 inside the touchdown zone (233-683 m past the pavement threshold, i.e. from the displaced threshold) with a landing score ≥4,000 from the existing scorer; stopped for 5 s after a touchdown that was never scored (off the runway) fails it |
 
 The glidepath uses `runwayFrame.aimAlongM()` (displaced-threshold-aware aim point: 383 m for KHAF
 30). Both runways are copied from public/data and verified by `lessons.test.ts`.
@@ -45,8 +45,10 @@ The glidepath uses `runwayFrame.aimAlongM()` (displaced-threshold-aware aim poin
 Eight legs in the C172 between small and medium airports that exist in public/data. Every leg is
 15-45 nm **both direct and flown through its landmarks**; every landmark is a real feature within
 12 nm of the direct course and between the two airports; the suggested cruise is at least 1,000 ft
-above the highest charted terrain near the route; the departure runway has a headwind in the
-leg's weather preset (all presets blow from 280°).
+above the highest charted terrain near the route and keeps VFR clearance (500 ft below, 1,000 ft
+above) from every scattered-or-thicker cloud layer of the leg's weather preset, with the terrain
+under the base (legs 2 and 6 were moved off 'scattered' for this); the departure runway has a
+headwind in the leg's preset (from 280°; 'high-level', leg 2, from 260°).
 
 | Leg | From → to | Dep. rwy | Direct / route | Cruise | Landmarks | Highest terrain |
 |---|---|---|---|---|---|---|
@@ -59,7 +61,8 @@ leg's weather preset (all presets blow from 280°).
 | 7 | KSBP → KLPC Lompoc | 29 | 35.3 / 37.5 nm | 3,500 ft | Pismo Beach Pier, Point Sal | Casmalia Hills ~2,000 ft |
 | 8 | KLPC → KSBA Santa Barbara | 25 | 34.2 / 44.5 nm | 3,500 ft | Point Conception Lighthouse, Gaviota State Park | Gaviota Peak 2,458 ft |
 
-Each leg becomes an activity with two steps: **depart** (reach 500 ft AGL; quiet, except one
+Each leg becomes an activity with two steps: **depart** (airborne and 200 ft AGL for 2 s, so a leg
+flown low cannot dead-end here; quiet, except one
 reminder if power is applied against a set parking brake) and **en route** (overfly each landmark
 within 1.5 nm, optional; land at the destination, optional, graded by the landing scorer, landings
 elsewhere ignored; **land and stop** within 2.5 km of the destination's reference point for 2 s,
@@ -107,10 +110,10 @@ allocates. Every objective exposes a live `view` (`state` pending/active/done/fa
 | `hold` | `all` true for `forS` (excursions shorter than `graceS`, 1 s, pause the timer; longer ones reset it) | 1 − 0.6 × mean loss |
 | `reach` | `all` true for `confirmS` (0.5 s); `during` conditions are coached and scored on the way; `progress` metric altitude/AGL/IAS | 1 − 0.5 × time out of `during` |
 | `maintain` | `until` true; fails after `failAfterS` continuous seconds out of tolerance (if set) | 1 − mean loss |
-| `turn` | heading changed by `byDeg` (+ right) with the bank in band, rolled out (|bank| ≤5° for 1 s) within `tolDeg` | 0.6 bank-in-band + 0.25 `during` + 0.15 rollout accuracy |
-| `rotate` | nose up ≥`pitchDeg` (5°) on the ground or lift-off; outside `minKt..maxKt` fails when `strict` | 1 at the target, 0.5 at the band edge |
+| `turn` | heading changed by `byDeg` (+ right), or turned in that direction onto `toDeg` (magnetic), with the bank in band, rolled out (|bank| ≤5° for 1 s) within `tolDeg`; rolled out short is coached "Keep turning right to heading 180" | 0.6 bank-in-band + 0.25 `during` + 0.15 rollout accuracy |
+| `rotate` | nose `pitchDeg` (3°) above its attitude on the gear at activation (lowered by the slow roll; not an absolute pitch: a tricycle sits nose-up) or lift-off; outside `minKt..maxKt` fails when `strict` | 1 at the target, 0.5 at the band edge |
 | `stopAt` | on the ground at ≤`maxKt` (1) for `stopS` (2 s) within `radiusM` of the airport, after having flown | 1 |
-| `landing` | the next `landing:scored` ≥ `minScore` on `runway` / at `airport`, touchdown inside `zone`; `elsewhere: 'ignore'` skips other airports | landing score / 10 000 |
+| `landing` | the next `landing:scored` ≥ `minScore` on `runway` / at `airport`, touchdown inside `zone`; `elsewhere: 'ignore'` skips other airports; otherwise stopped 5 s after a flight with no score (touched down off any runway) fails it | landing score / 10 000 |
 | `waypoint` | within `radiusM` (1 nm) of the point | 1 |
 
 "Loss" uses a dead band (`scoreLoss`): flying within 40 % of the tolerance costs nothing, the loss
@@ -146,7 +149,7 @@ point `la`/`lo`, elevation `e`), then `legs` with `from`/`to`, a `departureRunwa
 (real landmarks, 3-6 letter idents, unique in the trip), a `briefing` `{ text, speech }`, `weather`,
 `time`. `bushTrips.test.ts` then checks every airport and runway against public/data, legs 15-45 nm
 direct and through the landmarks, landmarks within 12 nm of the course and in order, cruise ≥
-terrain + 1,000 ft, a headwind on the departure runway, digit-free speech, and flies every leg end
+terrain + 1,000 ft and clear of the preset's scattered-or-thicker layers, a headwind on the departure runway, digit-free speech, and flies every leg end
 to end with a scripted pilot, the runner and a real `TouchdownDetector`.
 
 ## The ActivityHost contract (`activityTypes.ts`)
@@ -167,7 +170,8 @@ interface ActivityHost {
 ```
 
 Order in `ActivityRunner.start(def)`: `setWeatherPreset` (runway choice may depend on the wind) →
-await the spawn → `setTimePreset` (sunrise-relative presets need the new position) → `loadRoute` →
+await the spawn → `setWeatherPreset` again (preset layers are AGL at the field current when it is
+applied) → `setTimePreset` (sunrise-relative presets need the new position) → `loadRoute` →
 `activity:started` → first instruction. A spawn that rejects makes `start()` reject with the runner
 idle and nothing emitted. The `flight:reset` that the spawn itself emits is ignored.
 
@@ -182,7 +186,8 @@ idle and nothing emitted. The `flight:reset` that the spawn itself emits is igno
   - `activity:started` `{ id, title, kind }` once, after the spawn.
   - `activity:instruction` `{ text, speech?, important }`: each step instruction once, each cue
     once, each objective `doneLine` once, the step `success` line, hints, and the closing debrief
-    line. Instructions and cues are also spoken through `host.speak`; hints too unless
+    line (only for an outcome: not when the activity is restarted, replaced, aborted or ends by a
+    flight change, where the UI shows no debrief either). Instructions and cues are also spoken through `host.speak`; hints too unless
     `speakHints: false`.
   - `activity:progress` `{ id, step, objectives: [{ text, status, step, optional, progress }] }` only
     when an objective's status changes or a step begins/ends (never per frame); it lists every
@@ -195,7 +200,8 @@ idle and nothing emitted. The `flight:reset` that the spawn itself emits is igno
 - `landing:scored` feeds `landing` objectives (only landings after the objective activated count);
   `aircraft:crash` finishes the activity unsuccessfully (`Crash: <reason>`); `flight:reset` within
   `resetRadiusM` (5 km) of the activity's start (air spawn point or `setup.anchor`) restarts it at
-  step 1 and reloads the route (a reset clears the flight plan), any other reset ends it
+  step 1, re-applying its weather and time presets (the clock has run on) and reloading the route
+  (a reset clears the flight plan); any other reset ends it
   (`Flight changed`). Starting another activity finishes the running one (`Replaced by another
   activity`); `abort()` while the spawn is pending cancels silently.
 - Progress (`ProgressStore`): `recordStart` on start (attempts), `recordResult` on success (lesson
@@ -206,7 +212,9 @@ idle and nothing emitted. The `flight:reset` that the spawn itself emits is igno
 One versioned JSON document (`flightsim.activities.progress.v1`) in an injectable
 `KeyValueStorage` (default: `localStorage` when usable). Every access is in try/catch: corrupt JSON,
 a wrong version or malformed records load as empty / dropped record by record (`loadedCorrupt`),
-a throwing or full storage degrades to in-memory progress (`lastWriteFailed`), never a throw. API:
+a throwing or full storage degrades to in-memory progress (`lastWriteFailed`), never a throw. A
+storage whose read throws is never written (that would replace the saved progress with the empty
+in-memory document). API:
 `isLegUnlocked`, `isLegCompleted`, `nextLeg`, `completedLegs`, `leg`, `resetTrip`, `lesson`,
 `completeLesson`, `clearAll`.
 
@@ -288,15 +296,38 @@ to end with progress unlocking, wrong airport, reset restart, crash, far reset),
 cues, dt guards, crash/reset/abort/restartStep, superseded and failing spawns, pass mark, fuel,
 dispose), `progressStore.test.ts` (unlocking, best scores, corrupt and throwing storages),
 `activities.test.ts` (runway frame, landing score, touchdown detector, replay, challenges).
+Each of the first five ends with a `review:` block of regression tests for bugs found in review,
+each written to fail first: rotation against the real C172 ground attitude (plus a check with the
+real flight model), turns to the heading the instruction names and coaching when rolled out
+short, a lesson landing that is never scored, the landing spawn on target, VFR cloud clearance of
+every leg, a leg flown below 500 ft AGL, the preset re-applied after the spawn and on a reset
+restart, no closing line on Retry / Abort, and an unreadable storage that is never overwritten.
 
 ## Known limitations
 
 - The objective engine trusts the `ControlInputs` it is given: with the autopilot engaged a lesson
   can be flown by the autopilot (the runner does not see AP state). Slew mode can move the aircraft
   to a destination; the runner does not pause or flag activities during slew.
-- Terrain clearance per leg uses charted spot heights rounded up, not the terrain tiles.
+- Terrain clearance per leg uses charted spot heights rounded up, not the terrain tiles. Cloud
+  clearance is checked only against scattered-or-thicker preset layers: a cruise may pass through
+  a FEW layer (leg 6 at 4,500 ft sits just under the FEW base at ~4,800 ft MSL).
+- Preset cloud and wind layers are AGL at the field that is current when the preset is applied.
+  The runner re-applies its preset after the spawn, but a free flight that keeps its weather
+  across a spawn keeps the old field's layers (Simulator side, see the review notes).
+- The C172 flight model lifts its nosewheel on the roll with very little input: about 5 % back
+  pressure, or 0.2 of nose-up trim, raises the nose before 48 KIAS. The takeoff lesson then
+  reports "Rotated too early" truthfully; a joystick with a nose-up offset fails it. Rotation is
+  measured 3° above the rolling attitude (~4-4.6°), so a slightly loaded nosewheel is not a rotation.
 - A second `start()` while a spawn is still pending supersedes the first, but if the host lets the
   first spawn finish later the aircraft ends up at the first spawn: hosts should serialise spawns
   (the UI should disable Start while `phase === 'starting'`).
 - `landing:scored` only fires on an identified runway, so a landing on grass or a taxiway at the
-  destination completes a bush leg (stop at the field) without a landing grade.
+  destination completes a bush leg (stop at the field) without a landing grade; in the landing
+  lesson such a touchdown fails after 5 s stopped ("Stopped without a scored landing").
+- A turn with `toDeg` that starts more than 330° short of the target in the commanded direction
+  (i.e. just past it) is treated as a small overshoot to fix, not a full circle.
+- Real-world airspace is not modelled: the routes are not checked against Class B (leg 1 near San
+  Francisco) or restricted areas (leg 7 from Point Sal to Lompoc crosses Vandenberg SFB, leg 8 runs
+  along its south-east edge), which a real pilot would have to plan around or get clearance for.
+- Progress lives in one document per browser profile: two tabs open at once each keep their own copy
+  and the last write wins.

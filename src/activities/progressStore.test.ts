@@ -136,3 +136,29 @@ describe('defaultStorage', () => {
     expect(mem.map.has('__flightsim_probe__')).toBe(false);
   });
 });
+
+// ───────────────────────────── review findings (each failed before its fix) ─────────────────────────────
+
+describe('review: a storage that cannot be read', () => {
+  it('is never overwritten with the empty in-memory document (the saved progress survives)', () => {
+    const saved = JSON.stringify({ version: 1, trips: { t: { legs: { 0: { completed: true, bestScore: 80, attempts: 1 } } } }, lessons: {} });
+    const mem = new MemoryStorage();
+    mem.setItem(PROGRESS_KEY, saved);
+    mem.writes = 0;
+    let failReads = true;
+    const flaky: KeyValueStorage = {
+      getItem: (k) => { if (failReads) throw new Error('NS_ERROR_FILE_CORRUPTED'); return mem.getItem(k); },
+      setItem: (k, v) => mem.setItem(k, v),
+      removeItem: (k) => mem.removeItem(k),
+    };
+    const p = new ProgressStore(flaky);
+    expect(p.loadedCorrupt).toBe(true);
+    p.recordStart(def({ id: 'lesson-takeoff' }));
+    p.completeLesson('lesson-takeoff', 70);
+    expect(p.lesson('lesson-takeoff')?.bestScore).toBe(70); // kept in memory
+    expect(p.lastWriteFailed).toBe(true);
+    expect(mem.writes).toBe(0);
+    failReads = false;
+    expect(new ProgressStore(flaky).isLegCompleted('t', 0)).toBe(true);
+  });
+});

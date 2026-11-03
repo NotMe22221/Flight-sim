@@ -27,8 +27,8 @@ export interface AirSpawnOptions {
 /**
  * What an activity needs from the simulator. Spawns may be async; the runner awaits them and
  * ignores the 'flight:reset' they emit. The weather preset is applied before the spawn (runway
- * choice may depend on the wind); the time preset (sunrise-relative, so it needs the new
- * position) and the route after it.
+ * choice may depend on the wind) and again after it (preset layers are AGL at the current field);
+ * the time preset (sunrise-relative, so it needs the new position) and the route after it.
  */
 export interface ActivityHost {
   /** lined up on `runway` (landing-direction designator) at `icao`, engine running unless coldAndDark */

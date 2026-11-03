@@ -90,7 +90,8 @@ export const PACIFIC_COAST: BushTrip = {
       },
     },
     {
-      from: 'KRHV', to: 'KWVI', departureRunway: '31R', cruiseFt: 5500, terrain: { name: 'Loma Prieta', ft: 3786 }, weather: 'scattered', time: 'morning',
+      // high cirrus only: the 'scattered' layer (~3,400-6,000 ft here) put the cruise in cloud and Loma Prieta's summit above its base
+      from: 'KRHV', to: 'KWVI', departureRunway: '31R', cruiseFt: 5500, terrain: { name: 'Loma Prieta', ft: 3786 }, weather: 'high-level', time: 'morning',
       waypoints: [
         { id: 'LOMAP', name: 'Loma Prieta', lat: 37.1111, lon: -121.8428 },
         { id: 'BRDWLK', name: 'Santa Cruz Beach Boardwalk', lat: 36.9642, lon: -122.0181 },
@@ -133,7 +134,8 @@ export const PACIFIC_COAST: BushTrip = {
       },
     },
     {
-      from: 'KPRB', to: 'KSBP', departureRunway: '31', cruiseFt: 4500, terrain: { name: 'the Santa Lucia Range', ft: 3000 }, weather: 'scattered', time: 'afternoon',
+      // few clouds: the 'scattered' layer (~4,100-6,700 ft here) put the 4,500 ft cruise in cloud
+      from: 'KPRB', to: 'KSBP', departureRunway: '31', cruiseFt: 4500, terrain: { name: 'the Santa Lucia Range', ft: 3000 }, weather: 'few', time: 'afternoon',
       waypoints: [
         { id: 'MORRO', name: 'Morro Rock', lat: 35.3694, lon: -120.8669 },
         { id: 'BISHOP', name: 'Bishop Peak', lat: 35.3025, lon: -120.6969 },
@@ -250,7 +252,8 @@ export function bushLegActivity(trip: BushTrip, legIndex: number, opts: BushLegO
           text: `${leg.briefing.text} Depart runway ${leg.departureRunway}; suggested cruise ${ftText(leg.cruiseFt)}, ${nmText(Math.round(legRouteNm(trip, legIndex)))} via the landmarks. Highest terrain near the route: ${leg.terrain.name}, ${ftText(leg.terrain.ft)}.`,
           speech: `${leg.briefing.speech ?? leg.briefing.text} Depart ${spellRunway(leg.departureRunway)}, and cruise at ${ftSpeech(leg.cruiseFt)}. The highest terrain near the route is ${leg.terrain.name}, at ${ftSpeech(leg.terrain.ft)}.`,
         },
-        objectives: [{ type: 'reach', label: `Take off from ${dep.icao} runway ${leg.departureRunway}`, all: [{ c: 'agl', minFt: 500 }], progress: { metric: 'aglFt', to: 500 } }],
+        // airborne and 200 ft up is a takeoff: a leg flown low (never 500 ft AGL) must not dead-end in this step
+        objectives: [{ type: 'reach', label: `Take off from ${dep.icao} runway ${leg.departureRunway}`, all: [{ c: 'onGround', value: false }, { c: 'agl', minFt: 200 }], confirmS: 2, progress: { metric: 'aglFt', to: 200 } }],
         // the departure is free (no live coaching), but power against a set parking brake gets one reminder
         cues: [{ when: [{ c: 'parkingBrake', set: true }, { c: 'throttle', min: 0.5 }, { c: 'onGround', value: true }], line: { text: 'Parking brake is set: release it to roll.', speech: 'The parking brake is set. Release it to roll.' } }],
         quiet: true,

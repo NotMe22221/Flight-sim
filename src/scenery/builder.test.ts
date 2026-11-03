@@ -5,7 +5,7 @@ import { DrapeBuilder, drapePolygon, drapeRibbon, type DrapeStyle } from './drap
 import { encodeTile, orientPolygon } from './dev/mvtEncoder';
 import { extractFeatures } from './features';
 import { decodeTile } from './mvt';
-import { pointInPolygon, reverseRing, signedArea } from './polygon';
+import { distToRingSq, pointInPolygon, reverseRing, signedArea } from './polygon';
 import { TileProjector } from './tileMath';
 import { tileBytesAt } from './testUtil';
 
@@ -131,6 +131,33 @@ describe('buildTile on synthetic OSM tiles', () => {
     expect(r.lightPools!.mesh.position.length / 3).toBe(floods * 9);
   });
 
+  it('paints taxiways crossing an apron as yellow lines on the concrete, not as asphalt strips', () => {
+    // apron taxilanes / taxiways are lead-in lines painted on the apron surface
+    const onApron = (x: number, z: number) => f.aprons.some((a) => pointInPolygon(x, z, a.outer, a.holes));
+    const s = r.surfaces!;
+    let ribbonTris = 0;
+    for (let k = 0; k < s.mesh.index.length; k += 3) {
+      const v = [s.mesh.index[k], s.mesh.index[k + 1], s.mesh.index[k + 2]];
+      if (!v.every((i) => Math.abs(s.lift[i] - RIBBON_LIFT_M) < 1e-6)) continue;
+      ribbonTris++;
+      expect(v.every((i) => onApron(s.mesh.position[i * 3], s.mesh.position[i * 3 + 2])), `asphalt ribbon triangle ${k / 3} inside the apron`).toBe(false);
+    }
+    expect(ribbonTris).toBeGreaterThan(20);
+    // the line sits just above the apron well inside it, and above the ribbon everywhere else
+    // (ribbon triangles straddling the apron edge still reach up to one ribbon step onto it)
+    const m = r.markings!;
+    const inset = settings.ribbonStepM + 2;
+    const deep = (x: number, z: number) => f.aprons.some((a) => pointInPolygon(x, z, a.outer, a.holes)
+      && distToRingSq(x, z, a.outer) >= inset * inset && a.holes.every((h) => distToRingSq(x, z, h) >= inset * inset));
+    let inside = 0;
+    for (let i = 0; i < m.lift.length; i++) {
+      const x = m.mesh.position[i * 3], z = m.mesh.position[i * 3 + 2];
+      if (deep(x, z)) { inside++; expect(m.lift[i]).toBeCloseTo(SURFACE_LIFT_M + MARKING_LIFT_M, 5); }
+      else if (!near(x, z) && !onApron(x, z)) expect(m.lift[i]).toBeCloseTo(RIBBON_LIFT_M + MARKING_LIFT_M, 5);
+    }
+    expect(inside).toBeGreaterThan(20);
+  });
+
   it('puts taxiway lights above the pavement they stand on (centre lines above ribbon + marking)', () => {
     const L = r.airportLights!;
     let green = 0;
@@ -200,6 +227,24 @@ describe('buildTile on synthetic OSM tiles', () => {
     const unit = fx.projector.unitM;
     expect(Math.abs(signedArea(fx.buildings[0].outer)) / (200 * 400 * unit * unit)).toBeCloseTo(1, 2);
     expect(Array.from(fx.buildings[0].outerEdge!).filter((c) => c === 1)).toHaveLength(2);
+  });
+
+  it('maps layers with an extent other than 4096 to the same ground positions and tile edges', () => {
+    // same building (crossing the west edge) and gate in a 4096 and a 512 extent layer
+    const ring = (k: number) => orientPolygon([-200, 1000, 200, 1000, 200, 1400, -200, 1400].map((v) => v / k));
+    const tile = (k: number) => encodeTile([
+      { name: 'building', extent: 4096 / k, features: [{ type: 3, properties: { render_height: 10 }, geometry: ring(k) }] },
+      { name: 'aeroway', extent: 4096 / k, features: [{ type: 1, properties: { class: 'gate', ref: 'A1' }, geometry: [[2048 / k, 1024 / k]] }] },
+    ]);
+    const a = extractFeatures(decodeTile(tile(1)), 14, 2621, 6341, { minBuildingAreaM2: 0 });
+    const b = extractFeatures(decodeTile(tile(8)), 14, 2621, 6341, { minBuildingAreaM2: 0 });
+    expect(b.buildings).toHaveLength(1);
+    expect(b.buildings[0].outer.length).toBe(a.buildings[0].outer.length);
+    for (let i = 0; i < a.buildings[0].outer.length; i++) expect(b.buildings[0].outer[i]).toBeCloseTo(a.buildings[0].outer[i], 6);
+    expect(Array.from(b.buildings[0].outerEdge!)).toEqual(Array.from(a.buildings[0].outerEdge!));
+    expect(b.gates).toHaveLength(1);
+    expect(b.gates[0].x).toBeCloseTo(a.gates[0].x, 6);
+    expect(b.gates[0].z).toBeCloseTo(a.gates[0].z, 6);
   });
 
   it('turns an empty or layer-less tile into an empty result, and garbage into a throw', () => {
