@@ -15,6 +15,7 @@ import { magneticDeclinationDeg } from '../geo/magvar';
 import { sunEvents } from '../geo/solar';
 import { LocalFrame, nedToThree } from '../geo/wgs84';
 import { World } from '../world/World';
+import { LandingGuide } from '../world/LandingGuide';
 import { TerrainSystem } from '../terrain/TerrainSystem';
 import { SkySystem, WeatherSystem } from '../sky';
 import { AircraftModel, bodyQuatToThree } from '../aircraft3d';
@@ -117,6 +118,8 @@ export class Simulator {
   private cockpitUi: CockpitInteraction | null = null;
   readonly steam: SteamPanel;
   readonly plugins: SimPlugins = {};
+  /** landing-path assist gates */
+  readonly landingGuide = new LandingGuide();
   /** slew mode pose and motion (active while `slew` is true) */
   readonly slewCtl = new SlewController();
   /** effective controls after assists and autopilot, fed to the flight model */
@@ -168,6 +171,7 @@ export class Simulator {
     this.sky = new SkySystem(this.scene, this.gfx.renderer, { shadows: this.gfx.renderer.shadowMap.enabled });
     this.model = new AircraftModel(this.config);
     this.scene.add(this.model.root);
+    this.scene.add(this.landingGuide.group);
     const aspect = (opts.container.clientWidth || 1) / (opts.container.clientHeight || 1);
     this.cameras = new CameraController(aspect);
     this.input = new InputManager(this.gfx.renderer.domElement, { flapDetents: this.config.controls.flaps.detentsDeg.length });
@@ -423,6 +427,7 @@ export class Simulator {
     let tn = performance.now(); this.mark('sky', tn - tm); tm = tn;
     this.world.update(dt, camPos, this.cameras.camera, s.geo, this.v3, this.sky.sun.elevationRad);
     this.plugins.scenery?.update(dt, camPos, this.cameras.camera, this.sky.sun.elevationRad);
+    this.landingGuide.update(dt, this.assists.landingPathHints && this.inFlight && !this.replayer.active && !this.slew, s.geo, s.trackRad * RAD, s.onGround, this.nearbyAirports, this.world.frame);
     tn = performance.now(); this.mark('world', tn - tm); tm = tn;
 
     // navigation (radios every frame, nearby airports and magnetic variation slowly)
