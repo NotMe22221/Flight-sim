@@ -31,7 +31,7 @@ export const WINDOW_U0 = 0.22, WINDOW_U1 = 0.78, WINDOW_V0 = 0.3, WINDOW_V1 = 0.
 /**
  * Facade: FACADE_CELLS × FACADE_CELLS cells (one window bay × one storey each). Row 0 is the
  * bottom storey (DataTextures are not flipped). Albedo walls are near-white (tinted per
- * building by vertex colour), panes dark blue-grey; `emissive` lights ~38 % of windows in
+ * building by vertex colour), panes dark blue-grey; `emissive` lights about a quarter of the windows in
  * warm tones, chosen by hash so every facade cell is deterministic.
  */
 export function makeFacadeImages(size = 512): { albedo: Rgba; emissive: Rgba; rough: Rgba } {
@@ -43,9 +43,9 @@ export function makeFacadeImages(size = 512): { albedo: Rgba; emissive: Rgba; ro
   for (let cy = 0; cy < FACADE_CELLS; cy++) {
     for (let cx = 0; cx < FACADE_CELLS; cx++) {
       const hs = hash2(cx * 31 + 7, cy * 17 + 3);
-      const lit = hash01(hs, 1) < 0.38;
+      const lit = hash01(hs, 1) < 0.24;
       const tone = warm[hs % warm.length];
-      const dim = 0.55 + 0.45 * hash01(hs, 2);
+      const dim = 0.35 + 0.65 * hash01(hs, 2) ** 2;
       const curtain = hash01(hs, 3) < 0.3;
       const glass = 0.85 + 0.3 * hash01(hs, 4);
       for (let py = 0; py < cell; py++) {

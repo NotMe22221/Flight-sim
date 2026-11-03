@@ -124,6 +124,8 @@ export class GfcAutopilot implements Autopilot {
   private altCaptureVs = 0;
   private vsCmd = 0;
   private pendingEngageSync = false;
+  /** a nav mode was selected from ROL before any nav data was seen: apply the ROL auto-intercept on the first update */
+  private interceptOnFirstNav = false;
   /** LVL wings-first phase is flying the load-factor (unload) law instead of the θ loop */
   private lvlUnloading = false;
   /** avionics bus powered (from `AircraftState.electrical`; flight models without one count as powered) */
@@ -277,7 +279,7 @@ export class GfcAutopilot implements Autopilot {
     this.ydWashout.reset(); this.lateralDotsRate.reset();
     this.locIntegral = 0; this.gsIntegral = 0; this.overrideTimer = 0; this.trimTimer = 0; this.trimRunning = false; this.sourceLostTimer = 0; this.gsLostTimer = 0;
     this.lastAc = null; this.lastNav = null; this.pendingEngageSync = false; this.lvlUnloading = false; this.powered = true; this.unpoweredT = 0;
-    this.pilotSampled = false; this.seedOnApply = false;
+    this.pilotSampled = false; this.seedOnApply = false; this.interceptOnFirstNav = false;
   }
 
   // ───────────────────────────── mode selection ─────────────────────────────
@@ -622,11 +624,13 @@ export class GfcAutopilot implements Autopilot {
     if (s.lateral === mode) { s.armedLateral = null; return; }
     s.armedLateral = mode;
     this.lateralDotsRate.reset();
-    if (!this.lastNav) return;
+    const fromRol = s.lateral === 'ROL' && this.config.behaviour.autoInterceptFromRol;
+    // selected before the first update (no nav data yet): the next update decides as if now
+    if (!this.lastNav) { this.interceptOnFirstNav = fromRol; return; }
     const src = this.resolveSource(mode, this.lastNav);
     if (src.kind === 'none') return;
     const dots = this.deviationDots(src);
-    if (Math.abs(dots) <= g.lateralCaptureDots || (s.lateral === 'ROL' && this.config.behaviour.autoInterceptFromRol)) this.captureLateral();
+    if (Math.abs(dots) <= g.lateralCaptureDots || fromRol) this.captureLateral();
   }
 
   private captureLateral(): void {
@@ -651,9 +655,11 @@ export class GfcAutopilot implements Autopilot {
         const rate = this.lateralDotsRate.update(dots, dt);
         const closing = dots * rate < 0;
         const lead = Math.abs(rate) > 1e-6 ? Math.abs(dots / rate) : Number.POSITIVE_INFINITY;
-        if (Math.abs(dots) <= g.lateralCaptureDots || (closing && lead <= g.captureLeadS)) this.captureLateral();
+        const firstNavFromRol = this.interceptOnFirstNav && s.lateral === 'ROL';
+        if (Math.abs(dots) <= g.lateralCaptureDots || (closing && lead <= g.captureLeadS) || firstNavFromRol) this.captureLateral();
       }
     }
+    this.interceptOnFirstNav = false;
     if (NAV_MODES.has(s.lateral)) {
       const src = this.resolveSource(s.lateral, nav);
       if (src.kind === 'none') {

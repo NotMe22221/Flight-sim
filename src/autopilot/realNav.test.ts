@@ -85,7 +85,8 @@ describe('autopilot with the real nav receivers on the C172S model', () => {
       expect(rx.toFrom).toBe(leg);
       expect(rx.cdi).toBeLessThan(0); // right of course: fly left
       sim.ap.engage(true);
-      sim.ap.setLateral('NAV');
+      sim.ap.setLateral('NAV'); // from ROL, before the first frame: captured on that frame (intercept law)
+      sim.frame();
       expect(sim.s.lateral).toBe('NAV');
       let maxBank = 0;
       sim.run(240, (s) => { maxBank = Math.max(maxBank, Math.abs(s.ac.euler[0])); });

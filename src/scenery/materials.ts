@@ -20,7 +20,7 @@ export class SceneryMaterials {
   readonly pools: THREE.MeshBasicMaterial;
   readonly textures: THREE.Texture[] = [];
   /** minimum light point size in pixels (shared uniform) */
-  readonly minPointPx = { value: 1.6 };
+  readonly minPointPx = { value: 2.2 };
   private night = -1;
 
   constructor(anisotropy = 4) {
@@ -37,21 +37,21 @@ export class SceneryMaterials {
 
     this.walls = new THREE.MeshStandardMaterial({
       name: 'scenery-walls', map: facadeMap, roughnessMap: facadeRough, emissiveMap: facadeEmissive, emissive: 0xffffff, emissiveIntensity: 0,
-      vertexColors: true, roughness: 1, metalness: 0.05,
+      vertexColors: true, roughness: 1, metalness: 0.05, envMapIntensity: 0.35,
     });
-    this.plain = new THREE.MeshStandardMaterial({ name: 'scenery-plain', map: plainMap, vertexColors: true, roughness: 0.85, metalness: 0.1 });
-    this.roofs = new THREE.MeshStandardMaterial({ name: 'scenery-roofs', map: roofMap, vertexColors: true, roughness: 0.95, metalness: 0 });
+    this.plain = new THREE.MeshStandardMaterial({ name: 'scenery-plain', map: plainMap, vertexColors: true, roughness: 0.85, metalness: 0.1, envMapIntensity: 0.35 });
+    this.roofs = new THREE.MeshStandardMaterial({ name: 'scenery-roofs', map: roofMap, vertexColors: true, roughness: 0.95, metalness: 0, envMapIntensity: 0.25 });
     this.surfaces = new THREE.MeshStandardMaterial({
-      name: 'scenery-pavement', map: paveMap, vertexColors: true, roughness: 0.92, metalness: 0,
+      name: 'scenery-pavement', map: paveMap, vertexColors: true, roughness: 0.92, metalness: 0, envMapIntensity: 0.22,
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     });
     this.markings = new THREE.MeshStandardMaterial({
-      name: 'scenery-markings', vertexColors: true, roughness: 0.7, metalness: 0,
+      name: 'scenery-markings', vertexColors: true, roughness: 0.7, metalness: 0, envMapIntensity: 0.3,
       polygonOffset: true, polygonOffsetFactor: -1.5, polygonOffsetUnits: -1.5,
     });
     this.trees = new THREE.MeshLambertMaterial({ name: 'scenery-trees', vertexColors: true });
-    this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 7);
-    this.airportLights = this.pointsMaterial('scenery-airport-lights', sprite, 3.6);
+    this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 10);
+    this.airportLights = this.pointsMaterial('scenery-airport-lights', sprite, 5.5);
     this.pools = new THREE.MeshBasicMaterial({
       name: 'scenery-light-pools', map: pool, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false,
       blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, toneMapped: true,
@@ -78,10 +78,10 @@ export class SceneryMaterials {
   setNight(f: number): void {
     if (Math.abs(f - this.night) < 1e-3) return;
     this.night = f;
-    this.walls.emissiveIntensity = 1.6 * f;
+    this.walls.emissiveIntensity = 0.9 * f;
     this.streetlights.opacity = f;
     this.airportLights.opacity = Math.min(1, 0.15 + f);
-    this.pools.opacity = 0.55 * f;
+    this.pools.opacity = 0.2 * f;
   }
 
   get nightFactor(): number { return Math.max(0, this.night); }
