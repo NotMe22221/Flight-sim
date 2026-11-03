@@ -75,6 +75,11 @@ export interface SkySystemOptions {
 export type SkySnapshot = Pick<SimSnapshot, 'time' | 'aircraft' | 'weather'> & Partial<Pick<SimSnapshot, 'frame'>>;
 
 const SUN_DISTANCE_M = 600;
+/**
+ * Drawn angular diameter of the Moon (true: 0.52°). A 60–90° screen FOV minifies the sky ≈ 1.5–2 × against
+ * the eye, which left a crescent a few pixels wide; drawn at about twice its size it reads like the Moon.
+ */
+const MOON_APPARENT_DIAMETER_DEG = 1.0;
 /** visibility used when the weather carries none (NaN): ICAO "10 km or more" */
 const VISIBILITY_FALLBACK_M = 10_000;
 const MOON_LIGHT_COLOR = 0xb8c4ff;
@@ -241,7 +246,7 @@ export class SkySystem {
     // ── celestial / weather renderables ──
     this.stars = new StarField(options.stars ?? 3000, options.seed ?? 12345);
     scene.add(this.stars.points);
-    this.moon = new MoonDisc();
+    this.moon = new MoonDisc(MOON_APPARENT_DIAMETER_DEG);
     scene.add(this.moon.mesh);
     this.clouds = new CloudLayers(options.clouds);
     scene.add(this.clouds.group);

@@ -81,3 +81,13 @@ describe('sky robustness (no NaN/Inf reaches the shaders)', () => {
     }
   }
 });
+
+describe('moon disc as drawn by SkySystem', () => {
+  it('is drawn at ≈ 1° (twice its true 0.52°) so a crescent stays readable on screen', () => {
+    const sky = new SkySystem(new THREE.Scene(), stubRenderer(), { environmentMap: false, stars: 50, sharedUniforms: null, builtinHeightFog: false });
+    // the quad sits at MoonDisc's default 1000 m from the camera
+    const angularDeg = (2 * Math.atan(sky.moon.mesh.scale.x / 2 / 1000) * 180) / Math.PI;
+    expect(angularDeg).toBeCloseTo(1.0, 2);
+    sky.dispose();
+  });
+});

@@ -380,8 +380,10 @@
 
 .fs-ui .hud-strip { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: none; gap: 2px; padding: 4px 6px; border-radius: 999px; font-variant-numeric: tabular-nums; }
 .fs-ui .hud-strip.visible { display: flex; }
-.fs-ui .hud-cell { display: flex; flex-direction: column; align-items: center; min-width: 70px; padding: 2px 8px; border-right: 1px solid var(--ui-border); }
-.fs-ui .hud-cell:last-child { border-right: 0; }
+/* dividers on the left of every cell but the first: hidden trailing cells (AP off, no warning)
+   must not leave a dangling divider at the end of the strip */
+.fs-ui .hud-cell { display: flex; flex-direction: column; align-items: center; min-width: 70px; padding: 2px 8px; border-left: 1px solid var(--ui-border); }
+.fs-ui .hud-cell:first-child { border-left: 0; }
 .fs-ui .hud-k { font-size: 0.6em; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-faint); }
 .fs-ui .hud-v { font-size: 0.95em; font-weight: 600; }
 /* AP cell, GFC 700 style: lateral · AP · vertical, active modes green, armed white */

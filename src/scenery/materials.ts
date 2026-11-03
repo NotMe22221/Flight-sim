@@ -20,9 +20,22 @@ export const DRAPE_DEPTH_BIAS = 0.0025;
 /** Saturation kept in the sky ambient (hemisphere) light of scenery materials (see `patchMaterial`). */
 export const AMBIENT_SATURATION = 0.35;
 
+/**
+ * Near-camera drop of biased draped surfaces (m). Aprons and taxiways are built 0.20–0.27 m
+ * above the sampled ground so the coarser terrain mesh never pokes through at a distance; the
+ * aircraft's wheels stand on the ground itself, so close to the camera (full drop within
+ * NEAR_DROP_FULL_M, none beyond NEAR_DROP_END_M) the surfaces come down to 0.06–0.13 m and
+ * no longer swallow the tyres of a parked or taxiing aircraft.
+ */
+export const NEAR_DROP_M = 0.14;
+export const NEAR_DROP_FULL_M = 40;
+export const NEAR_DROP_END_M = 400;
+
 export interface MaterialPatch {
   /** relative depth bias uniform; the geometry carries an `aBias` weight attribute */
   depthBias?: { value: number };
+  /** near-camera drop (m) of vertices with `aBias` (needs `depthBias`), see NEAR_DROP_M */
+  nearDrop?: { value: number };
   /** saturation kept in the ambient irradiance uniform (0 grey … 1 unchanged) */
   ambientSat?: { value: number };
 }
@@ -34,6 +47,8 @@ export interface MaterialPatch {
  *    `bias × aBias` of its view distance (screen position unchanged, only depth), so draped
  *    pavement wins over the terrain mesh it follows; `aBias` is 0 next to runways so pavement
  *    there stays under the runway slabs;
+ *  - near drop: after `begin_vertex`, lower biased vertices near the camera by up to
+ *    `nearDrop` along the tile's vertical (object-space y), see NEAR_DROP_M;
  *  - ambient saturation: after `lights_fragment_begin`, pull the ambient + hemisphere
  *    irradiance toward its luminance. The sky's hemisphere light is the normalised zenith colour,
  *    saturated blue, which otherwise tints every roof and apron (the terrain shader uses a
@@ -43,9 +58,18 @@ export function patchMaterial(m: THREE.Material, p: MaterialPatch, key: string):
   m.onBeforeCompile = (shader) => {
     if (p.depthBias) {
       shader.uniforms.sceneryDepthBias = p.depthBias;
-      shader.vertexShader = shader.vertexShader
-        .replace('void main() {', 'uniform float sceneryDepthBias;\nattribute float aBias;\nvoid main() {')
+      let vs = shader.vertexShader
+        .replace('void main() {', `uniform float sceneryDepthBias;\nattribute float aBias;\n${p.nearDrop ? 'uniform float sceneryNearDrop;\n' : ''}void main() {`)
         .replace('#include <project_vertex>', '#include <project_vertex>\n\tmvPosition.xyz *= 1.0 - sceneryDepthBias * aBias;\n\tgl_Position = projectionMatrix * mvPosition;');
+      if (p.nearDrop) {
+        shader.uniforms.sceneryNearDrop = p.nearDrop;
+        vs = vs.replace('#include <begin_vertex>', [
+          '#include <begin_vertex>',
+          '\tfloat sceneryCamDist = length( ( modelViewMatrix * vec4( transformed, 1.0 ) ).xyz );',
+          `\ttransformed.y -= sceneryNearDrop * aBias * ( 1.0 - smoothstep( ${NEAR_DROP_FULL_M.toFixed(1)}, ${NEAR_DROP_END_M.toFixed(1)}, sceneryCamDist ) );`,
+        ].join('\n'));
+      }
+      shader.vertexShader = vs;
     }
     if (p.ambientSat && shader.fragmentShader.includes('#include <lights_fragment_begin>')) {
       shader.uniforms.sceneryAmbientSat = p.ambientSat;
@@ -74,6 +98,8 @@ export class SceneryMaterials {
   readonly depthBias = { value: DRAPE_DEPTH_BIAS };
   /** saturation kept in the sky ambient light (shared uniform) */
   readonly ambientSat = { value: AMBIENT_SATURATION };
+  /** near-camera drop of airport surfaces (shared uniform, m) */
+  readonly nearDrop = { value: NEAR_DROP_M };
   private night = -1;
 
   constructor(anisotropy = 4) {
@@ -105,8 +131,8 @@ export class SceneryMaterials {
     patchMaterial(this.walls, { ambientSat: this.ambientSat }, 'scenery-walls-1');
     patchMaterial(this.plain, { ambientSat: this.ambientSat }, 'scenery-plain-1');
     patchMaterial(this.roofs, { ambientSat: this.ambientSat }, 'scenery-roofs-1');
-    patchMaterial(this.surfaces, { depthBias: this.depthBias, ambientSat: this.ambientSat }, 'scenery-surfaces-1');
-    patchMaterial(this.markings, { depthBias: this.depthBias, ambientSat: this.ambientSat }, 'scenery-markings-1');
+    patchMaterial(this.surfaces, { depthBias: this.depthBias, nearDrop: this.nearDrop, ambientSat: this.ambientSat }, 'scenery-surfaces-2');
+    patchMaterial(this.markings, { depthBias: this.depthBias, nearDrop: this.nearDrop, ambientSat: this.ambientSat }, 'scenery-markings-2');
     this.trees = new THREE.MeshLambertMaterial({ name: 'scenery-trees', vertexColors: true });
     patchMaterial(this.trees, { ambientSat: this.ambientSat }, 'scenery-trees-1');
     this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 16);
@@ -115,7 +141,7 @@ export class SceneryMaterials {
       name: 'scenery-light-pools', map: pool, color: 0xffe2b8, transparent: true, opacity: 0, depthWrite: false,
       blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, toneMapped: true,
     });
-    patchMaterial(this.pools, { depthBias: this.depthBias }, 'scenery-pools-1');
+    patchMaterial(this.pools, { depthBias: this.depthBias, nearDrop: this.nearDrop }, 'scenery-pools-2');
   }
 
   private pointsMaterial(name: string, sprite: THREE.Texture, size: number): THREE.PointsMaterial {

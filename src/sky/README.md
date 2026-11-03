@@ -140,8 +140,10 @@ surface, = hemisphere sky colour × intensity + ambient floor), `moonDirThree`, 
 
 **Sun, moon, stars (§2).** `geo/solar` (NOAA/Meeus) gives the sun's azimuth/elevation at the aircraft
 lat/lon and sim UTC; the apparent (refracted) elevation drives the dome and light direction, the
-geometric elevation drives lighting thresholds. The moon disc is a camera-facing quad at 0.52° that lights
-a virtual sphere with the real sun direction, so phase and terminator orientation come for free.
+geometric elevation drives lighting thresholds. The moon disc is a camera-facing quad that lights a
+virtual sphere with the real sun direction, so phase and terminator orientation come for free; `SkySystem`
+draws it at 1.0° (`MOON_APPARENT_DIAMETER_DEG`; true 0.52°, the `MoonDisc` default) because a 60–90° screen
+FOV minifies the sky against the eye and a true-size crescent was a few pixels wide.
 Stars: a seeded synthetic catalogue (3000 stars, realistic magnitude slope, B−V colours), rotated by
 local sidereal time (`equatorialToLocalMatrix`: Polaris sits at azimuth 0°, elevation ≈ latitude).
 
@@ -296,4 +298,4 @@ the pixels agree across the three modes. `npm run smoke` covers the integrated a
 | `WeatherSystemOptions` | `airportElevationM`, `seed` (7), `z0` (0.03 m), `initial` ('clear'), `defaultTransitionS` (60), `gust` {meanIntervalS 40, minIntervalS 12, rampMinM 30, rampMaxM 120, magMin 0.5, magMax 1} |
 | `lighting.ts` | `DEFAULT_HAZE` {omega 0.9, multiScatter 2.6, groundAlbedo 0.15, maxOfSky 0.8}, `HAZE_G` 0.7, `DAY_ILLUMINANCE` 1.8, `NIGHT_AMBIENT_COLOR`, `ambientFloor` 0.22 + 0.22·moon |
 | `preetham.ts` / `SkySystem.ts` | `INSCATTER_KNEE` 25, `NIGHT_GLOW_SCALE_HEIGHT` 0.18, `NIGHT_GLOW_HORIZON`/`_ZENITH`, `SKYLIGHT_HORIZON_SHARE` 0.5 |
-| runtime | `sky.stars.gain` (3.5), `sky.moon.brightness` (0.6), `wind.ts` `LOG_PROFILE_MAX` (1.3), `lighting.ts` curves |
+| runtime | `sky.stars.gain` (3.5), `sky.moon.brightness` (0.6), moon drawn at `MOON_APPARENT_DIAMETER_DEG` 1.0° (`SkySystem.ts`), `wind.ts` `LOG_PROFILE_MAX` (1.3), `lighting.ts` curves |

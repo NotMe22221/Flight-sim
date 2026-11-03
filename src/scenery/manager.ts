@@ -368,8 +368,12 @@ export class SceneryManager implements SceneryLike {
       left -= o.groundStep(left, this.sampler, true);
       if (this.now() - t0 > budgetMs) return;
     }
-    // 2) gradual re-sampling round-robin over every resident tile (a share of the budget)
+    // 2) gradual re-sampling (a share of the budget): half of it for the tile under the camera,
+    //    where the terrain refines first and any mismatch is most visible, then round-robin
+    //    over every resident tile
     left = Math.min(left, Math.ceil(this.stream.groundSamplesPerFrame * RESAMPLE_SHARE));
+    const nearest = this.wanted.length > 0 ? this.entries.get(this.wanted[0].key)?.obj : null;
+    if (nearest && !nearest.settling && left > 1) left -= nearest.groundStep(Math.ceil(left / 2), this.sampler, false);
     const n = this.ready.length;
     for (let k = 0; k < n && left > 0; k++) {
       this.resampleCursor = (this.resampleCursor + 1) % n;
