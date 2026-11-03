@@ -12,6 +12,8 @@
  *
  * When the starter switch state is unknown (the app never called `setStarter`), cranking is
  * inferred conservatively: a non-running engine spinning up from rest into the cranking band.
+ * "From rest" matters: a windmilling prop (engine failure in flight) that sags into the band and
+ * picks up again must not play the starter whine.
  * The FDM's rpm already ramps during start, so the synth needs no other special casing.
  */
 
@@ -43,6 +45,8 @@ export class EngineStartFsm {
   private lastRpm = 0;
   private rpmRate = 0;
   private first = true;
+  /** rpm has been below CRANK_MIN_RPM (prop stopped) since it was last above CRANK_MAX_RPM */
+  private atRest = true;
 
   /** Current phase. */
   get phase(): EnginePhase { return this._phase; }
@@ -58,6 +62,7 @@ export class EngineStartFsm {
   /** Force a phase (e.g. on flight reset). */
   reset(phase: EnginePhase = 'off', rpm = 0): void {
     this._phase = phase; this._t = 0; this._entered = true; this.lastRpm = rpm; this.rpmRate = 0; this.first = false;
+    this.atRest = rpm < ENGINE_FSM.CRANK_MIN_RPM;
   }
 
   /**
@@ -77,6 +82,8 @@ export class EngineStartFsm {
       this._t += dt;
     }
     this.lastRpm = r;
+    if (r < ENGINE_FSM.CRANK_MIN_RPM) this.atRest = true;
+    else if (r > ENGINE_FSM.CRANK_MAX_RPM) this.atRest = false;
     if (this.first) { // spawning with the engine running must not play a start sequence
       this.first = false;
       if (running) { this.go('running'); return this._phase; }
@@ -112,7 +119,7 @@ export class EngineStartFsm {
     const F = ENGINE_FSM;
     if (rpm < F.CRANK_MIN_RPM || rpm > F.CRANK_MAX_RPM) return false;
     if (this._phase === 'cranking') return this.rpmRate > F.CRANK_DECAY_RPM_S;
-    return this._phase === 'off' && this.rpmRate > F.CRANK_SPINUP_RPM_S;
+    return this._phase === 'off' && this.atRest && this.rpmRate > F.CRANK_SPINUP_RPM_S;
   }
 
   private go(p: EnginePhase): void {

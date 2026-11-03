@@ -3,16 +3,23 @@
  * form (Yeager 1998 as implemented in JSBSim ttStandard). Deterministic: a serialisable
  * PRNG drives the white noise, drawn once per physics step.
  */
-import { Table2D } from '../core/math';
+import { Grid2D } from './grid';
 import type { TurbulenceIntensity, Vec3 } from '../core/types';
 import { FT, KT } from '../core/units';
 
-/** Serializable mulberry32 PRNG with Box–Muller normal deviates. */
+/**
+ * Serializable mulberry32 PRNG with Box–Muller normal deviates. The 32-bit state lives in a
+ * Uint32Array: as a plain field, values ≥ 2³¹ were re-boxed as heap numbers on every draw.
+ */
 export class Rng {
-  constructor(public state: number) { this.state = state >>> 0; }
+  private readonly s = new Uint32Array(1);
+  constructor(state: number) { this.s[0] = state >>> 0; }
+  get state(): number { return this.s[0]; }
+  set state(v: number) { this.s[0] = v >>> 0; }
   uniform(): number {
-    this.state = (this.state + 0x6d2b79f5) >>> 0;
-    let t = this.state;
+    const st = (this.s[0] + 0x6d2b79f5) >>> 0;
+    this.s[0] = st;
+    let t = st;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -37,7 +44,7 @@ const POE_SIGMA = [
   15.6, 17.6, 23.0, 23.6, 22.1, 20.0, 16.0, 15.1, 12.1, 7.9, 6.2, 5.1,
   18.7, 21.5, 28.4, 30.2, 30.7, 31.0, 25.2, 23.1, 17.5, 10.7, 8.4, 7.2,
 ];
-const poe = new Table2D([1, 2, 3, 4, 5, 6, 7], POE_ALT, POE_SIGMA);
+const poe = new Grid2D([1, 2, 3, 4, 5, 6, 7], POE_ALT, POE_SIGMA);
 
 /** Wind speed at 20 ft implied by an intensity index when no explicit W20 is given (kt). */
 const W20_BY_INTENSITY = [0, 5, 10, 15, 30, 45, 60, 75];

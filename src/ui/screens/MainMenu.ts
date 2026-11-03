@@ -1,4 +1,4 @@
-/** FLY NOW · WORLD MAP · AIRCRAFT · WEATHER & TIME · SETTINGS · CREDITS, with the MSFS-style selection summary. */
+/** FLY NOW · WORLD MAP · ACTIVITIES · AIRCRAFT · WEATHER & TIME · SETTINGS · CREDITS, with the MSFS-style selection summary. */
 import { Screen, type ScreenContext } from './Screen';
 import { arrowNavigation, button, h, icon } from '../dom';
 import type { IconName } from '../icons';
@@ -23,6 +23,7 @@ export class MainMenu extends Screen {
       h('nav', { class: 'menu-list', aria: { label: 'Main menu' } },
         this.resumeBtn, this.flyBtn,
         button('World map', () => ctx.navigate('worldmap'), { icon: 'globe', cls: 'menu-btn' }),
+        button('Activities', () => ctx.navigate('activities'), { icon: 'trophy', cls: 'menu-btn', title: 'Landing challenges' }),
         button('Aircraft', () => ctx.navigate('aircraft'), { icon: 'plane', cls: 'menu-btn' }),
         button('Weather & time', () => ctx.navigate('weather'), { icon: 'cloudSun', cls: 'menu-btn' }),
         button('Settings', () => ctx.navigate('settings'), { icon: 'settings', cls: 'menu-btn' }),

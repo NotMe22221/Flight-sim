@@ -48,4 +48,10 @@ export interface UiHost {
   addWaypoint?(wp: Waypoint): void;
   /** Clears the flight plan (Nav Log "Clear"). Hidden when absent. */
   clearPlan?(): void;
+  /**
+   * Activities → Landing challenges: spawn established on final for the challenge `id`
+   * (an id from `LANDING_CHALLENGES`). Resolves when the flight is live. When absent, the
+   * Activities screen lists the challenges but disables "Start".
+   */
+  startChallenge?(id: string): Promise<void>;
 }

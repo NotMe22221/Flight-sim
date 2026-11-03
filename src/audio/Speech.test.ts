@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ROLE_PRESETS, Speech, type SpeechRole, type SpeechSynthesisLike } from './Speech';
+import { MAX_QUEUED_TRANSMISSIONS, ROLE_PRESETS, Speech, type SpeechRole, type SpeechSynthesisLike, speechWatchdogMs } from './Speech';
 import { chunkText, splitSentences } from './speechText';
 
 /** Minimal utterance stand-in (Node has no SpeechSynthesisUtterance). */
@@ -146,5 +146,94 @@ describe('Speech', () => {
     synth.spoken[0].onerror?.();
     expect(events).toEqual(['atc:start', 'atc:end']);
     expect(speech.speaking).toBe(false);
+  });
+});
+
+describe('Speech watchdog (engines that never report the end of an utterance)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const make = () => {
+    const synth = new FakeSynth();
+    const events: string[] = [];
+    const speech = new Speech({
+      synth,
+      makeUtterance: (t) => new FakeUtterance(t) as unknown as SpeechSynthesisUtterance,
+      leadMs: 100, gapMs: 200, maxChunkChars: 60,
+      onTransmission: (role: SpeechRole, phase) => events.push(`${role}:${phase}`),
+    });
+    return { synth, speech, events };
+  };
+
+  it('a voice that never fires onend/onerror cannot stall the queue or hold the squelch open', () => {
+    // Chrome drops `onend` when the utterance is garbage-collected; Linux builds without voices fire nothing.
+    const { synth, speech, events } = make();
+    speech.speak('Tower, Cessna one two three ready.', 'pilot');
+    speech.speak('Cessna one two three, hold short.', 'atc');
+    vi.advanceTimersByTime(100);
+    expect(synth.spoken.length).toBe(1);
+    vi.advanceTimersByTime(3000);
+    expect(speech.speaking).toBe(true); // not cut short while a real voice could still be talking
+    vi.advanceTimersByTime(60_000);
+    expect(events).toEqual(['pilot:start', 'pilot:end', 'atc:start', 'atc:end']);
+    expect(synth.spoken.map((u) => u.text)).toEqual(['Tower, Cessna one two three ready.', 'Cessna one two three, hold short.']);
+    expect(speech.speaking).toBe(false);
+  });
+
+  it('a late end event from a chunk the watchdog already skipped does not skip the next chunk', () => {
+    const { synth, speech, events } = make();
+    speech.speak('First sentence is here and it is long enough. Second sentence follows right after it.', 'atc');
+    vi.advanceTimersByTime(100);
+    expect(synth.spoken.length).toBe(1);
+    vi.advanceTimersByTime(speechWatchdogMs(synth.spoken[0].text.length, ROLE_PRESETS.atc.rate) + 10);
+    expect(synth.spoken.length).toBe(2); // watchdog moved on to chunk 2
+    synth.spoken[0].onend?.(); // the engine finally reports chunk 1
+    expect(speech.speaking).toBe(true); // chunk 2 is still being spoken
+    expect(events).toEqual(['atc:start']);
+    synth.spoken[1].onend?.();
+    expect(events).toEqual(['atc:start', 'atc:end']);
+    expect(speech.speaking).toBe(false);
+  });
+
+  it('keeps a strong reference to the utterance in flight (Chrome GC drops its onend otherwise)', () => {
+    const { synth, speech } = make();
+    speech.speak('Cleared for takeoff.', 'atc');
+    vi.advanceTimersByTime(100);
+    expect(speech.inFlight).toBe(synth.spoken[0]);
+    synth.finish();
+    expect(speech.inFlight).toBeNull();
+  });
+
+  it('cancel clears the watchdog', () => {
+    const { synth, speech, events } = make();
+    speech.speak('Cleared for takeoff.', 'atc');
+    vi.advanceTimersByTime(100);
+    speech.cancel();
+    vi.advanceTimersByTime(60_000);
+    expect(events).toEqual(['atc:start', 'atc:end']);
+    expect(synth.spoken.length).toBe(1);
+  });
+
+  it('ignores a message identical to the one in progress or already waiting (per-frame spam)', () => {
+    const { synth, speech, events } = make();
+    const msg = 'Cessna one two three, traffic twelve o clock.';
+    for (let i = 0; i < 60; i++) speech.speak(msg, 'atc'); // a caller speaking every frame for a second
+    expect(speech.queueLength).toBe(0);
+    vi.advanceTimersByTime(100);
+    synth.finish();
+    vi.advanceTimersByTime(10_000);
+    expect(synth.spoken.length).toBe(1);
+    expect(events).toEqual(['atc:start', 'atc:end']);
+    speech.speak(msg, 'atc'); // repeating it once it has been heard is fine
+    speech.speak(msg, 'pilot'); // and so is the pilot reading it back
+    vi.advanceTimersByTime(100);
+    expect(synth.spoken.length).toBe(2);
+    expect(speech.queueLength).toBe(1);
+  });
+
+  it('caps the backlog by dropping the stalest waiting transmission', () => {
+    const { speech } = make();
+    for (let i = 0; i < 40; i++) speech.speak(`Message number ${i}.`, 'atc');
+    expect(speech.queueLength).toBe(MAX_QUEUED_TRANSMISSIONS);
   });
 });

@@ -26,6 +26,14 @@ const EARTH_R = 6371000;
 const ALPHA_WARN = 0.235;
 const TWO_PI = 2 * Math.PI;
 const F2K = (f: number) => ((f - 32) * 5) / 9 + 273.15;
+const fin = (x: number, fallback: number): number => (Number.isFinite(x) ? x : fallback);
+/** First-order lag toward `cmd` with time constant `tau`, rate-limited to `rate` per second. */
+const lagRate = (x: number, cmd: number, tau: number, rate: number, dt: number): number => {
+  const d = (cmd - x) * (1 - Math.exp(-dt / tau));
+  const lim = rate * dt;
+  return x + (d > lim ? lim : d < -lim ? -lim : d);
+};
+const lag1 = (x: number, target: number, tau: number, dt: number): number => x + (target - x) * (1 - Math.exp(-dt / tau));
 
 export interface TrimResult {
   ok: boolean;
@@ -124,6 +132,11 @@ export class Fdm implements FlightModel {
   private readonly wheelZ: number;
   private air = { u: 0, v: 0, w: 0, V: 0, alpha: 0, beta: 0 };
   private readonly gearCtl = { brakeLeft: 0, brakeRight: 0, steerRad: 0 };
+  private readonly propAir = { rho: 1.225, pAmb: P0, tAmb: 288.15, u: 0, v: 0, w: 0 };
+  /** sanitised copy of the current step's inputs */
+  private readonly uSafe: ControlInputs = defaultControlInputs();
+  private ailCmdL = 0;
+  private ailCmdR = 0;
 
   constructor(readonly config: AircraftConfig, opts: FdmOptions = {}) {
     const eng = config.propulsion.engine;
@@ -221,9 +234,11 @@ export class Fdm implements FlightModel {
     }
   }
 
-  step(dt: number, inputs: ControlInputs, env: Environment): void {
+  step(dt: number, rawInputs: ControlInputs, env: Environment): void {
+    if (!(dt > 0 && dt < Infinity)) return; // a zero, negative or NaN step integrates nothing
     this.env = env;
     this.dt = dt;
+    const inputs = this.sanitizeInputs(rawInputs);
     this.lastInputs = inputs;
     if (this.crashed) return;
     this.frameFor(env);
@@ -241,7 +256,7 @@ export class Fdm implements FlightModel {
     this.deriv(yt, k4);
     for (let i = 0; i < NS; i++) y[i] += (dt / 6) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
     // renormalise attitude, keep engine states physical
-    const qn = Math.hypot(y[6], y[7], y[8], y[9]) || 1;
+    const qn = Math.sqrt(y[6] * y[6] + y[7] * y[7] + y[8] * y[8] + y[9] * y[9]) || 1; // (Math.hypot allocates)
     y[6] /= qn; y[7] /= qn; y[8] /= qn; y[9] /= qn;
     if (y[13] < 0) y[13] = 0;
     if (y[14] < 1000) y[14] = 1000;
@@ -291,30 +306,41 @@ export class Fdm implements FlightModel {
     const steps = [1e-4, 1e-4, 1e-3];
     const J = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
     const rp = [0, 0, 0];
-    for (let it = 0; it < 40; it++) {
+    const maxStep = [0.05, 0.05, 0.2];
+    // Active set on the throttle stops: when the Newton step leaves [0, 1] the point is power
+    // limited, so hold the throttle at the stop and solve ẇ = q̇ = 0 for (α, δe) alone; u̇ ≠ 0 is
+    // then the reported residual. The stop is released again if u̇ shows it is not needed.
+    let pinned = -1, releases = 0;
+    for (let it = 0; it < 60; it++) {
       evalRes(x, res);
-      const nrm = Math.hypot(res[0], res[1], res[2]);
-      best = nrm;
-      if (nrm < 1e-4) break;
-      for (let j = 0; j < 3; j++) {
-        const xp = x.slice();
-        xp[j] += steps[j];
-        evalRes(xp, rp);
-        for (let i = 0; i < 3; i++) J[i][j] = (rp[i] - res[i]) / steps[j];
+      const nrm = pinned < 0 ? Math.hypot(res[0], res[1], res[2]) : Math.hypot(res[1], res[2]);
+      if (nrm < 1e-5) {
+        if (pinned < 0) break;
+        if (releases < 2 && ((pinned === 1 && res[0] > 0) || (pinned === 0 && res[0] < 0))) { pinned = -1; releases++; continue; }
+        break;
       }
-      const dx = solve3(J, res);
+      const n = pinned < 0 ? 3 : 2;
+      for (let j = 0; j < n; j++) {
+        const xp = x.slice();
+        // one-sided difference that stays inside the throttle range
+        const h = j === 2 && x[2] + steps[2] > 1 ? -steps[2] : steps[j];
+        xp[j] += h;
+        evalRes(xp, rp);
+        for (let i = 0; i < 3; i++) J[i][j] = (rp[i] - res[i]) / h;
+      }
+      const dx = pinned < 0 ? solve3(J, res) : solve2(J[1][0], J[1][1], J[2][0], J[2][1], res[1], res[2]);
       if (!dx) break;
       let lam = 1;
-      const maxStep = [0.05, 0.05, 0.2];
-      for (let j = 0; j < 3; j++) lam = Math.min(lam, maxStep[j] / Math.max(Math.abs(dx[j]), 1e-12));
-      for (let j = 0; j < 3; j++) x[j] -= lam * dx[j];
+      for (let j = 0; j < n; j++) lam = Math.min(lam, maxStep[j] / Math.max(Math.abs(dx[j]), 1e-12));
+      for (let j = 0; j < n; j++) x[j] -= lam * dx[j];
       x[0] = clamp(x[0], -0.2, 0.3);
       x[1] = clamp(x[1], this.config.controls.elevator.minDeg * DEG, this.config.controls.elevator.maxDeg * DEG);
-      x[2] = clamp(x[2], 0, 1);
+      if (pinned < 0 && (x[2] > 1 || x[2] < 0)) pinned = x[2] > 1 ? 1 : 0;
+      x[2] = pinned >= 0 ? pinned : clamp(x[2], 0, 1);
     }
     evalRes(x, res);
     best = Math.hypot(res[0], res[1], res[2]);
-    const ok = best < 0.05 && x[2] > 0 && x[2] < 1;
+    const ok = pinned < 0 && best < 1e-3 && x[2] > 0 && x[2] < 1;
     const { pitchTrim, stick } = this.trimInputsFor(x[1]);
     this.trimDe = this.trimDeflection(pitchTrim);
     this.trimResult = { ok, alphaRad: x[0], elevatorRad: x[1], throttle: x[2], pitchTrim, pitchStick: stick, residual: best };
@@ -327,20 +353,29 @@ export class Fdm implements FlightModel {
 
   rebase(rotation: Quat, translationNED: Vec3): void {
     const y = this.y;
+    // Brake anchors first, while the state is still in the old frame: an anchor is a ground point
+    // under its wheel, so its old-frame D is the wheel contact's D (not the new-frame CG D — the
+    // 30 m+ difference, tilted by d/R, used to drag the anchors ≈ 0.14 m sideways at 20 km).
+    const qOld: Quat = [y[6], y[7], y[8], y[9]];
+    const cg = this.mp.cg, specs = this.config.gear, dOld = y[2];
+    this.gear.rebaseAnchors((i, n, e) => {
+      const g = specs[i].pos;
+      const d = dOld + qRotate(qOld, [g[0] - cg[0], g[1] - cg[1], g[2] - cg[2]], this.vtmp2)[2];
+      const r = qRotate(rotation, [n - translationNED[0], e - translationNED[1], d - translationNED[2]], this.vtmp2);
+      return [r[0], r[1]];
+    });
     const p: Vec3 = [y[0] - translationNED[0], y[1] - translationNED[1], y[2] - translationNED[2]];
     const np = qRotate(rotation, p, this.vtmp);
     y[0] = np[0]; y[1] = np[1]; y[2] = np[2];
-    const q = qMul(rotation, [y[6], y[7], y[8], y[9]], this.qb);
+    const q = qMul(rotation, qOld, this.qb);
     qNormalize(q, q);
     y[6] = q[0]; y[7] = q[1]; y[8] = q[2]; y[9] = q[3];
-    this.gear.rebaseAnchors((n, e) => {
-      const r = qRotate(rotation, [n - translationNED[0], e - translationNED[1], y[2] - translationNED[2]], this.vtmp2);
-      return [r[0], r[1]];
-    });
     const tv = this.turb.out.velNED;
     const rv = qRotate(rotation, tv, this.vtmp2);
     tv[0] = rv[0]; tv[1] = rv[1]; tv[2] = rv[2];
     this.frame = null;
+    // the caller reads the state right away (render interpolation): publish it in the new frame
+    this.updatePoseOutputs();
   }
 
   serialize(): string {
@@ -353,6 +388,8 @@ export class Fdm implements FlightModel {
       anchors: { a: Array.from(this.gear.anchored), n: Array.from(this.gear.anchorN), e: Array.from(this.gear.anchorE) },
       turb: Array.from(this.turb.x), turbVel: this.turb.out.velNED.slice(), turbPqr: this.turb.out.pqr.slice(), rng: this.rng.state,
       crashed: this.crashed, crashReason: this.crashReason, qnhSet: this.state.qnhSetPa, utc: this.utcMs,
+      // air data of the last evaluation: the next step's turbulence filter runs on this airspeed
+      air: [this.air.u, this.air.v, this.air.w, this.air.V, this.air.alpha, this.air.beta],
     });
   }
 
@@ -360,7 +397,7 @@ export class Fdm implements FlightModel {
     const s = JSON.parse(json) as {
       y: number[]; t: number; act: number[]; eng: number[]; hyst: number; alphaDot: number; alphaPrev: number; alphaPrevValid: boolean;
       stations: number[]; tanks: number[]; anchors: { a: number[]; n: number[]; e: number[] }; turb: number[]; turbVel: number[]; turbPqr: number[]; rng: number;
-      crashed: boolean; crashReason: string; qnhSet: number; utc: number;
+      crashed: boolean; crashReason: string; qnhSet: number; utc: number; air?: number[];
     };
     this.y.set(s.y);
     this.state.t = s.t;
@@ -375,7 +412,12 @@ export class Fdm implements FlightModel {
     this.crashed = s.crashed; this.crashReason = s.crashReason;
     this.state.qnhSetPa = s.qnhSet; this.utcMs = s.utc;
     this.recomputeMass();
-    if (this.env) { this.sampleEnvironment(); this.deriv(this.y, this.k1); this.updateOutputs(); }
+    if (this.env) { this.frameFor(this.env); this.sampleEnvironment(); this.deriv(this.y, this.k1); }
+    // restore after the refresh above, which re-derives them from the wind at the restored position
+    if (s.air) { const a = this.air; a.u = s.air[0]; a.v = s.air[1]; a.w = s.air[2]; a.V = s.air[3]; a.alpha = s.air[4]; a.beta = s.air[5]; }
+    // the next step reads ground speed (nose-wheel steering) and heading (turbulence axes) from the
+    // published state, so publish at least the pose even before an environment is known
+    if (this.env) this.updateOutputs(); else this.updatePoseOutputs();
   }
 
   // ─────────────────────────────── internals ───────────────────────────────
@@ -406,11 +448,45 @@ export class Fdm implements FlightModel {
     this.groundUp = env.groundHeight(y[0], y[1]);
   }
 
+  /**
+   * Copy of the pilot inputs with every non-finite number replaced, so one bad value from an input
+   * device or autopilot cannot poison the state vector (and end the flight as "numerical
+   * instability"). Stick, pedals, brakes and trims fall back to neutral/held values, engine levers
+   * and flaps keep their current setting.
+   */
+  private sanitizeInputs(u: ControlInputs): ControlInputs {
+    const s = this.uSafe;
+    s.pitch = fin(u.pitch, 0); s.roll = fin(u.roll, 0); s.yaw = fin(u.yaw, 0);
+    s.pitchTrim = fin(u.pitchTrim, this.trimPositionFor(this.trimDe));
+    s.rudderTrim = fin(u.rudderTrim, 0); s.aileronTrim = fin(u.aileronTrim, 0);
+    s.flapsIndex = fin(u.flapsIndex, this.nearestFlapDetent());
+    s.throttle = fin(u.throttle, this.ctl.throttle); s.mixture = fin(u.mixture, this.ctl.mixture);
+    s.propeller = fin(u.propeller, 1); s.speedbrake = fin(u.speedbrake, 0);
+    s.brakeLeft = fin(u.brakeLeft, 0); s.brakeRight = fin(u.brakeRight, 0);
+    s.parkingBrake = u.parkingBrake; s.magnetos = u.magnetos; s.starter = u.starter; s.fuelSelector = u.fuelSelector;
+    s.gearDown = u.gearDown; s.lights = u.lights; s.pitotHeat = u.pitotHeat; s.carbHeat = u.carbHeat;
+    return s;
+  }
+
+  /** Trim-wheel position that produces the given trim deflection (inverse of {@link trimDeflection}). */
+  private trimPositionFor(trimDe: number): number {
+    const c = this.config.controls;
+    const up = c.trim.elevatorFraction[0] * -c.elevator.minDeg * DEG, dn = c.trim.elevatorFraction[1] * c.elevator.maxDeg * DEG;
+    return trimDe < 0 ? (up > 0 ? -trimDe / up : 0) : dn > 0 ? -trimDe / dn : 0;
+  }
+
+  private nearestFlapDetent(): number {
+    const det = this.config.controls.flaps.detentsDeg;
+    let best = 0;
+    for (let i = 1; i < det.length; i++) if (Math.abs(det[i] - this.flapDeg) < Math.abs(det[best] - this.flapDeg)) best = i;
+    return best;
+  }
+
   private snapActuators(u: ControlInputs): void {
     const c = this.config.controls;
     this.de = this.elevatorCommand(u);
-    const [l, r] = this.aileronCommand(u.roll);
-    this.daL = l; this.daR = r;
+    this.aileronCommand(u.roll);
+    this.daL = this.ailCmdL; this.daR = this.ailCmdR;
     this.dr = -clamp(u.yaw, -1, 1) * c.rudder.maxDeg * DEG;
     this.flapDeg = c.flaps.detentsDeg[clamp(Math.round(u.flapsIndex), 0, c.flaps.detentsDeg.length - 1)];
     this.trimDe = this.trimDeflection(u.pitchTrim);
@@ -441,28 +517,23 @@ export class Fdm implements FlightModel {
     return clamp(stick + this.trimDeflection(u.pitchTrim), c.minDeg * DEG, c.maxDeg * DEG);
   }
 
-  private aileronCommand(roll: number): [number, number] {
+  /** Differential aileron deflections for a roll command, into ailCmdL / ailCmdR (rad). */
+  private aileronCommand(roll: number): void {
     const c = this.config.controls.aileron;
     const a = clamp(roll, -1, 1);
-    const left = a > 0 ? a * c.downDeg : a * c.upDeg;
-    const right = a > 0 ? -a * c.upDeg : -a * c.downDeg;
-    return [left * DEG, right * DEG];
+    this.ailCmdL = (a > 0 ? a * c.downDeg : a * c.upDeg) * DEG;
+    this.ailCmdR = (a > 0 ? -a * c.upDeg : -a * c.downDeg) * DEG;
   }
 
   private updateActuators(u: ControlInputs, dt: number): void {
     const c = this.config.controls;
-    const lag = (x: number, cmd: number, tau: number, rate: number) => {
-      const d = (cmd - x) * (1 - Math.exp(-dt / tau));
-      const lim = rate * dt;
-      return x + (d > lim ? lim : d < -lim ? -lim : d);
-    };
     this.trimDe = this.trimDeflection(u.pitchTrim);
-    this.de = lag(this.de, this.elevatorCommand(u), c.elevator.tauS, c.elevator.rateDegPerS * DEG);
-    const [l, r] = this.aileronCommand(u.roll + 0.15 * clamp(u.aileronTrim, -1, 1));
-    this.daL = lag(this.daL, l, c.aileron.tauS, c.aileron.rateDegPerS * DEG);
-    this.daR = lag(this.daR, r, c.aileron.tauS, c.aileron.rateDegPerS * DEG);
+    this.de = lagRate(this.de, this.elevatorCommand(u), c.elevator.tauS, c.elevator.rateDegPerS * DEG, dt);
+    this.aileronCommand(u.roll + 0.15 * clamp(u.aileronTrim, -1, 1));
+    this.daL = lagRate(this.daL, this.ailCmdL, c.aileron.tauS, c.aileron.rateDegPerS * DEG, dt);
+    this.daR = lagRate(this.daR, this.ailCmdR, c.aileron.tauS, c.aileron.rateDegPerS * DEG, dt);
     const yawCmd = clamp(u.yaw + 0.3 * clamp(u.rudderTrim, -1, 1), -1, 1);
-    this.dr = lag(this.dr, -yawCmd * c.rudder.maxDeg * DEG, c.rudder.tauS, c.rudder.rateDegPerS * DEG);
+    this.dr = lagRate(this.dr, -yawCmd * c.rudder.maxDeg * DEG, c.rudder.tauS, c.rudder.rateDegPerS * DEG, dt);
     // flap motor
     const det = c.flaps.detentsDeg;
     const target = det[clamp(Math.round(u.flapsIndex), 0, det.length - 1)];
@@ -472,7 +543,8 @@ export class Fdm implements FlightModel {
     const df = target - this.flapDeg;
     this.flapDeg += Math.abs(df) <= rate * dt ? df : Math.sign(df) * rate * dt;
     // nose-wheel steering from the pedals, softened with ground speed for controllability
-    const gs = Math.hypot(this.state.velNED[0], this.state.velNED[1]);
+    const vn = this.state.velNED;
+    const gs = Math.sqrt(vn[0] * vn[0] + vn[1] * vn[1]);
     const soft = clamp(1 - gs / 30, 0.4, 1);
     this.steer = clamp(u.yaw, -1, 1) * c.nosewheelSteerDeg * DEG * soft;
     this.brakeL = u.parkingBrake ? 1 : clamp(u.brakeLeft, 0, 1);
@@ -499,7 +571,7 @@ export class Fdm implements FlightModel {
     const env = this.env, y = this.y;
     const agl = -y[2] - this.groundUp;
     const wind = this.windNED;
-    const wHead = Math.hypot(wind[0], wind[1]) > 0.5 ? Math.atan2(wind[1], wind[0]) : this.state.headingTrueRad;
+    const wHead = wind[0] * wind[0] + wind[1] * wind[1] > 0.25 ? Math.atan2(wind[1], wind[0]) : this.state.headingTrueRad;
     this.turb.step(dt, agl, Math.max(this.air.V, 10), env.turbulence.w20Kt, env.turbulence.intensity, wHead, this.state.headingTrueRad);
   }
 
@@ -554,7 +626,9 @@ export class Fdm implements FlightModel {
     // propulsion
     const pr = cfg.propulsion.propeller!;
     this.hub[0] = pr.position[0] - cg[0]; this.hub[1] = pr.position[1] - cg[1]; this.hub[2] = pr.position[2] - cg[2];
-    const po = this.prop.evaluate(s[13], s[14], { rho, pAmb: this.atm.pressurePa, tAmb: this.atm.temperatureK, u: ua, v: va, w: wa }, this.ctl, this.hub, this.propOut);
+    const pa = this.propAir;
+    pa.rho = rho; pa.pAmb = this.atm.pressurePa; pa.tAmb = this.atm.temperatureK; pa.u = ua; pa.v = va; pa.w = wa;
+    const po = this.prop.evaluate(s[13], s[14], pa, this.ctl, this.hub, this.propOut);
 
     // aerodynamics
     const arp = this.arp;
@@ -640,7 +714,7 @@ export class Fdm implements FlightModel {
     if (flow > 0) this.burnFuel(flow * dt, u.fuelSelector);
     this.recomputeMass();
 
-    this.gear.updateAnchors(this.gearOut, { brakeLeft: this.brakeL, brakeRight: this.brakeR });
+    this.gear.updateAnchors(this.gearOut, this.gearCtl);
 
     // engine temperatures and oil pressure (first-order lags toward targets)
     const amb = this.atm.temperatureK;
@@ -654,11 +728,10 @@ export class Fdm implements FlightModel {
     const oilTT = run ? amb + (F2K(190) - amb) * (0.5 + 0.5 * pct) : amb;
     const rpm = (y[13] * 60) / TWO_PI;
     const oilPT = rpm > 300 ? (25 + 55 * clamp((rpm - 600) / 1800, 0, 1)) * 6894.76 : (rpm / 300) * 15 * 6894.76;
-    const lag = (x: number, t: number, tau: number) => x + (t - x) * (1 - Math.exp(-dt / tau));
-    this.egt = lag(this.egt, egtT, 3);
-    this.cht = lag(this.cht, chtT, 60);
-    this.oilT = lag(this.oilT, oilTT, 120);
-    this.oilP = lag(this.oilP, oilPT, 0.5);
+    this.egt = lag1(this.egt, egtT, 3, dt);
+    this.cht = lag1(this.cht, chtT, 60, dt);
+    this.oilT = lag1(this.oilT, oilTT, 120, dt);
+    this.oilP = lag1(this.oilP, oilPT, 0.5, dt);
 
     // crash conditions
     if (this.gearOut.crash) this.crash(this.gearOut.crash);
@@ -667,14 +740,20 @@ export class Fdm implements FlightModel {
 
   private burnFuel(kg: number, sel: ControlInputs['fuelSelector']): void {
     const tanks = this.config.mass.tanks;
-    const idx: number[] = [];
+    let n = 0;
+    for (let i = 0; i < tanks.length; i++) if (this.tankFeeds(i, sel)) n++;
+    if (!n) return;
+    const share = kg / n;
     for (let i = 0; i < tanks.length; i++) {
-      if (sel !== 'both' && tanks[i].selector !== sel && tanks[i].selector !== 'center') continue;
-      if (this.tankKg[i] > tanks[i].capacityKg - tanks[i].usableKg) idx.push(i);
+      // decide from the pre-burn contents of this tank only, as the share was computed
+      const unusable = tanks[i].capacityKg - tanks[i].usableKg;
+      if (this.tankFeeds(i, sel)) this.tankKg[i] = Math.max(unusable, this.tankKg[i] - share);
     }
-    if (!idx.length) return;
-    const share = kg / idx.length;
-    for (const i of idx) this.tankKg[i] = Math.max(tanks[i].capacityKg - tanks[i].usableKg, this.tankKg[i] - share);
+  }
+
+  private tankFeeds(i: number, sel: ControlInputs['fuelSelector']): boolean {
+    const t = this.config.mass.tanks[i];
+    return (sel === 'both' || t.selector === sel || t.selector === 'center') && this.tankKg[i] > t.capacityKg - t.usableKg;
   }
 
   private crash(reason: string): void {
@@ -683,11 +762,14 @@ export class Fdm implements FlightModel {
     this.state.crashed = true;
   }
 
-  private updateOutputs(): void {
-    const st = this.state, y = this.y, cfg = this.config;
-    const frame = this.frame!;
+  /**
+   * State outputs that follow from the state vector alone (no local frame needed): position and
+   * velocities in the current NED frame, attitude, rates, headings, track. The magnetic heading
+   * uses the last published geodetic position.
+   */
+  private updatePoseOutputs(): void {
+    const st = this.state, y = this.y;
     st.posNED[0] = y[0]; st.posNED[1] = y[1]; st.posNED[2] = y[2];
-    frame.nedToGeodetic(y[0], y[1], y[2], st.geo);
     st.velBody[0] = y[3]; st.velBody[1] = y[4]; st.velBody[2] = y[5];
     const q = this.qb;
     q[0] = y[6]; q[1] = y[7]; q[2] = y[8]; q[3] = y[9];
@@ -696,18 +778,25 @@ export class Fdm implements FlightModel {
     qConj(q, st.qNB);
     eulerFromQ(q, st.euler);
     st.rates[0] = y[10]; st.rates[1] = y[11]; st.rates[2] = y[12];
-    st.loadFactor[0] = this.specF[0] / G; st.loadFactor[1] = this.specF[1] / G; st.loadFactor[2] = -this.specF[2] / G;
     const hdg = st.euler[2] < 0 ? st.euler[2] + TWO_PI : st.euler[2];
     st.headingTrueRad = hdg;
     const dec = this.magvar.get(st.geo.lat, st.geo.lon, st.geo.alt, this.utcMs) * DEG;
     let mh = hdg - dec;
     if (mh < 0) mh += TWO_PI; else if (mh >= TWO_PI) mh -= TWO_PI;
     st.headingMagRad = mh;
-    st.groundSpeedMs = Math.hypot(st.velNED[0], st.velNED[1]);
+    st.groundSpeedMs = Math.sqrt(st.velNED[0] * st.velNED[0] + st.velNED[1] * st.velNED[1]);
     let trk = st.groundSpeedMs > 0.5 ? Math.atan2(st.velNED[1], st.velNED[0]) : hdg;
     if (trk < 0) trk += TWO_PI;
     st.trackRad = trk;
     st.verticalSpeedMs = -st.velNED[2];
+  }
+
+  private updateOutputs(): void {
+    const st = this.state, y = this.y, cfg = this.config;
+    const frame = this.frame!;
+    frame.nedToGeodetic(y[0], y[1], y[2], st.geo);
+    this.updatePoseOutputs();
+    st.loadFactor[0] = this.specF[0] / G; st.loadFactor[1] = this.specF[1] / G; st.loadFactor[2] = -this.specF[2] / G;
     st.altitudeMslM = st.geo.alt;
     const gearH = this.wheelZ - this.mp.cg[2];
     st.altitudeAglM = Math.max(0, -y[2] - this.groundUp - gearH);
@@ -723,7 +812,7 @@ export class Fdm implements FlightModel {
     const ae = st.aero, air = this.air;
     ae.alpha = air.alpha; ae.beta = air.beta; ae.alphaDot = this.alphaDot;
     ae.tas = air.V;
-    ae.cas = casFromTas(air.u > 0 ? Math.hypot(air.u, air.w) : 0, this.atm.pressurePa, this.atm.speedOfSound);
+    ae.cas = casFromTas(air.u > 0 ? Math.sqrt(air.u * air.u + air.w * air.w) : 0, this.atm.pressurePa, this.atm.speedOfSound);
     ae.eas = easFromTas(air.V, this.atm.densityKgM3);
     ae.ias = iasFromCas(ae.cas, this.flapDeg);
     ae.mach = air.V / this.atm.speedOfSound;
@@ -779,8 +868,17 @@ export class Fdm implements FlightModel {
     for (let i = 1; i < det.length; i++) if (this.flapDeg > det[i - 1] + 0.5) vfe = L.VfeKt[i - 1] ?? vfe;
     wn.flapOverspeed = this.flapDeg > 0.5 && kt > vfe;
     const tanks = cfg.mass.tanks;
-    wn.lowFuel = tanks.some((t, i) => this.tankKg[i] - (t.capacityKg - t.usableKg) < 5 * 2.725);
+    let low = false;
+    for (let i = 0; i < tanks.length; i++) if (this.tankKg[i] - (tanks[i].capacityKg - tanks[i].usableKg) < 5 * 2.725) low = true;
+    wn.lowFuel = low;
   }
+}
+
+/** Solve the 2×2 system [[a, b], [c, d]]·x = [e, f]; returns [x0, x1, 0] or null if singular. */
+function solve2(a: number, b: number, c: number, d: number, e: number, f: number): number[] | null {
+  const det = a * d - b * c;
+  if (Math.abs(det) < 1e-12) return null;
+  return [(e * d - b * f) / det, (a * f - e * c) / det, 0];
 }
 
 /** Solve a 3×3 linear system J x = b by Cramer's rule; null if singular. */

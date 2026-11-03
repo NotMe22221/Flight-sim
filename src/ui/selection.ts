@@ -2,13 +2,19 @@
  * Pre-flight selection shared by Main Menu, World Map, Aircraft and Weather screens:
  * departure (airport + runway end or parking), aircraft, fuel/payload, weather, time.
  */
-import type { WeatherPresetId, WeatherState } from '../core/types';
+import type { Airport, WeatherPresetId, WeatherState } from '../core/types';
 import type { SpawnChoice, UiHost } from './UiHost';
 import { FALLBACK_KSFO, findRunwayEnd } from './runways';
 import { SELECTION_KEY, loadJson, saveJson } from './settingsStore';
 import { timeForPreset, type TimePreset } from './solar';
 import { formatTimeLocal, formatTimeUtc, timezoneOffsetFromLon } from './format';
 import { weatherPresetLabel, weatherPresetTemplate } from './weatherPresets';
+
+/** 'Cessna 172S Skyhawk' — the manufacturer is prefixed only when the name does not already start with it. */
+export function aircraftDisplayName(manufacturer: string, name: string): string {
+  const m = manufacturer.trim();
+  return !m || name.toLowerCase().startsWith(m.toLowerCase()) ? name : `${m} ${name}`;
+}
 
 export type WeatherSelection = { mode: 'preset'; presetId: WeatherPresetId } | { mode: 'live' } | { mode: 'custom'; custom: WeatherState };
 export type TimeSelection = { mode: 'now' } | { mode: 'preset'; preset: TimePreset } | { mode: 'custom'; utcMs: number };
@@ -20,9 +26,11 @@ export interface FlightSelection {
   payloadKg: number;
   weather: WeatherSelection;
   time: TimeSelection;
+  /** World Map "Set as arrival": added to the flight plan once the flight is live. */
+  arrival: Airport | null;
 }
 
-interface PersistedSelection { icao?: string; endIdent?: string | null; aircraftId?: string; fuelFraction?: number; payloadKg?: number; weather?: WeatherSelection; time?: TimeSelection }
+interface PersistedSelection { icao?: string; endIdent?: string | null; aircraftId?: string; fuelFraction?: number; payloadKg?: number; weather?: WeatherSelection; time?: TimeSelection; arrivalIcao?: string | null }
 
 export class SelectionStore {
   sel: FlightSelection;
@@ -43,6 +51,7 @@ export class SelectionStore {
       payloadKg: Math.max(0, saved.payloadKg ?? 170),
       weather: saved.weather && isWeatherSel(saved.weather) ? saved.weather : { mode: 'preset', presetId: 'clear' },
       time: saved.time && isTimeSel(saved.time) ? saved.time : { mode: 'now' },
+      arrival: (typeof saved.arrivalIcao === 'string' && host.nav.getAirport(saved.arrivalIcao)) || null,
     };
   }
 
@@ -59,7 +68,7 @@ export class SelectionStore {
     const s = this.sel;
     const p: PersistedSelection = {
       icao: s.spawn.airport.icao, endIdent: s.spawn.runwayEnd ? s.spawn.runwayEnd.endIdent : null, aircraftId: s.aircraftId,
-      fuelFraction: s.fuelFraction, payloadKg: s.payloadKg, weather: s.weather, time: s.time,
+      fuelFraction: s.fuelFraction, payloadKg: s.payloadKg, weather: s.weather, time: s.time, arrivalIcao: s.arrival ? s.arrival.icao : null,
     };
     saveJson(SELECTION_KEY, p);
   }
@@ -92,7 +101,7 @@ export class SelectionStore {
     this.host.setTime(this.resolvedTimeUtcMs());
   }
 
-  describe(): { airport: string; runway: string; aircraft: string; weather: string; time: string } {
+  describe(): { airport: string; runway: string; aircraft: string; weather: string; time: string; arrival: string } {
     const s = this.sel;
     const ac = this.host.aircraftList().find((a) => a.id === s.aircraftId);
     const t = this.resolvedTimeUtcMs();
@@ -101,9 +110,10 @@ export class SelectionStore {
     return {
       airport: `${s.spawn.airport.icao} · ${s.spawn.airport.name}`,
       runway: s.spawn.runwayEnd ? `Runway ${s.spawn.runwayEnd.endIdent}` : 'Parking · cold & dark',
-      aircraft: ac ? `${ac.manufacturer} ${ac.name}` : s.aircraftId,
+      aircraft: ac ? aircraftDisplayName(ac.manufacturer, ac.name) : s.aircraftId,
       weather: s.weather.mode === 'live' ? 'Live weather' : s.weather.mode === 'custom' ? 'Custom' : weatherPresetLabel(s.weather.presetId),
       time: `${timeLabel} · ${formatTimeLocal(t, off)} local (${formatTimeUtc(t)})`,
+      arrival: s.arrival ? `${s.arrival.icao} · ${s.arrival.name}` : 'None',
     };
   }
 }

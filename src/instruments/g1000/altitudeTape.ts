@@ -7,10 +7,10 @@ import { clamp } from '../../core/math';
 import { M_TO_FT } from '../../core/units';
 import type { AutopilotState, NavRadioState } from '../../core/types';
 import type { Ctx2D } from '../canvas';
-import { formatBaroInHg, formatThousands } from '../format';
 import type { InstrumentReadings } from '../readings';
 import { forEachTick, tapeOffsetPx } from '../scales';
 import { G, PFD, cond, condBold } from './palette';
+import { baroInLabels, hundredsLabels, thousandsLabels } from './labels';
 import { TWENTIES, box, bug, drum, num, pointerWindow, text } from './widgets';
 
 export function drawAltitudeTape(ctx: Ctx2D, r: InstrumentReadings, ap: AutopilotState, nav: NavRadioState | null): void {
@@ -25,7 +25,7 @@ export function drawAltitudeTape(ctx: Ctx2D, r: InstrumentReadings, ap: Autopilo
   forEachTick(alt, 20, k, half + 10, -1000, 60000, (val, off) => {
     const y = mid + off, major = val % 100 === 0;
     ctx.beginPath(); ctx.moveTo(x + 8, y); ctx.lineTo(x + (major ? 22 : 15), y); ctx.stroke();
-    if (major) ctx.fillText(formatThousands(val), x + 26, y);
+    if (major) ctx.fillText(thousandsLabels.get(val), x + 26, y);
   });
   // selected altitude bug
   const selFt = ap.altitudeTargetM * M_TO_FT;
@@ -44,14 +44,14 @@ export function drawAltitudeTape(ctx: Ctx2D, r: InstrumentReadings, ap: Autopilo
   ctx.beginPath(); ctx.rect(x + 8, mid - wh / 2 + 2, ww - 12, wh - 4); ctx.clip();
   const neg = alt < 0, a = Math.abs(alt);
   const hundreds = Math.floor(a / 100);
-  num(ctx, (neg ? '-' : '') + (hundreds > 0 ? String(hundreds) : ''), x + 48, mid, condBold.get(26), G.white, 'right');
+  num(ctx, neg && hundreds === 0 ? '-' : hundredsLabels.get(neg ? -hundreds : hundreds), x + 48, mid, condBold.get(26), G.white, 'right');
   drum(ctx, x + 66, mid, 34, (a % 100) / 20, TWENTIES, condBold.get(22), G.white, 'center');
   ctx.restore();
   // selected altitude box above, baro below
   box(ctx, x, top - 26, w, 24);
-  num(ctx, formatThousands(Math.round(selFt / 100) * 100), x + w - 6, top - 14, condBold.get(18), G.cyan, 'right');
+  num(ctx, thousandsLabels.get(Math.round(selFt / 100) * 100), x + w - 6, top - 14, condBold.get(18), G.cyan, 'right');
   box(ctx, x, bottom + 2, w, 24);
-  num(ctx, `${formatBaroInHg(r.altimeter.settingInHg)}IN`, x + w - 6, bottom + 14, condBold.get(16), G.cyan, 'right');
+  num(ctx, baroInLabels.get(r.altimeter.settingInHg), x + w - 6, bottom + 14, condBold.get(16), G.cyan, 'right');
   // vertical deviation (glideslope) scale left of the tape
   if (nav && nav.isLocalizer && nav.gsValid) {
     const gx = x - 20, gy = mid;

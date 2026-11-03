@@ -54,6 +54,12 @@ export class LoadingScreen extends Screen {
     this.text.textContent = this.progress >= 0.999 ? (this.mode === 'boot' ? 'Ready' : 'Ready to fly') : `Loading terrain ${pct}%`;
   }
 
+  /** Programmatic start (gamepad Menu button on the boot screen); same as a click. */
+  start(): void { this.tryStart(); }
+
+  /** Current mode ('boot' splash or 'flight' loading). */
+  get currentMode(): LoadingMode { return this.mode; }
+
   /** Key press on the boot screen also starts. */
   override onKey(e: KeyboardEvent): boolean {
     if (this.mode === 'boot' && !e.repeat) { this.tryStart(); return true; }

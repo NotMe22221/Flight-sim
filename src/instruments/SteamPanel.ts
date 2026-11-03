@@ -4,7 +4,6 @@
  * can reuse the gauges; instrument dynamics come from a shared `InstrumentModel`.
  */
 import type { SimSnapshot } from '../core/types';
-import { M_TO_FT } from '../core/units';
 import type { CanvasFactory, CanvasSurface, Ctx2D } from './canvas';
 import { OPAQUE_CTX, domCanvasFactory, get2d, releaseSurface, sansBold } from './canvas';
 import type { VSpeeds } from './c172';

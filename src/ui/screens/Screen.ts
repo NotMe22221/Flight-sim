@@ -5,7 +5,7 @@ import type { SelectionStore } from '../selection';
 import type { PersistedSettings } from '../settingsStore';
 import { button, h } from '../dom';
 
-export type ScreenId = 'loading' | 'main' | 'worldmap' | 'aircraft' | 'weather' | 'settings' | 'credits' | 'flight';
+export type ScreenId = 'loading' | 'main' | 'worldmap' | 'aircraft' | 'weather' | 'settings' | 'credits' | 'activities' | 'flight';
 
 export interface ScreenContext {
   host: UiHost;
@@ -21,6 +21,8 @@ export interface ScreenContext {
   toast(text: string, kind?: 'info' | 'warn' | 'error' | 'success'): void;
   /** Forgets persisted floating-panel positions. */
   resetLayout?(): void;
+  /** Activities: show the loading screen and start a landing challenge (host.startChallenge). */
+  startChallenge?(id: string): void;
 }
 
 export abstract class Screen {
@@ -38,6 +40,8 @@ export abstract class Screen {
   onKey(_e: KeyboardEvent): boolean { return false; }
   /** Focus the first meaningful control. */
   focus(): void { (this.el.querySelector<HTMLElement>('input, button:not([disabled])') ?? this.el).focus(); }
+  /** Release timers, observers and subscriptions (UiManager.dispose). */
+  dispose(): void { /* override */ }
 }
 
 export function screenHeader(ctx: ScreenContext, title: string, subtitle?: string, ...extra: HTMLElement[]): HTMLElement {

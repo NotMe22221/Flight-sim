@@ -36,7 +36,7 @@ export const PFD = Object.freeze({
   topBarH: 42, afcsY: 42, afcsH: 28,
   softkeyY: 738, softkeyH: 30, softkeyCount: 12,
   // attitude
-  attCx: 512, attCy: 330, attRollR: 300, attPxPerDeg: 4.0, attTop: 70, attBottom: 600, attLeft: 150, attRight: 836,
+  attCx: 512, attCy: 330, attRollR: 300, attPxPerDeg: 4.0, attTop: 70, attBottom: 738, attLeft: 0, attRight: 1024,
   // airspeed tape
   asX: 60, asW: 90, tapeTop: 110, tapeBottom: 560, asPxPerKt: 7.5,
   // altitude tape

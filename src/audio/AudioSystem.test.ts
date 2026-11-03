@@ -3,9 +3,11 @@ import { EventBus } from '../core/events';
 import { makeAircraftState } from '../core/fakeState';
 import { type AircraftState, type AutopilotState, defaultControlInputs, type SimSnapshot } from '../core/types';
 import { DEG } from '../core/units';
+import { C172S } from '../fdm/aircraft/c172';
 import { AudioSystem } from './AudioSystem';
 import { makeCamera, makeWeather } from './testing/fixtures';
-import { asAudioContext, MockAudioContext, type MockAudioParam } from './testing/mockAudioContext';
+import { asAudioContext, MockAudioContext, type MockAudioNode, type MockAudioParam, type MockGainNode } from './testing/mockAudioContext';
+import { VIEW } from './ViewStage';
 
 const DT = 1 / 60;
 
@@ -213,5 +215,100 @@ describe('AudioSystem with a (mock) AudioContext', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/** The view stage's engine level gain (bus.engine → LP → level gain). */
+function engineLevel(sys: AudioSystem): MockAudioParam {
+  const bus = sys.audioGraph.buses!.bus.engine as unknown as MockAudioNode;
+  const lp = bus.outputs[bus.outputs.length - 1] as MockAudioNode;
+  return (lp.outputs[0] as MockGainNode).gain;
+}
+
+describe('AudioSystem review fixes', () => {
+  it('releases the engine duck when a transmission ends while the context is not running', async () => {
+    vi.useFakeTimers();
+    try {
+      let endCb: (() => void) | null = null;
+      const synth = {
+        speak: (u: SpeechSynthesisUtterance) => { endCb = () => u.onend?.(new Event('end') as SpeechSynthesisEvent); },
+        cancel: () => undefined,
+        getVoices: () => [],
+      };
+      const mock = new MockAudioContext();
+      const sys = new AudioSystem({
+        contextFactory: () => asAudioContext(mock),
+        speech: { synth, makeUtterance: (t) => ({ text: t }) as SpeechSynthesisUtterance, leadMs: 50 },
+      });
+      await sys.resume();
+      sys.update(DT, makeAircraftState(), makeCamera('cockpit'), makeWeather());
+      const level = engineLevel(sys);
+      expect(level.target).toBeCloseTo(VIEW.cabinEngineLevel, 9);
+      sys.speak('Cessna one two three, contact departure.', 'atc');
+      expect(level.target).toBeCloseTo(VIEW.cabinEngineLevel * VIEW.duck, 9);
+      vi.advanceTimersByTime(50);
+      mock.setState('suspended'); // iOS interruption / audio focus loss mid-transmission
+      (endCb as (() => void) | null)?.();
+      expect(level.target).toBeCloseTo(VIEW.cabinEngineLevel, 9); // not stuck at −6 dB forever
+      const live = mock.liveSources().length;
+      sys.speak('Second.', 'atc');
+      expect(mock.liveSources().length).toBe(live); // no squelch one-shots queued on a frozen clock
+      sys.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('switching aircraft rebuilds the voices without leaving old stage filters on the buses', async () => {
+    const { sys } = mockSystem();
+    await sys.resume();
+    const b = sys.audioGraph.buses!;
+    const eng = b.bus.engine as unknown as MockAudioNode, env = b.bus.environment as unknown as MockAudioNode;
+    for (let i = 0; i < 3; i++) sys.setAircraft(C172S);
+    expect(eng.outputs.length).toBe(1);
+    expect(env.outputs.length).toBe(1);
+    expect(eng.inputs.length).toBe(1); // only the live engine synth feeds the bus
+    sys.dispose();
+  });
+
+  it('a flight reset snaps the engine sound: no shutdown ticks or start cough for a teleport', async () => {
+    const events = new EventBus();
+    const { sys, mocks } = mockSystem({ events });
+    await sys.resume();
+    const m = mocks[0];
+    const base = makeAircraftState();
+    const running = makeAircraftState({ engine: { ...base.engine, running: true, rpm: 2300, manifoldPressureInHg: 22 } });
+    const cold = makeAircraftState();
+    const fly = (s: AircraftState, frames: number): Set<string> => {
+      const seen = new Set<string>();
+      for (let i = 0; i < frames; i++) { sys.update(DT, s, makeCamera(), makeWeather()); seen.add(sys.engine!.phase); m.advance(DT); }
+      return seen;
+    };
+    const spawn = (engineRunning: boolean) => ({ spawn: { geo: base.geo, headingRad: 0, speedMs: 0, onGround: true, engineRunning } });
+    expect([...fly(running, 10)]).toEqual(['running']);
+    events.emit('flight:reset', spawn(false)); // → cold-and-dark ramp
+    expect([...fly(cold, 10)]).toEqual(['off']);
+    events.emit('flight:reset', spawn(true)); // → airborne with the engine running
+    expect([...fly(running, 10)]).toEqual(['running']);
+    sys.dispose();
+  });
+
+  it('stays dead after dispose: resume() does not build a new AudioContext and speech is silent', async () => {
+    const spoken: string[] = [];
+    const synth = { speak: (u: SpeechSynthesisUtterance) => { spoken.push(u.text); }, cancel: () => undefined, getVoices: () => [] };
+    const mocks: MockAudioContext[] = [];
+    const sys = new AudioSystem({
+      contextFactory: () => { const m = new MockAudioContext(); mocks.push(m); return asAudioContext(m); },
+      speech: { synth, makeUtterance: (t) => ({ text: t }) as SpeechSynthesisUtterance, leadMs: 0 },
+    });
+    await sys.resume();
+    sys.dispose();
+    expect(mocks[0].state).toBe('closed');
+    await sys.resume(); // e.g. a stale gesture handler
+    expect(mocks.length).toBe(1);
+    expect(sys.ready).toBe(false);
+    sys.speak('Cessna one two three, contact tower.');
+    await new Promise((r) => setTimeout(r, 5));
+    expect(spoken).toEqual([]);
   });
 });

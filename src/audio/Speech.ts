@@ -51,7 +51,22 @@ export interface SpeechOptions {
   onTransmission?: (role: SpeechRole, phase: 'start' | 'end') => void;
 }
 
-interface Transmission { role: SpeechRole; chunks: string[]; index: number }
+interface Transmission { role: SpeechRole; chunks: string[]; index: number; /** normalised text */ key: string }
+
+/** Most transmissions kept waiting behind the current one; the stalest are dropped first. */
+export const MAX_QUEUED_TRANSMISSIONS = 8;
+
+/**
+ * Watchdog for speech engines that never report the end of an utterance: Chrome drops `onend`
+ * when the utterance object is garbage-collected (crbug 509488), and some Linux builds without
+ * voices fire neither `end` nor `error`. Without it the queue (and the engine duck) would stall
+ * forever. Generous: ≈ 8 chars/s at rate 1 plus a fixed margin, so a real voice is never cut.
+ */
+export const SPEECH_WATCHDOG = { baseMs: 4000, msPerChar: 120 } as const;
+
+/** Time after which a chunk of `chars` characters spoken at `rate` is assumed lost, ms. */
+export const speechWatchdogMs = (chars: number, rate: number): number =>
+  SPEECH_WATCHDOG.baseMs + (SPEECH_WATCHDOG.msPerChar * Math.max(0, chars)) / Math.max(0.1, rate);
 
 /** Queued, chunked speech for ATC and crew call-outs. Safe (silent) without the Web Speech API. */
 export class Speech {
@@ -61,11 +76,15 @@ export class Speech {
   private current: Transmission | null = null;
   private gen = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private watchdog: ReturnType<typeof setTimeout> | null = null;
+  /** strong reference to the utterance being spoken (Chrome GC drops its `onend` otherwise) */
+  private utterance: SpeechSynthesisUtterance | null = null;
   private voices: SpeechSynthesisVoice[] = [];
   private lang: string;
   private readonly maxChars: number;
   private readonly leadMs: number;
   private readonly gapMs: number;
+  private disposed = false;
   private readonly onVoices = (): void => { this.refreshVoices(); };
 
   constructor(private readonly opts: SpeechOptions = {}) {
@@ -84,11 +103,13 @@ export class Speech {
   }
 
   /** True when the Web Speech API is usable. */
-  get available(): boolean { return this.synth !== null && this.makeUtterance !== null; }
+  get available(): boolean { return !this.disposed && this.synth !== null && this.makeUtterance !== null; }
   /** True while a transmission is in progress (including its squelch lead). */
   get speaking(): boolean { return this.current !== null; }
   /** Transmissions waiting behind the current one. */
   get queueLength(): number { return this.queue.length; }
+  /** The utterance handed to the engine and not yet finished (null between chunks). */
+  get inFlight(): SpeechSynthesisUtterance | null { return this.utterance; }
 
   /** Change the voice language (e.g. 'en', 'en-GB', 'fr'). */
   setLanguage(lang: string): void { this.lang = lang; }
@@ -103,12 +124,20 @@ export class Speech {
     return this.voices.filter((v) => norm(v).split('-')[0] === base).sort((a, b) => score(a) - score(b));
   }
 
-  /** Queue `text` spoken by `role`. Blank text is ignored. */
+  /**
+   * Queue `text` spoken by `role`. Blank text is ignored, and so is a message identical to the one
+   * in progress or already waiting (a caller re-issuing it every frame must not queue it 60×/s).
+   * At most {@link MAX_QUEUED_TRANSMISSIONS} wait; the stalest are dropped first.
+   */
   speak(text: string, role: SpeechRole = 'atc'): void {
     if (!this.available) return;
     const chunks = chunkText(text, this.maxChars);
     if (!chunks.length) return;
-    this.queue.push({ role, chunks, index: 0 });
+    const key = chunks.join(' ');
+    const same = (t: Transmission | null): boolean => t !== null && t.role === role && t.key === key;
+    if (same(this.current) || this.queue.some(same)) return;
+    this.queue.push({ role, chunks, index: 0, key });
+    if (this.queue.length > MAX_QUEUED_TRANSMISSIONS) this.queue.splice(0, this.queue.length - MAX_QUEUED_TRANSMISSIONS);
     if (!this.current && this.timer === null) this.startNext();
   }
 
@@ -116,16 +145,19 @@ export class Speech {
   cancel(): void {
     this.queue.length = 0;
     this.clearTimer();
+    this.clearWatchdog();
     this.gen++; // invalidates callbacks of utterances already handed to the engine
     const cur = this.current;
     this.current = null;
+    this.utterance = null;
     if (this.synth) { try { this.synth.cancel(); } catch { /* ignore */ } }
     if (cur) this.opts.onTransmission?.(cur.role, 'end');
   }
 
-  /** Cancel and detach listeners. */
+  /** Cancel and detach listeners; later calls to `speak` are ignored. */
   dispose(): void {
     this.cancel();
+    this.disposed = true;
     try { this.synth?.removeEventListener?.('voiceschanged', this.onVoices); } catch { /* ignore */ }
   }
 
@@ -161,13 +193,20 @@ export class Speech {
     u.pitch = preset.pitch;
     u.volume = Math.max(0, Math.min(1, this.opts.volume?.() ?? 1));
     const gen = this.gen;
-    const done = (): void => { if (gen === this.gen && this.current === cur) this.advance(cur); };
+    // only the utterance in flight may advance the queue: a late `end` from a chunk the watchdog
+    // already skipped must not skip the next one
+    const done = (): void => { if (gen === this.gen && this.current === cur && this.utterance === u) this.advance(cur); };
     u.onend = done;
     u.onerror = done; // 'interrupted', 'synthesis-failed', …: skip the chunk rather than stall the queue
+    this.utterance = u;
+    this.clearWatchdog();
+    this.watchdog = setTimeout(() => { this.watchdog = null; done(); }, speechWatchdogMs(cur.chunks[cur.index].length, preset.rate));
     try { this.synth.speak(u); } catch { done(); }
   }
 
   private advance(cur: Transmission): void {
+    this.clearWatchdog();
+    this.utterance = null;
     cur.index++;
     if (cur.index < cur.chunks.length) { this.speakChunk(); return; }
     this.current = null;
@@ -185,5 +224,9 @@ export class Speech {
 
   private clearTimer(): void {
     if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
+  }
+
+  private clearWatchdog(): void {
+    if (this.watchdog !== null) { clearTimeout(this.watchdog); this.watchdog = null; }
   }
 }

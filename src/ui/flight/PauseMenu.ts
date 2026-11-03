@@ -6,11 +6,15 @@ export interface PauseMenuActions { resume: () => void; restart: () => void; wor
 export class PauseMenu {
   readonly el: HTMLElement;
   private first: HTMLButtonElement;
+  private titleEl: HTMLElement;
+  private noteEl: HTMLElement;
 
   constructor(layer: HTMLElement, a: PauseMenuActions) {
     this.first = button('Resume flight', a.resume, { icon: 'play', cls: 'menu-btn primary' });
+    this.titleEl = h('h2', { class: 'pause-title', text: 'Paused' });
+    this.noteEl = h('div', { class: 'pause-note muted', style: 'text-align:center;margin:-8px 0 8px;display:none' });
     const card = h('div', { class: 'panel pause-menu', role: 'dialog', aria: { label: 'Pause menu' } },
-      h('h2', { class: 'pause-title', text: 'Paused' }),
+      this.titleEl, this.noteEl,
       h('div', { class: 'menu-list' },
         this.first,
         button('Restart at runway', a.restart, { icon: 'restart', cls: 'menu-btn' }),
@@ -24,6 +28,12 @@ export class PauseMenu {
   }
 
   get visible(): boolean { return this.el.classList.contains('visible'); }
+  /** 'Paused' by default; 'Crashed' + the reason after a crash. */
+  setTitle(title: string, note = ''): void {
+    this.titleEl.textContent = title;
+    this.noteEl.textContent = note;
+    this.noteEl.style.display = note ? '' : 'none';
+  }
   show(): void { this.el.classList.add('visible'); this.first.focus(); }
   hide(): void { this.el.classList.remove('visible'); }
 }

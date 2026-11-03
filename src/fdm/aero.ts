@@ -10,8 +10,9 @@
  * Forces are returned in body axes; moments are about the aerodynamic reference point (ARP).
  * The caller transfers them to the current CG.
  */
-import { Table1D, Table2D, smoothstep } from '../core/math';
+import { Table1D, smoothstep } from '../core/math';
 import type { AircraftConfig } from '../core/types';
+import { Grid2D } from './grid';
 
 export interface AeroInput {
   /** angle of attack and sideslip, rad */
@@ -71,8 +72,8 @@ export class AeroModel {
   private readonly b: number;
   private readonly c: number;
   private readonly cfg: AircraftConfig['aero'];
-  private readonly clTable: Table2D;
-  private readonly cdTable: Table2D;
+  private readonly clTable: Grid2D;
+  private readonly cdTable: Grid2D;
   private readonly clFlap: Table1D;
   private readonly cdFlap: Table1D;
   private readonly cmFlap: Table1D;
@@ -95,8 +96,8 @@ export class AeroModel {
     this.b = g.b;
     this.c = g.cbar;
     const a = (this.cfg = config.aero);
-    this.clTable = new Table2D(a.CL.table.rows, a.CL.table.cols, a.CL.table.data);
-    this.cdTable = new Table2D(a.CD.alphaFlapTable.rows, a.CD.alphaFlapTable.cols, a.CD.alphaFlapTable.data);
+    this.clTable = new Grid2D(a.CL.table.rows, a.CL.table.cols, a.CL.table.data);
+    this.cdTable = new Grid2D(a.CD.alphaFlapTable.rows, a.CD.alphaFlapTable.cols, a.CD.alphaFlapTable.data);
     this.clFlap = new Table1D(a.CL.dFlap.xs, a.CL.dFlap.ys);
     this.cdFlap = new Table1D(a.CD.dFlap.xs, a.CD.dFlap.ys);
     this.cmFlap = new Table1D(a.Cm.dFlap.xs, a.Cm.dFlap.ys);

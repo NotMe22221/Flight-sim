@@ -16,6 +16,11 @@ const ANCHOR_K = 60_000;
 const ANCHOR_C = 9_000;
 const ANCHOR_SPEED = 0.08;
 const BRAKE_ANCHOR = 0.3;
+/**
+ * Wheel load (× aircraft weight) that collapses a leg. A 600 fpm arrival peaks at ≈ 1.3 W per
+ * main and ≈ 1.8 W on the nose leg as it slams down; ≈ 1100–1200 fpm reaches 3 W.
+ */
+const WHEEL_COLLAPSE_W = 3;
 
 export interface GearInputs {
   brakeLeft: number;
@@ -152,7 +157,7 @@ export class GearModel {
       const fDotN = this.fw[0] * nrm[0] + this.fw[1] * nrm[1] + this.fw[2] * nrm[2];
       const t = this.t;
       t[0] = this.fw[0] - fDotN * nrm[0]; t[1] = this.fw[1] - fDotN * nrm[1]; t[2] = this.fw[2] - fDotN * nrm[2];
-      const tl = Math.hypot(t[0], t[1], t[2]) || 1;
+      const tl = Math.sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]) || 1; // (Math.hypot allocates)
       t[0] /= tl; t[1] /= tl; t[2] /= tl;
       // right = down × t, with down = −n
       const s = this.s;
@@ -172,10 +177,10 @@ export class GearModel {
         const dLat = dN * s[0] + dE * s[1];
         fLong = -ANCHOR_K * dLong - ANCHOR_C * vLong;
         fLat = -ANCHOR_K * dLat - ANCHOR_C * vLat;
-        const mag = Math.hypot(fLong, fLat);
+        const mag = Math.sqrt(fLong * fLong + fLat * fLat);
         if (mag > fMax) { fLong *= fMax / mag; fLat *= fMax / mag; out.anchorSaturated[i] = 1; }
       } else if (g.type === 'structure') {
-        const sp = Math.hypot(vLong, vLat);
+        const sp = Math.sqrt(vLong * vLong + vLat * vLat);
         const k = sp > 1e-6 ? (g.muDynamic * Fn * Math.tanh(sp / V_EPS)) / sp : 0;
         fLong = -k * vLong;
         fLat = -k * vLat;
@@ -186,7 +191,7 @@ export class GearModel {
         fLong = -muLong * Fn * Math.tanh(vLong / V_EPS);
         const slipDeg = Math.atan2(vLat, Math.max(Math.abs(vLong), 1)) * R2D;
         fLat = -pacejka(slipDeg, g.pacejka.B, g.pacejka.C, g.muStatic * surfaceBrake, g.pacejka.E) * Fn;
-        const mag = Math.hypot(fLong, fLat);
+        const mag = Math.sqrt(fLong * fLong + fLat * fLat);
         if (mag > fMax) { fLong *= fMax / mag; fLat *= fMax / mag; }
       }
 
@@ -205,7 +210,7 @@ export class GearModel {
       if (g.type === 'structure') {
         if (g.name === 'Propeller') out.crash = out.crash || 'propeller strike';
         else if (Fn > 3 * weight || delta > 0.3) out.crash = out.crash || `${g.name.toLowerCase()} impact`;
-      } else if (delta > 0.4 || Fn > 4 * weight) {
+      } else if (delta > 0.4 || Fn > WHEEL_COLLAPSE_W * weight) {
         out.crash = out.crash || `${g.name.toLowerCase()} gear collapse`;
       }
     }
@@ -220,7 +225,7 @@ export class GearModel {
       const braked = g.type === 'wheel' && brake >= BRAKE_ANCHOR;
       if (this.anchored[i]) {
         if (!braked || !out.inContact[i] || out.anchorSaturated[i]) this.anchored[i] = 0;
-      } else if (braked && out.inContact[i] && Math.hypot(out.rollSpeed[i], out.sideSpeed[i]) < ANCHOR_SPEED) {
+      } else if (braked && out.inContact[i] && out.rollSpeed[i] * out.rollSpeed[i] + out.sideSpeed[i] * out.sideSpeed[i] < ANCHOR_SPEED * ANCHOR_SPEED) {
         this.anchored[i] = 1;
         this.anchorN[i] = out.contactN[i];
         this.anchorE[i] = out.contactE[i];
@@ -231,10 +236,10 @@ export class GearModel {
   releaseAnchors(): void { this.anchored.fill(0); }
 
   /** Re-express anchor points after a floating-origin rebase (horizontal components only). */
-  rebaseAnchors(map: (n: number, e: number) => [number, number]): void {
+  rebaseAnchors(map: (index: number, n: number, e: number) => [number, number]): void {
     for (let i = 0; i < this.count; i++) {
       if (!this.anchored[i]) continue;
-      const [n, e] = map(this.anchorN[i], this.anchorE[i]);
+      const [n, e] = map(i, this.anchorN[i], this.anchorE[i]);
       this.anchorN[i] = n;
       this.anchorE[i] = e;
     }

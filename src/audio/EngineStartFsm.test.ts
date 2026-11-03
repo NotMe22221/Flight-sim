@@ -84,4 +84,18 @@ describe('EngineStartFsm', () => {
     f.update(DT, true, 1500, null);
     expect(f.phase).toBe('catching');
   });
+
+  it('a windmilling prop sagging into the cranking band and picking up again is not cranking (starter unknown)', () => {
+    const f = new EngineStartFsm();
+    f.update(DT, true, 2400, null); // cruise
+    run(f, ENGINE_FSM.RUNDOWN_MAX_S + 0.5, false, 900, null); // engine failure: windmills at 900 rpm
+    expect(f.phase).toBe('off');
+    run(f, 4, false, (t) => Math.max(350, 900 - 150 * t), null); // slowing down: windmill sags to 350 rpm
+    // nose down: the prop picks up through the cranking band (> CRANK_SPINUP_RPM_S) and settles at 440 rpm
+    const seq = run(f, 3, false, (t) => Math.min(440, 350 + 120 * t), null);
+    expect(seq).toEqual(['off']); // no phantom starter whine, and no way to get stuck in 'cranking'
+    // a real start from rest is still recognised after the engine has stopped
+    run(f, 2, false, (t) => Math.max(0, 440 - 400 * t), null);
+    expect(run(f, 1, false, (t) => Math.min(200, 600 * t), null)).toEqual(['off', 'cranking']);
+  });
 });

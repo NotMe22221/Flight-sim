@@ -60,6 +60,7 @@ export class AudioSystem implements AudioMixer {
   private readonly listenerVel: Vec3 = [0, 0, 0];
   private lastApEngaged: boolean | null = null;
   private failed = false;
+  private disposed = false;
   private badFrames = 0;
   private warned = false;
   private readonly unsubscribe: (() => void)[] = [];
@@ -80,7 +81,7 @@ export class AudioSystem implements AudioMixer {
       this.unsubscribe.push(
         ev.on('aircraft:touchdown', (e) => this.onTouchdown(e.verticalSpeedMs, e.lateralDriftMs)),
         ev.on('autopilot:changed', (e) => this.onAutopilot(e.state)),
-        ev.on('flight:reset', () => { this.stopSpeaking(); this.setMarker(null); }),
+        ev.on('flight:reset', (e) => this.onFlightReset(e.spawn.engineRunning)),
       );
     }
   }
@@ -98,10 +99,15 @@ export class AudioSystem implements AudioMixer {
   /** View stage, once built. */
   get view(): ViewStage | null { return this.voices?.stage ?? null; }
 
-  /** Create / resume the AudioContext. Call from a user gesture (e.g. the "Fly" button). Never rejects. */
+  /**
+   * Create / resume the AudioContext. Call from a user gesture (e.g. the "Fly" button). Never
+   * rejects. A no-op after `dispose()` (a stale gesture handler must not build a new context).
+   */
   async resume(): Promise<void> {
+    if (this.disposed) return;
     try {
       await this.graph.resume();
+      if (this.disposed) return; // disposed while the context was resuming
       if (this.graph.ctx && (!this.voices || this.voices.generation !== this.graph.generation)) this.build();
     } catch (e) {
       this.fail(e);
@@ -175,8 +181,20 @@ export class AudioSystem implements AudioMixer {
   onTouchdown(vsMs: number, lateralDriftMs = 0): void { this.guard(() => this.ready && this.voices?.env.onTouchdown(vsMs, lateralDriftMs)); }
   /** Marker-beacon tone (null = none). */
   setMarker(marker: MarkerBeacon | null): void {
+    if (marker === this.marker) return; // the app calls this every frame: no work, no allocation
     this.marker = marker;
     this.guard(() => this.voices?.warnings.setMarker(marker));
+  }
+  /**
+   * Flight reset / teleport (also fired by the `flight:reset` event): stops speech and the marker
+   * tone and snaps the engine sound to the spawn's state, so the teleport plays no shutdown ticks
+   * or start cough, and a reset that disengages the autopilot plays no disconnect tone.
+   */
+  onFlightReset(engineRunning: boolean): void {
+    this.stopSpeaking();
+    this.setMarker(null);
+    this.lastApEngaged = null;
+    this.guard(() => this.voices?.engine.resetPhase(engineRunning));
   }
   /** Autopilot-disconnect two-tone (also fired when `autopilot:changed` reports a disengage). */
   apDisconnect(): void { this.guard(() => this.ready && this.voices?.warnings.apDisconnect()); }
@@ -188,8 +206,9 @@ export class AudioSystem implements AudioMixer {
   /** Stop speech immediately and drop the queue. */
   stopSpeaking(): void { this.guard(() => this.speech?.cancel()); }
 
-  /** Release everything (voices, context, listeners). */
+  /** Release everything (voices, context, listeners). Terminal: the system stays silent afterwards. */
   dispose(): void {
+    this.disposed = true;
     for (const u of this.unsubscribe) u();
     this.unsubscribe.length = 0;
     this.guard(() => this.speech?.dispose());
@@ -228,10 +247,13 @@ export class AudioSystem implements AudioMixer {
 
   private onTransmission(role: SpeechRole, phase: 'start' | 'end'): void {
     const v = this.voices, b = this.graph.buses, n = this.graph.noise, ctx = this.graph.ctx;
-    if (!v || !b || !n || !ctx || !this.graph.running) return;
+    if (!v || !b || !n || !ctx) return;
     this.guard(() => {
+      // the duck must follow the speech whatever the context state, or an 'end' that arrives while
+      // suspended (iOS interruption) would leave the engine at −6 dB for good
       v.stage.setDuck(phase === 'start');
-      if (role === 'atc') playSquelch(ctx, b.bus.atc, n.white, phase);
+      // one-shots need a running clock (on a frozen one they would all fire at once on resume)
+      if (role === 'atc' && this.graph.running) playSquelch(ctx, b.bus.atc, n.white, phase);
     });
   }
 

@@ -54,6 +54,8 @@ export class ViewStage {
   private readonly distance: SmoothParam;
   private readonly pan: SmoothParam;
   private readonly cabin: SmoothParam;
+  /** incoming connections from buses the stage does not own (undone in dispose) */
+  private readonly inputs: ReadonlyArray<readonly [AudioNode, AudioNode]>;
   private readonly lisPos: Vec3 = [0, 0, 0];
   private readonly lisVel: Vec3 = [0, 0, 0];
   private hasListener = false;
@@ -72,6 +74,7 @@ export class ViewStage {
     const panner = b.add(ctx.createStereoPanner());
     engineBus.connect(eLp).connect(eGain).connect(dist);
     envBus.connect(vLp).connect(vGain).connect(dist);
+    this.inputs = [[engineBus, eLp], [envBus, vLp]];
     dist.connect(panner).connect(master);
     this.engineLp = new SmoothParam(eLp.frequency, TAU_SLOW, 1, 0.01);
     this.envLp = new SmoothParam(vLp.frequency, TAU_SLOW, 1, 0.01);
@@ -147,8 +150,17 @@ export class ViewStage {
     this.applyLevels(now);
   }
 
-  /** Disconnect the stage. */
-  dispose(): void { this.bag.dispose(); }
+  /**
+   * Disconnect the stage, including the buses' connections into it: `disconnect()` only removes a
+   * node's outgoing connections, so without this every rebuild would leave the long-lived engine /
+   * environment buses feeding (and keeping alive) a dead filter.
+   */
+  dispose(): void {
+    for (const [bus, input] of this.inputs) {
+      try { bus.disconnect(input); } catch { /* already disconnected */ }
+    }
+    this.bag.dispose();
+  }
 
   private applyLevels(now: number): void {
     const duck = this.ducked ? VIEW.duck : 1;

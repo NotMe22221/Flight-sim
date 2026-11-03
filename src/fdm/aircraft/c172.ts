@@ -206,11 +206,16 @@ export const C172S: AircraftConfig = {
     },
     enginePositions: [fromStructural(-37.7, 0, 26.6)],
   },
+  // Main-gear compression damping is low (ζ ≈ 0.3): the mains are spring-steel legs, and a linear
+  // damper's c·v jumps to its full value at first contact (12 000 N·s/m put 2.9 W on each main at
+  // 600 fpm, about twice the FAR 23 limit landing load). Rebound damping (ζ ≈ 1.4) kills the bounce.
+  // The nose leg is an oil/air oleo and keeps its damping.
   gear: [
     wheel('Nose', fromStructural(-6.8, 0, -19.5), 52_538, 7_000, 11_000, 0.17, 10, 'none'),
-    wheel('Left main', fromStructural(58.2, -50, -15.5), 78_807, 12_000, 18_000, 0.19, 0, 'left'),
-    wheel('Right main', fromStructural(58.2, 50, -15.5), 78_807, 12_000, 18_000, 0.19, 0, 'right'),
-    structure('Propeller', fromStructural(-37.7, 0, 26.6)),
+    wheel('Left main', fromStructural(58.2, -50, -15.5), 78_807, 4_000, 18_000, 0.19, 0, 'left'),
+    wheel('Right main', fromStructural(58.2, 50, -15.5), 78_807, 4_000, 18_000, 0.19, 0, 'right'),
+    // lowest point of the 76 in propeller disc (hub WL 26.6 − 38 in): ≈ 0.21 m static clearance
+    structure('Propeller', fromStructural(-37.7, 0, 26.6 - 38)),
     structure('Tail', fromStructural(188, 0, 8)),
     structure('Left wingtip', fromStructural(43.2, -214.8, 59.4)),
     structure('Right wingtip', fromStructural(43.2, 214.8, 59.4)),

@@ -210,6 +210,20 @@ export class EngineSynth {
     this.prop.update(now, rpm, inp.tasMs, inp.speedOfSound, inp.thrustN, exterior, dop, tau);
   }
 
+  /**
+   * Snap the start / stop sequencer to a steady state without its transition sounds (flight
+   * reset, teleport): otherwise a reset to a cold ramp plays the run-down ticks and a reset into
+   * an airborne spawn plays a cough-and-catch.
+   */
+  resetPhase(running: boolean): void {
+    const t = this.ctx.currentTime;
+    this.fsm.reset(running ? 'running' : 'off', running ? this.profile.idleRpm : 0);
+    this.catchEnv.cancelScheduledValues(t);
+    this.catchEnv.setTargetAtTime(1, t, TAU_FAST);
+    this.ticks.cancelScheduledValues(t);
+    this.ticks.setTargetAtTime(0, t, TAU_FAST);
+  }
+
   /** Stop and disconnect every node. */
   dispose(): void { this.bag.dispose(); }
 

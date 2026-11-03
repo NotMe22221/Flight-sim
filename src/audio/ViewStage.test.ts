@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { makeAircraftState } from '../core/fakeState';
 import { VIEW, ViewStage } from './ViewStage';
 import { makeCamera, makeRunningGraph } from './testing/fixtures';
-import type { MockAudioParam } from './testing/mockAudioContext';
+import type { MockAudioNode, MockAudioParam } from './testing/mockAudioContext';
 
 async function setup() {
   const { mock, graph, ctx } = await makeRunningGraph();
@@ -64,5 +64,17 @@ describe('ViewStage', () => {
     expect(levels()).toContain(VIEW.cabinEngineLevel * VIEW.duck);
     stage.setDuck(false);
     expect(mock.audibleDirectWrites()).toEqual([]);
+  });
+
+  it('dispose detaches the stage from the engine / environment buses (no dead filters left hanging)', async () => {
+    const { graph, stage } = await setup();
+    const b = graph.buses!;
+    const eng = b.bus.engine as unknown as MockAudioNode, env = b.bus.environment as unknown as MockAudioNode;
+    expect(eng.outputs.length).toBe(1);
+    expect(env.outputs.length).toBe(1);
+    stage.dispose();
+    expect(eng.outputs).toEqual([]);
+    expect(env.outputs).toEqual([]);
+    expect(() => stage.dispose()).not.toThrow(); // idempotent
   });
 });

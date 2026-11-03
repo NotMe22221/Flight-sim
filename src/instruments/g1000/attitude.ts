@@ -9,6 +9,7 @@ import type { AutopilotState } from '../../core/types';
 import type { Ctx2D } from '../canvas';
 import type { InstrumentReadings } from '../readings';
 import { G, PFD, cond } from './palette';
+import { intLabels } from './labels';
 import { redX, text } from './widgets';
 
 const ROLL_TICKS = [-60, -45, -30, -20, -10, 10, 20, 30, 45, 60];
@@ -43,8 +44,9 @@ export function drawAttitude(ctx: Ctx2D, r: InstrumentReadings, ap: AutopilotSta
     const w = major ? 60 : 30;
     ctx.beginPath(); ctx.moveTo(-w, y); ctx.lineTo(w, y); ctx.stroke();
     if (major) {
-      ctx.textAlign = 'right'; ctx.fillText(String(Math.abs(p)), -w - 6, y);
-      ctx.textAlign = 'left'; ctx.fillText(String(Math.abs(p)), w + 6, y);
+      const lbl = intLabels.get(Math.abs(p));
+      ctx.textAlign = 'right'; ctx.fillText(lbl, -w - 6, y);
+      ctx.textAlign = 'left'; ctx.fillText(lbl, w + 6, y);
     }
   }
   // extreme pitch chevrons pointing at the horizon

@@ -10,6 +10,7 @@ import type { VSpeeds } from '../c172';
 import type { InstrumentReadings } from '../readings';
 import { forEachTick, tapeOffsetPx } from '../scales';
 import { G, PFD, cond, condBold } from './palette';
+import { intLabels, ktLabels } from './labels';
 import { DIGITS, box, bug, drum, num, pointerWindow, text } from './widgets';
 
 const MIN_KT = 20, MAX_KT = 300;
@@ -34,7 +35,7 @@ export function drawAirspeedTape(ctx: Ctx2D, r: InstrumentReadings, ap: Autopilo
   forEachTick(ias, 5, k, half + 10, MIN_KT, MAX_KT, (val, off) => {
     const y = mid + off, major = val % 10 === 0;
     ctx.beginPath(); ctx.moveTo(x + w - 8, y); ctx.lineTo(x + w - (major ? 22 : 15), y); ctx.stroke();
-    if (major) ctx.fillText(String(val), x + w - 28, y);
+    if (major) ctx.fillText(intLabels.get(val), x + w - 28, y);
   });
   // V-speed bugs (labels on the right of the tape)
   vbug(ctx, x + w, mid + tapeOffsetPx(v.vr, ias, k), 'R', half, mid);
@@ -58,18 +59,18 @@ export function drawAirspeedTape(ctx: Ctx2D, r: InstrumentReadings, ap: Autopilo
   if (r.iasKt >= MIN_KT) {
     const whole = Math.floor(r.iasKt);
     const tens = Math.floor(whole / 10);
-    if (tens > 0) num(ctx, String(tens), x + 50, mid, condBold.get(26), G.white, 'right');
+    if (tens > 0) num(ctx, intLabels.get(tens), x + 50, mid, condBold.get(26), G.white, 'right');
     drum(ctx, x + 60, mid, 30, r.iasKt % 10, DIGITS, condBold.get(26), G.white, 'center');
   } else text(ctx, '---', x + 50, mid, condBold.get(26), G.white, 'center');
   ctx.restore();
   // TAS
   box(ctx, x, bottom + 2, w, 24);
   text(ctx, 'TAS', x + 4, bottom + 14, cond.get(14), G.white);
-  num(ctx, `${Math.round(r.tasKt)}KT`, x + w - 4, bottom + 14, condBold.get(16), G.white, 'right');
+  num(ctx, ktLabels.get(r.tasKt), x + w - 4, bottom + 14, condBold.get(16), G.white, 'right');
   // selected airspeed readout above (FLC)
   if (ap.vertical === 'FLC' && ap.iasTargetMs > 0) {
     box(ctx, x, top - 26, w, 24);
-    num(ctx, `${Math.round(ap.iasTargetMs * MS_TO_KT)}KT`, x + w - 4, top - 14, condBold.get(16), G.cyan, 'right');
+    num(ctx, ktLabels.get(ap.iasTargetMs * MS_TO_KT), x + w - 4, top - 14, condBold.get(16), G.cyan, 'right');
   }
 }
 

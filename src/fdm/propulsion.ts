@@ -206,12 +206,12 @@ export class PistonPropulsion {
 
     // ── Forces and moments on the airframe ───────────────────────────────────
     // P-factor: the effective thrust line moves toward the side whose blade sees more incidence.
-    const vt = Math.hypot(air.v, air.w);
+    const vt = Math.sqrt(air.v * air.v + air.w * air.w); // (Math.hypot allocates)
     const axial = uAx + (vi > 0 ? vi : 0);
     const f = vt > 1e-6 ? Math.atan2(vt, axial) / vt : axial > 0.1 ? 1 / axial : 0;
     let dy = sense * pr.pFactorM * f * air.w;
     let dz = -sense * pr.pFactorM * f * air.v;
-    const dl = Math.hypot(dy, dz);
+    const dl = Math.sqrt(dy * dy + dz * dz);
     if (dl > 0.5) { dy *= 0.5 / dl; dz *= 0.5 / dl; }
     const ry = hub[1] + dy, rz = hub[2] + dz;
     out.F[0] = thrust; out.F[1] = 0; out.F[2] = 0;
@@ -238,20 +238,23 @@ export class PistonPropulsion {
   /**
    * Steady engine state (ω, MAP) for fixed controls and airspeed, by integrating the two engine
    * states alone. Used by trim and by ground spawns with the engine running.
+   *
+   * Converged tightly (|ω̇| < 1e-4 rad/s², |MAP˙| < 1 Pa/s): trim differentiates the resulting
+   * thrust numerically, and a loose tolerance (the rotor time constant is ≈ 1 s, so |ω̇| < 0.05
+   * leaves ω off by ≈ 0.05 rad/s) made the trim residual noisy enough to stall Newton at 1e-2.
    */
   equilibrium(air: PropulsionAir, c: PropulsionControls, omega0: number, map0: number, out = { omega: 0, map: 0 }): { omega: number; map: number } {
     const o = newPropulsionOutput();
     const hub: Vec3 = [0, 0, 0];
     let w = omega0, m = map0;
     const dt = 0.005;
-    for (let i = 0; i < 4000; i++) {
+    for (let i = 0; i < 40000; i++) {
       this.evaluate(w, m, air, c, hub, o);
-      // implicit-ish update of MAP for stability at very low rpm
       w += o.omegaDot * dt;
       m += o.mapDot * dt;
       if (w < 0) w = 0;
       if (m < 1000) m = 1000;
-      if (i > 200 && Math.abs(o.omegaDot) < 0.05 && Math.abs(o.mapDot) < 50) break;
+      if (i > 200 && Math.abs(o.omegaDot) < 1e-4 && Math.abs(o.mapDot) < 1) break;
     }
     out.omega = w;
     out.map = m;

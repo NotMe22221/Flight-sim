@@ -8,6 +8,7 @@ import type { AutopilotState } from '../../core/types';
 import type { Ctx2D } from '../canvas';
 import type { InstrumentReadings } from '../readings';
 import { G, PFD, cond, condBold } from './palette';
+import { intLabels, thousandsDigitLabels } from './labels';
 import { box, bug, num, text } from './widgets';
 
 export function drawVsi(ctx: Ctx2D, r: InstrumentReadings, ap: AutopilotState): void {
@@ -19,13 +20,13 @@ export function drawVsi(ctx: Ctx2D, r: InstrumentReadings, ap: AutopilotState): 
   for (let v = -2000; v <= 2000; v += 500) {
     const y = mid - v * k, major = v % 1000 === 0;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + (major ? 12 : 7), y); ctx.stroke();
-    if (major && v !== 0) text(ctx, String(Math.abs(v) / 1000), x + 18, y, condBold.get(16), G.white, 'left');
+    if (major && v !== 0) text(ctx, thousandsDigitLabels.get(v), x + 18, y, condBold.get(16), G.white, 'left');
   }
   if (ap.vertical === 'VS') bug(ctx, x, clamp(mid - ap.verticalSpeedTargetMs * MS_TO_FPM * k, mid - 2000 * k, mid + 2000 * k), 7, 'left');
   const vs = clamp(r.vsiFpm, -2000, 2000);
   const y = mid - vs * k;
   ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 10, y - 9); ctx.lineTo(x + w - 2, y - 9); ctx.lineTo(x + w - 2, y + 9); ctx.lineTo(x + 10, y + 9); ctx.closePath();
   ctx.fillStyle = G.black; ctx.fill(); ctx.strokeStyle = G.white; ctx.lineWidth = 1.5; ctx.stroke();
-  if (Math.abs(r.vsiFpm) > 100) num(ctx, String(Math.round(r.vsiFpm / 50) * 50), x + w - 5, y, condBold.get(14), G.white, 'right');
+  if (Math.abs(r.vsiFpm) > 100) num(ctx, intLabels.get(Math.round(r.vsiFpm / 50) * 50), x + w - 5, y, condBold.get(14), G.white, 'right');
   void cond;
 }

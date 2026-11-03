@@ -14,4 +14,5 @@ export class WeatherScreen extends Screen {
   }
   protected override onShow(): void { this.panel.refresh(); }
   override update(s: SimSnapshot): void { this.panel.update(s); }
+  override dispose(): void { this.panel.dispose(); }
 }

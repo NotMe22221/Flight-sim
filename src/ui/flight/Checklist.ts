@@ -47,6 +47,9 @@ export class Checklist {
 
   resetSection(): void { this.state.set(this.section.id, this.section.items.map(() => false)); this.render(); }
 
+  /** New flight: every section unchecked, back to the first one. */
+  resetAll(): void { this.state.clear(); this.goTo(0); }
+
   private render(): void {
     const s = this.section;
     const checked = this.state.get(s.id) ?? s.items.map(() => false);

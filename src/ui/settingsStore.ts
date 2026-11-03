@@ -1,5 +1,5 @@
 /**
- * Persisted UI settings ('flightsim.settings.v1'): graphics, audio, units, assists.
+ * Persisted UI settings ('flightsim.settings.v1'): graphics, audio, units, assists, interface.
  * Pure except for the two localStorage accessors, which are guarded for Node/private mode.
  */
 import type { AssistanceOptions } from '../core/types';
@@ -10,12 +10,20 @@ export const SETTINGS_KEY = 'flightsim.settings.v1';
 export const LAYOUT_KEY = 'flightsim.ui.layout.v1';
 export const SELECTION_KEY = 'flightsim.ui.selection.v1';
 
+/** UI-only preferences (accessibility): applied by UiManager, never sent to the host. */
+export interface InterfaceSettings {
+  /** CSS --ui-scale, 0.75..1.5 */ scale: number;
+  /** ATC subtitles bottom-left while the ATC panel is closed */ subtitles: boolean;
+  /** flight info strip outside the cockpit */ infoStrip: boolean;
+}
+
 export interface PersistedSettings {
   version: 1;
   graphics: GraphicsSettings;
   audio: AudioSettings;
   units: UnitsSettings;
   assists: AssistanceOptions;
+  ui: InterfaceSettings;
 }
 
 export const GRAPHICS_QUALITY_PRESETS: Record<GraphicsSettings['quality'], Omit<GraphicsSettings, 'quality' | 'fov' | 'imagery'>> = {
@@ -28,8 +36,11 @@ export const GRAPHICS_QUALITY_PRESETS: Record<GraphicsSettings['quality'], Omit<
 export const defaultGraphics = (): GraphicsSettings => ({ quality: 'medium', ...GRAPHICS_QUALITY_PRESETS.medium, imagery: 'satellite', fov: 75 });
 export const defaultAudio = (): AudioSettings => ({ master: 0.8, engine: 0.8, environment: 0.7, cockpit: 0.8, ui: 0.6, atc: 0.9 });
 export const defaultUnitsSettings = (): UnitsSettings => ({ altitude: 'ft', speed: 'kt', pressure: 'inHg', distance: 'nm', temperature: 'C' });
+export const defaultInterface = (): InterfaceSettings => ({ scale: 1, subtitles: true, infoStrip: true });
+export const UI_SCALE_MIN = 0.75;
+export const UI_SCALE_MAX = 1.5;
 export const defaultSettings = (): PersistedSettings => ({
-  version: 1, graphics: defaultGraphics(), audio: defaultAudio(), units: defaultUnitsSettings(), assists: assistPreset('middle'),
+  version: 1, graphics: defaultGraphics(), audio: defaultAudio(), units: defaultUnitsSettings(), assists: assistPreset('middle'), ui: defaultInterface(),
 });
 
 /** Applies a quality preset, keeping fov and imagery. */
@@ -59,6 +70,7 @@ export function sanitizeSettings(raw: unknown): PersistedSettings {
   const a = isObj(raw.audio) ? raw.audio : {};
   const u = isObj(raw.units) ? raw.units : {};
   const s = isObj(raw.assists) ? raw.assists : {};
+  const i = isObj(raw.ui) ? raw.ui : {};
   const vol = (k: keyof AudioSettings) => num(a[k], d.audio[k], 0, 1);
   const out: PersistedSettings = {
     version: 1,
@@ -80,6 +92,11 @@ export function sanitizeSettings(raw: unknown): PersistedSettings {
       temperature: oneOf(u.temperature, ['C', 'F'] as const, d.units.temperature),
     },
     assists: { ...d.assists },
+    ui: {
+      scale: num(i.scale, d.ui.scale, UI_SCALE_MIN, UI_SCALE_MAX),
+      subtitles: bool(i.subtitles, d.ui.subtitles),
+      infoStrip: bool(i.infoStrip, d.ui.infoStrip),
+    },
   };
   for (const k of Object.keys(d.assists) as (keyof AssistanceOptions)[]) out.assists[k] = bool(s[k], d.assists[k]);
   return out;

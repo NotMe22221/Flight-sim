@@ -136,13 +136,20 @@ export class MockAudioNode {
     return dest instanceof MockAudioNode ? dest : undefined;
   }
 
-  disconnect(): void {
-    for (const d of this.outputs) {
+  /**
+   * `disconnect()` removes every outgoing connection; `disconnect(dest)` only those to `dest` and,
+   * like the real API, throws InvalidAccessError when there is none.
+   */
+  disconnect(dest?: MockAudioNode | MockAudioParam): void {
+    if (dest !== undefined && !this.outputs.includes(dest)) throw new Error('InvalidAccessError: not connected to that destination');
+    for (let k = this.outputs.length - 1; k >= 0; k--) {
+      const d = this.outputs[k];
+      if (dest !== undefined && d !== dest) continue;
       const i = d.inputs.indexOf(this);
       if (i >= 0) d.inputs.splice(i, 1);
+      this.outputs.splice(k, 1);
     }
-    this.outputs.length = 0;
-    this.disconnected = true;
+    this.disconnected = this.outputs.length === 0;
   }
 
   protected param(name: string, def: number, min?: number, max?: number): MockAudioParam {
