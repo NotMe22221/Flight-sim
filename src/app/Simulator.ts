@@ -461,7 +461,7 @@ export class Simulator {
     const a = atmosphere(alt);
     const tas = c.speedKt * KT * Math.sqrt(1.225 / a.densityKgM3);
     await this.beginFlight(ap, end, { geo: { lat: p.lat, lon: p.lon, alt }, headingRad: end.headingDeg * DEG, speedMs: tas, onGround: false, engineRunning: true, gammaRad: -c.glideDeg * DEG }, { flapsIndex: 2 });
-    this.setLocalHour(c.localHour);
+    this.setTimePreset(c.time);
   }
 
   /** Default "Fly now": KSFO 28R. */
