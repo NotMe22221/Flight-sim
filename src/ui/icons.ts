@@ -58,6 +58,15 @@ export const ICONS = {
   book: wrap('<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v16H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20"/>'),
   thermo: wrap('<path d="M10 4a2 2 0 0 1 4 0v9.5a4 4 0 1 1-4 0z"/><path d="M12 9v6"/>'),
   eye: wrap('<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+  // activities: objective status marks, locked legs, lessons
+  lock: wrap('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
+  circle: wrap('<circle cx="12" cy="12" r="7.5"/>'),
+  circleDot: wrap('<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>'),
+  circleCheck: wrap('<circle cx="12" cy="12" r="8.5"/><path d="M8 12.3l2.8 2.8L16.2 9.5"/>'),
+  circleX: wrap('<circle cx="12" cy="12" r="8.5"/><path d="M9 9l6 6M15 9l-6 6"/>'),
+  school: wrap('<path d="M2.5 9L12 4.5 21.5 9 12 13.5z"/><path d="M6.5 11v4.5c1.6 1.6 3.4 2.2 5.5 2.2s3.9-.6 5.5-2.2V11"/><path d="M21.5 9v5"/>'),
+  route: wrap('<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8 17.5h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7"/>'),
+  mountain: wrap('<path d="M2.5 19.5L9 8l4 6.5 2.5-3.5 6 8.5z"/><path d="M7.4 10.8L9 12.5l1.5-1.6"/>'),
 };
 
 export type IconName = keyof typeof ICONS;
