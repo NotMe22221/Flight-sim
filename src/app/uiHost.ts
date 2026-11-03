@@ -33,9 +33,10 @@ export class SimUiHost implements UiHost {
   currentAircraft(): AircraftConfig { return this.sim.panelVariant === 'g1000' ? C172S_G1000 : C172S; }
 
   dispatch(action: SimAction): void {
-    // control actions (flaps, gear, lights …) live in the input layer; everything else in the simulator
+    // Same path as a key press: the input layer applies control actions (flaps, gear, lights …)
+    // immediately and reports the action in the next snapshot, where the simulator handles the rest
+    // exactly once.
     this.sim.input.applyAction(action as never);
-    this.sim.handleAction(action);
   }
 
   async spawn(choice: SpawnChoice, aircraftId: string, options: { fuelFraction: number; payloadKg: number }): Promise<void> {

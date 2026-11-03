@@ -112,6 +112,7 @@ export class Simulator {
   private fpsAcc = 0;
   private fpsFrames = 0;
   private autoStartT = -1;
+  private droneHold: { pitch: number; roll: number; yaw: number; throttle: number } | null = null;
   private nearbyAirports: Airport[] = [];
   private nearbyTimer = Infinity;
   private magVar = 0;
@@ -224,8 +225,14 @@ export class Simulator {
   /** Pilot controls → assists → autopilot → effective controls (allocation-free). */
   private composeControls(dt: number): void {
     const u = this.input.controls;
+    // While the drone camera is flying, the stick moves the drone: freeze the aircraft's flight
+    // controls at the values they had when the drone was entered.
+    const drone = this.cameras.state.mode === 'drone';
+    if (drone && !this.droneHold) this.droneHold = { pitch: this.effective.pitch, roll: this.effective.roll, yaw: this.effective.yaw, throttle: this.effective.throttle };
+    else if (!drone) this.droneHold = null;
     Object.assign(this.effective, u);
     this.effective.lights = u.lights;
+    if (this.droneHold) Object.assign(this.effective, this.droneHold);
     for (const k in this.overrides) (this.effective as unknown as Record<string, unknown>)[k] = (this.overrides as Record<string, unknown>)[k];
     const s = this.fdm.state;
     if (this.assists.autoMixture && this.effective.mixture > 0.05 && s.engine.running) this.effective.mixture = Math.min(this.effective.mixture, this.fdm.bestPowerMixture());
@@ -270,7 +277,7 @@ export class Simulator {
       this.cameras.shiftOrigin(this.tmpV.clone().negate());
       this.replay.clear();
       copyPose(this.fdm.state, this.prev);
-      this.events.emit('frame:rebased', { frame: this.world.frame.info });
+      this.events.emit('frame:rebased', { frame: this.world.frame.info, translationNED: t.translationNED, rotation: t.rotation });
     }
   }
 
@@ -284,6 +291,9 @@ export class Simulator {
     this.model.setPose(this.posThree, this.qThree);
     this.model.update(s, this.effective, dt, cockpit);
     this.model.setVisibility(true, cockpit);
+    // the wheel arrives as zoomIn/zoomOut actions; the sticky cameraZoom level would make the
+    // camera (which reads the axis as a rate) zoom forever
+    inp.axes.cameraZoom = 0;
     this.cameras.update(dt, s, this.posThree, this.qThree, inp, this.model.eyePointLocal);
     const camPos = this.cameras.positionThree();
     let tm = performance.now();

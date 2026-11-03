@@ -67,7 +67,7 @@ const DT = 1 / 120; let acc = 0;
 function frame(nowMs) {
   const real = Math.min((nowMs - last) / 1000, 0.25) * time.timeScale;
   acc += real;
-  input.poll(); autopilot.update(); const u = autopilot.apply(input.controls);
+  input.poll(dt); autopilot.update(); const u = autopilot.apply(input.controls);
   while (acc >= DT) { prev.copy(fdm.state); fdm.step(DT, u, world.env); acc -= DT; }
   const alpha = acc / DT; snapshot.interpolate(prev, fdm.state, alpha);
   world.update(snapshot); sky.update(snapshot); camera.update(snapshot); instruments.update(snapshot);

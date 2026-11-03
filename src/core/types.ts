@@ -256,7 +256,7 @@ export interface GearState {
   normalForceN: number;
   onGround: boolean;
   /** forward wheel speed m/s */ wheelSpeedMs: number;
-  steerRad: number;
+  /** + = wheel steered to the right */ steerRad: number;
   /** 0..1 for retractable gear */ extension: number;
 }
 
@@ -276,6 +276,7 @@ export interface EngineState {
   /** turbofan only */ n1?: number; n2?: number;
 }
 
+/** Signs (JSBSim): elevator + = trailing edge down; each aileron + = its trailing edge down; rudder + = trailing edge left. */
 export interface SurfaceState {
   elevatorRad: number;
   aileronLeftRad: number;
@@ -474,6 +475,9 @@ export interface NavRadioState {
   /** DME distance nm */ dmeNm: number;
   /** bearing to station magnetic deg */ bearingDeg: number;
   /** radial from station magnetic deg */ radialDeg: number;
+  /** marker beacon being received (ILS only) */ marker?: 'outer' | 'middle' | 'inner' | null;
+  /** tuned localizer is being flown on its back course (reverse sensing) */ backCourse?: boolean;
+  /** DME distance is valid (station has DME and is in range) */ dmeValid?: boolean;
 }
 
 export interface Waypoint {
@@ -664,7 +668,8 @@ export interface SimEvents {
   'atc:options': { options: string[] };
   'ui:toast': { text: string; kind?: 'info' | 'warn' | 'error' | 'success'; durationMs?: number };
   'terrain:progress': { ready: number };
-  'frame:rebased': { frame: LocalFrameInfo };
+  /** floating origin moved: the new origin in the old NED frame, and the rotation old NED → new NED */
+  'frame:rebased': { frame: LocalFrameInfo; translationNED?: Vec3; rotation?: Quat };
   'autopilot:changed': { state: AutopilotState };
   'landing:scored': { score: number; details: Record<string, number | string> };
 }
