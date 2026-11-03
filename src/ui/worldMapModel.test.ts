@@ -101,3 +101,15 @@ describe('runwayLine', () => {
     expect(l.to.lon).toBeLessThan(l.from.lon); // 298° heads west-north-west
   });
 });
+
+describe('overview layer', () => {
+  it('puts large and medium airports in the global overview, small fields in the local query', async () => {
+    const { isOverviewType, MAX_MAP_PX_PER_DEG, AIRPORT_FOCUS_PX_PER_DEG, OVERVIEW_QUERY } = await import('./worldMapModel');
+    expect(isOverviewType('large')).toBe(true);
+    expect(isOverviewType('medium')).toBe(true);
+    expect(isOverviewType('small')).toBe(false);
+    expect(isOverviewType('heliport')).toBe(false);
+    expect(MAX_MAP_PX_PER_DEG).toBeGreaterThan(AIRPORT_FOCUS_PX_PER_DEG);
+    expect(OVERVIEW_QUERY.radiusNm).toBeGreaterThan(10_800); // half the Earth's circumference
+  });
+});

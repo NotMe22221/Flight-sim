@@ -19,8 +19,17 @@ export interface ModelMaterials {
   rubber: THREE.MeshStandardMaterial;
   hub: THREE.MeshStandardMaterial;
   blade: THREE.MeshStandardMaterial;
+  /** cockpit lining (headliner, side walls), single colour plastic */
   interior: THREE.MeshStandardMaterial;
   interiorDark: THREE.MeshStandardMaterial;
+  /** padded anti-glare glareshield, window reveals */
+  trimDark: THREE.MeshStandardMaterial;
+  /** fabric door panels below the side windows */
+  doorPanel: THREE.MeshStandardMaterial;
+  /** window rubber and door seams (exterior) */
+  gasket: THREE.MeshStandardMaterial;
+  /** inner face of the cabin skin seen through the windows from outside */
+  cabinInner: THREE.MeshStandardMaterial;
   seat: THREE.MeshStandardMaterial;
   panelFrame: THREE.MeshStandardMaterial;
   /**
@@ -38,6 +47,8 @@ export interface ModelMaterials {
   haloWhite: THREE.SpriteMaterial;
   knobBlack: THREE.MeshStandardMaterial;
   knobRed: THREE.MeshStandardMaterial;
+  /** daylight fill on the cabin materials, 0 (night) … 1 (day) */
+  setCabinBounce(k: number): void;
   dispose(): void;
 }
 
@@ -45,34 +56,45 @@ export interface MaterialOptions {
   registration?: string;
   /** u-range of the registration decal along the fuselage */
   regU?: [number, number];
-  /** u where the cowl ends (anti-glare panel) */
-  cowlUEnd?: number;
+  /** metres per livery texel along u / v at the registration (keeps the letters' shape) */
+  liveryScale?: { uM: number; vM: number };
 }
 
 export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials {
-  const livery = createLiveryTexture(opts.registration ?? 'N172FS', opts.regU?.[0] ?? 0.55, opts.regU?.[1] ?? 0.78, opts.cowlUEnd ?? 0.14);
+  const livery = createLiveryTexture(opts.registration ?? 'N172FS', opts.regU?.[0] ?? 0.55, opts.regU?.[1] ?? 0.78, opts.liveryScale);
   const blur = createPropBlurTexture();
   const halo = createHaloTexture();
 
   const paint = new THREE.MeshStandardMaterial({ color: 0xffffff, map: livery, roughness: 0.38, metalness: 0.08 });
   const paintPlain = new THREE.MeshStandardMaterial({ color: 0xf4f4f2, roughness: 0.4, metalness: 0.08 });
   const trim = new THREE.MeshStandardMaterial({ color: 0x1f4e9c, roughness: 0.4, metalness: 0.1 });
+  // exterior glass: tinted, reflective; the dark cabin behind it makes the windows read dark
   const glass = new THREE.MeshPhysicalMaterial({
-    color: 0x7f93a8, roughness: 0.06, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05,
-    transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false,
+    color: 0x55687a, roughness: 0.05, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04,
+    transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false,
   });
+  // seen from the cockpit: almost clear, just a faint sheen
   const glassInterior = new THREE.MeshPhysicalMaterial({
-    color: 0xb8c4d0, roughness: 0.06, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.1,
-    transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false,
+    color: 0xb8c4d0, roughness: 0.08, metalness: 0, clearcoat: 0.4, clearcoatRoughness: 0.1,
+    transparent: true, opacity: 0.06, side: THREE.DoubleSide, depthWrite: false,
   });
   const metal = new THREE.MeshStandardMaterial({ color: 0x5a5f66, roughness: 0.45, metalness: 0.8 });
   const rubber = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.95, metalness: 0 });
   const hub = new THREE.MeshStandardMaterial({ color: 0xa8aaad, roughness: 0.5, metalness: 0.7 });
   const blade = new THREE.MeshStandardMaterial({ color: 0x1e1e1e, roughness: 0.55, metalness: 0.5 });
-  const interior = new THREE.MeshStandardMaterial({ color: 0x6b6d70, roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
-  const interiorDark = new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.9, metalness: 0 });
-  const seat = new THREE.MeshStandardMaterial({ color: 0x5c3f2a, roughness: 0.8, metalness: 0 });
-  const panelFrame = new THREE.MeshStandardMaterial({ color: 0x2b2c2e, roughness: 0.85, metalness: 0.1 });
+  // The cabin is mostly enclosed: the sky environment map (unoccluded) is turned well down on
+  // interior surfaces, and they do not receive the coarse sun shadow map (see AircraftModel).
+  // A small warm emissive term stands in for light bounced around the cabin (no GI); it is
+  // scaled with daylight by setCabinBounce().
+  const bounce = new THREE.Color(0x2c2a26);
+  const interior = new THREE.MeshStandardMaterial({ color: 0xa39f97, roughness: 0.9, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.35, emissive: bounce });
+  const interiorDark = new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.9, metalness: 0, envMapIntensity: 0.35 });
+  const trimDark = new THREE.MeshStandardMaterial({ color: 0x1d1e20, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.3 });
+  const doorPanel = new THREE.MeshStandardMaterial({ color: 0x7b766d, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.3, emissive: bounce });
+  const gasket = new THREE.MeshStandardMaterial({ color: 0x1a1b1c, roughness: 0.7, metalness: 0 });
+  const cabinInner = new THREE.MeshStandardMaterial({ color: 0x1c1d1f, roughness: 1, metalness: 0, side: THREE.BackSide, envMapIntensity: 0.15 });
+  const seat = new THREE.MeshStandardMaterial({ color: 0x6c645a, roughness: 0.85, metalness: 0, envMapIntensity: 0.35, emissive: bounce });
+  const panelFrame = new THREE.MeshStandardMaterial({ color: 0x2b2c2e, roughness: 0.85, metalness: 0.1, envMapIntensity: 0.35 });
   // Until the instruments module assigns a map, a dark placeholder map shows instead of a white
   // rectangle. The colour must stay white: MeshBasicMaterial multiplies map × color.
   const panelPlaceholder = createPanelPlaceholderTexture();
@@ -89,10 +111,14 @@ export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials
   const knobBlack = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
   const knobRed = new THREE.MeshStandardMaterial({ color: 0xc01818, roughness: 0.6 });
 
-  const all: THREE.Material[] = [paint, paintPlain, trim, glass, glassInterior, metal, rubber, hub, blade, interior, interiorDark, seat, panelFrame, panel, panelG1000, propDisc, navRed, navGreen, navWhite, haloRed, haloGreen, haloWhite, knobBlack, knobRed];
+  const all: THREE.Material[] = [paint, paintPlain, trim, glass, glassInterior, metal, rubber, hub, blade, interior, interiorDark, trimDark, doorPanel, gasket, cabinInner, seat, panelFrame, panel, panelG1000, propDisc, navRed, navGreen, navWhite, haloRed, haloGreen, haloWhite, knobBlack, knobRed];
   return {
-    paint, paintPlain, trim, glass, glassInterior, metal, rubber, hub, blade, interior, interiorDark, seat, panelFrame, panel, panelG1000, propDisc,
+    paint, paintPlain, trim, glass, glassInterior, metal, rubber, hub, blade, interior, interiorDark, trimDark, doorPanel, gasket, cabinInner, seat, panelFrame, panel, panelG1000, propDisc,
     navRed, navGreen, navWhite, haloRed, haloGreen, haloWhite, knobBlack, knobRed,
+    setCabinBounce(k: number) {
+      const v = Number.isFinite(k) ? Math.max(0, Math.min(1, k)) : 0;
+      interior.emissiveIntensity = v; doorPanel.emissiveIntensity = v; seat.emissiveIntensity = v;
+    },
     dispose() {
       for (const m of all) m.dispose();
       livery?.dispose();

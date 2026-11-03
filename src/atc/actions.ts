@@ -4,7 +4,7 @@
  * state change happens when the reply goes out. CTAF self-announcements change state at once.
  */
 import type { Airport } from '../core/types';
-import { FT, NM } from '../core/units';
+import { FT } from '../core/units';
 import { patternSideFor, type RunwayRef } from './field';
 import {
   choosePatternEntry, makeRunwayFrame, rangeBearing, relativeTo, sideOf, type PatternEntry, type RunwayFrame, type TrafficSide,
@@ -230,6 +230,3 @@ export function announceInbound(s: AtcSession, ctx: FieldCtx, intent: LandingInt
   s.landingClearance = 'none';
   s.setPhase('PATTERN');
 }
-
-/** Inbound/landing range check used by the menu: within this the field counts as nearby, m. */
-export const NEARBY_FIELD_M = 30 * NM;

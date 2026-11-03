@@ -104,3 +104,11 @@ export function runwayLine(end: RunwayEndChoice): { from: LatLon; to: LatLon } {
 
 /** Zoom that frames an airport's runways (≈ 4 km across 300 px). */
 export const AIRPORT_FOCUS_PX_PER_DEG = 3000;
+/** Closest World Map zoom (≈ 5.5 m/px): enough to see the runway layout, no further. */
+export const MAX_MAP_PX_PER_DEG = 20_000;
+
+/** Radius / count of the one-off global query that builds the overview layer. */
+export const OVERVIEW_QUERY = { maxCount: 20_000, radiusNm: 11_000 } as const;
+
+/** Large and medium airports are drawn from a global overview layer (fetched once). */
+export function isOverviewType(type: AirportType): boolean { return type === 'large' || type === 'medium'; }

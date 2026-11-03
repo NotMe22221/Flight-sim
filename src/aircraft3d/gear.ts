@@ -26,6 +26,25 @@ interface Leg {
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const tmp = new THREE.Vector3();
 
+/**
+ * Unit teardrop speed fairing (wheel pant): lathe about the length axis, rounded nose at
+ * z = −0.42, tapering to a point at z = +0.58 (length 1, max radius 0.5).
+ */
+function buildPantGeometry(): THREE.BufferGeometry {
+  const pts: THREE.Vector2[] = [];
+  const n = 16;
+  for (let i = 0; i <= n; i++) {
+    const s = i / n; // 0 nose → 1 tail
+    const r = s < 0.42 ? 0.5 * Math.sqrt(1 - ((0.42 - s) / 0.42) ** 2) : 0.5 * (1 - ((s - 0.42) / 0.58) ** 1.6);
+    pts.push(new THREE.Vector2(Math.max(r, 1e-4), 0.42 - s));
+  }
+  // LatheGeometry faces outward only for a profile with increasing y: list tail → nose
+  pts.reverse();
+  const g = new THREE.LatheGeometry(pts, 20);
+  g.rotateX(-Math.PI / 2); // lathe axis +Y → nose toward −Z
+  return g;
+}
+
 export class LandingGear {
   readonly group = new THREE.Group();
   private readonly legs: Leg[] = [];
@@ -71,7 +90,7 @@ export class LandingGear {
       const legGeo = new THREE.CylinderGeometry(0.035, 0.03, length, 10);
       legGeo.translate(0, -length / 2, 0); // extends along −Y from the origin
       this.geometries.push(legGeo);
-      legMesh = new THREE.Mesh(legGeo, mats.metal);
+      legMesh = new THREE.Mesh(legGeo, mats.paintPlain);
       legMesh.quaternion.setFromUnitVectors(Y_AXIS, dir.clone().negate()); // −Y → dir
       legMesh.scale.set(1, 1, 0.6);
       root.add(legMesh);
@@ -87,11 +106,12 @@ export class LandingGear {
     hubGeo.rotateZ(Math.PI / 2);
     this.geometries.push(hubGeo);
     wheel.add(new THREE.Mesh(hubGeo, mats.hub));
-    const pantGeo = new THREE.SphereGeometry(1, 18, 12);
+    const pantGeo = buildPantGeometry();
     this.geometries.push(pantGeo);
     const pant = new THREE.Mesh(pantGeo, mats.paintPlain);
-    pant.scale.set(gl.width * 0.62, gl.tyreRadius * 0.85, gl.tyreRadius * 1.35);
-    pant.position.set(0, gl.tyreRadius * 0.3, 0);
+    // teardrop fairing over the upper ~2/3 of the tyre (the tread shows below it)
+    pant.scale.set(gl.width * 1.7, gl.tyreRadius * 2.05, gl.tyreRadius * (isNose ? 3.6 : 4.2));
+    pant.position.set(0, gl.tyreRadius * 0.38, gl.tyreRadius * 0.25);
     pant.name = 'pant';
 
     const wheelGroup = new THREE.Group();

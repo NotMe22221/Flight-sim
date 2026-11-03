@@ -9,7 +9,10 @@ import type { RunwayEndChoice, UiHost, UnitsSettings } from '../../UiHost';
 import { Txt, button, h } from '../../dom';
 import { formatCoord } from '../../format';
 import { createView, pan, resize, unproject, zoomAt, type MapView } from '../../mapProjection';
-import { ZOOM_LOAD_REGION, airportQuery, hitTestAirport, needsRefetch, scaleBar, type AirportQuery } from '../../worldMapModel';
+import {
+  MAX_MAP_PX_PER_DEG, OVERVIEW_QUERY, ZOOM_LOAD_REGION, ZOOM_MEDIUM, airportQuery, hitTestAirport, isOverviewType, needsRefetch, scaleBar,
+  type AirportQuery,
+} from '../../worldMapModel';
 import { drawMap } from './mapDraw';
 
 export interface MapCanvasState { departure: Airport; departureEnd: RunwayEndChoice | null; focused: Airport | null; arrival: Airport | null }
@@ -31,7 +34,9 @@ export class MapCanvas {
   private g: CanvasRenderingContext2D | null = null;
   private view: MapView = createView(-122.4, 37.6, 120, 800, 600);
   private dpr = 1;
+  /** drawn list: the global overview (large + medium) plus small fields near the centre when zoomed in */
   private airports: Airport[] = [];
+  private overview: Airport[] | null = null;
   private lastQuery: AirportQuery | null = null;
   private lastFetchMs = -Infinity;
   private fetchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -81,7 +86,7 @@ export class MapCanvas {
 
   /** Centre on a point; `pxPerDeg` optionally sets the zoom. */
   centerOn(lat: number, lon: number, pxPerDeg = this.view.pxPerDeg): void {
-    this.view = createView(lon, lat, Math.max(this.minZoom(), pxPerDeg), this.view.width, this.view.height);
+    this.view = createView(lon, lat, Math.min(MAX_MAP_PX_PER_DEG, Math.max(this.minZoom(), pxPerDeg)), this.view.width, this.view.height);
     this.changed();
   }
 
@@ -106,7 +111,7 @@ export class MapCanvas {
   private minZoom(): number { return Math.max(1, this.view.width / 360); }
 
   private zoomBy(f: number, x = this.view.width / 2, y = this.view.height / 2): void {
-    const target = Math.max(this.minZoom(), this.view.pxPerDeg * f);
+    const target = Math.min(MAX_MAP_PX_PER_DEG, Math.max(this.minZoom(), this.view.pxPerDeg * f));
     this.view = zoomAt(this.view, x, y, target / this.view.pxPerDeg);
     this.changed();
   }
@@ -140,9 +145,27 @@ export class MapCanvas {
     }
     this.lastFetchMs = now;
     this.lastQuery = q;
-    try { this.airports = this.o.host.nav.nearestAirports({ lat: q.lat, lon: q.lon, alt: 0 }, q.maxCount, q.radiusNm); } catch { this.airports = []; }
+    const overview = this.overviewLayer(q);
+    if (q.pxPerDeg < ZOOM_MEDIUM) this.airports = overview;
+    else {
+      let local: Airport[] = [];
+      try { local = this.o.host.nav.nearestAirports({ lat: q.lat, lon: q.lon, alt: 0 }, q.maxCount, q.radiusNm).filter((a) => !isOverviewType(a.type)); } catch { local = []; }
+      this.airports = local.length ? overview.concat(local) : overview;
+    }
     this.requestRegion(q);
     this.invalidate();
+  }
+
+  /**
+   * Large + medium airports worldwide, fetched once (~15 ms for ~6 000 records): "nearest N to
+   * the centre" alone would leave most of a world-wide view empty.
+   */
+  private overviewLayer(q: AirportQuery): Airport[] {
+    if (this.overview && this.overview.length) return this.overview;
+    try {
+      this.overview = this.o.host.nav.nearestAirports({ lat: q.lat, lon: q.lon, alt: 0 }, OVERVIEW_QUERY.maxCount, OVERVIEW_QUERY.radiusNm).filter((a) => isOverviewType(a.type));
+    } catch { this.overview = []; }
+    return this.overview;
   }
 
   /** Zoomed in: ask the nav DB for small-airport shards around the centre (each 1° cell once). */

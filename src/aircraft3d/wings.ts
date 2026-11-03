@@ -76,13 +76,13 @@ export function buildWings(layout: C172Layout, mats: ModelMaterials): WingAssemb
   const flaps = hinged(flapSpan, 'flap');
   const ailerons = hinged(aileronSpan, 'aileron');
 
-  // --- wing-tip fairings (trim colour) ---
+  // --- wing-tip fairings (white, slightly drooped like the 172's conical-camber tips) ---
   const tipChord = sections[sections.length - 1].chord;
   for (const side of [1, -1]) {
     const tip = planformPoint(sections, halfSpan, 0.45, new THREE.Vector3());
-    const fairing = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), mats.trim);
-    fairing.position.set(side * (halfSpan + 0.02), tip.y, tip.z);
-    fairing.scale.set(0.07, 0.085, tipChord * 0.52);
+    const fairing = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), mats.paintPlain);
+    fairing.position.set(side * (halfSpan - 0.005), tip.y - 0.005, tip.z);
+    fairing.scale.set(0.06, 0.07, tipChord * 0.5);
     fairing.name = 'tipFairing';
     group.add(fairing);
   }
@@ -93,7 +93,7 @@ export function buildWings(layout: C172Layout, mats: ModelMaterials): WingAssemb
     const b = layout.strut.wing.clone().setX(side * layout.strut.wing.x);
     const len = a.distanceTo(b);
     const geo = new THREE.CylinderGeometry(0.028, 0.028, len, 10);
-    const strut = new THREE.Mesh(geo, mats.metal);
+    const strut = new THREE.Mesh(geo, mats.paintPlain);
     strut.position.copy(a).lerp(b, 0.5);
     strut.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
     strut.scale.set(1, 1, 2.2); // streamlined section, long axis fore-aft

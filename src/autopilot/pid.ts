@@ -5,10 +5,15 @@
  * Properties:
  *  - Derivative acts on the *measurement* (or on a measured rate that the caller supplies,
  *    e.g. the body roll rate for the roll loop), so a setpoint step produces no derivative kick.
- *  - Output saturation with two anti-windup mechanisms: conditional integration (the integral
- *    is not advanced while the output is saturated in the direction the error pushes) and
- *    back-calculation with time constant `tt` (the integral is bled toward the value that puts
- *    the output exactly at the limit). The integral contribution is also clamped to ±iLim.
+ *  - Output saturation with anti-windup:
+ *      1. conditional integration — while the output is saturated, an integral increment that
+ *         would push further into saturation is discarded (the integral keeps the load it carried);
+ *      2. back-calculation of the integral term with time constant `tt` — when the integral term
+ *         *by itself* lies outside [outMin, outMax] (the limits moved, e.g. FLC direction limits) it
+ *         is bled exponentially back to the limit. Unlike textbook back-calculation on the whole
+ *         output, this never drags the integral the "wrong" way while a large P term saturates the
+ *         output, so there is no reverse windup when the error clears;
+ *      3. the integral contribution is clamped to ±iLim.
  *  - Bumpless transfer: `resetToOutput` sets the integral so that the next update yields a
  *    chosen output (the pilot's current stick position, the current pitch attitude, ...).
  *  - Frame-rate independent: integration uses dt, the derivative filter uses exp(-dt/τ).
@@ -30,7 +35,7 @@ export interface PidConfig {
   outMax: number;
   /** absolute limit of the integral term's contribution (output units); default (outMax − outMin) / 2 */
   iLim?: number;
-  /** back-calculation anti-windup time constant, s (0 disables; conditional integration still applies) */
+  /** back-calculation time constant for an integral term outside the output limits, s (0 = clamp at once) */
   tt?: number;
   /** first-order filter time constant for the numerical derivative, s (0 = unfiltered) */
   tauD?: number;
@@ -126,21 +131,20 @@ export class Pid {
     const d = -this.kd * gs * dm;
     const inc = this.ki * e * dt;
 
-    let i = clamp(this.integral + inc, -this.iLim, this.iLim);
-    let u = p + i + d;
-    const uSat = clamp(u, this.outMin, this.outMax);
-    if (u !== uSat) {
-      // Conditional integration: discard the increment if it pushes further into saturation.
-      if ((u > this.outMax && inc > 0) || (u < this.outMin && inc < 0)) i = this.integral;
-      // Back-calculation: bleed the integral toward the value that puts the output at the limit.
-      if (this.tt > 0) {
-        const uNow = p + i + d;
-        const uNowSat = clamp(uNow, this.outMin, this.outMax);
-        i += ((uNowSat - uNow) * dt) / this.tt;
-      }
-      i = clamp(i, -this.iLim, this.iLim);
-      u = p + i + d;
+    let i = this.integral + inc;
+    const uTry = p + i + d;
+    // 1. conditional integration: integrate only up to the point where the output reaches the
+    //    limit, and never pull the integral back because the P/D terms saturate on their own
+    if (uTry > this.outMax && inc > 0) i = Math.max(this.integral, this.outMax - p - d);
+    else if (uTry < this.outMin && inc < 0) i = Math.min(this.integral, this.outMin - p - d);
+    // 2. back-calculation of an integral term that lies outside the output range by itself
+    if (i > this.outMax || i < this.outMin) {
+      const lim = i > this.outMax ? this.outMax : this.outMin;
+      i = this.tt > 0 ? lim + (i - lim) * Math.exp(-dt / this.tt) : lim;
     }
+    // 3. integral authority
+    i = clamp(i, -this.iLim, this.iLim);
+    const u = p + i + d;
     this.integral = i;
     this.outputUnsat = u;
     this.output = clamp(u, this.outMin, this.outMax);

@@ -22,6 +22,7 @@ import { AircraftLights } from './lights';
 import { CockpitInterior, type PanelMesh, type PanelVariant } from './interior';
 import { createModelMaterials, type ModelMaterials } from './materials';
 import { finiteOr, safeDt } from './finite';
+import { LoftProfile } from './loft';
 
 const D2R = Math.PI / 180;
 
@@ -83,10 +84,12 @@ export class AircraftModel {
     this.layout = resolveC172Layout(cfg);
     const L = this.layout;
     const len = L.zTail - L.zNose;
+    const regZ: [number, number] = [2.45, 4.2];
+    const regSection = new LoftProfile(L.fuselage.stations).sectionAt((regZ[0] + regZ[1]) / 2, { z: 0, width: 0, height: 0, yCenter: 0, n: 2 });
     this.materials = createModelMaterials({
       registration: options.registration ?? 'N172FS',
-      regU: [(2.3 - L.zNose) / len, (4.4 - L.zNose) / len],
-      cowlUEnd: (-1.05 - L.zNose) / len,
+      regU: [(regZ[0] - L.zNose) / len, (regZ[1] - L.zNose) / len],
+      liveryScale: { uM: len / 2048, vM: regSection.height / 512 },
     });
     this.nightElevation = options.nightSunElevationRad ?? -3 * D2R;
     this.root.name = 'aircraft';
@@ -119,12 +122,17 @@ export class AircraftModel {
 
     const shadows = options.shadows ?? true;
     const m = this.materials;
+    const interiorMeshes = new Set<THREE.Object3D>();
+    this.interior.traverse((o) => interiorMeshes.add(o));
     this.root.traverse((o) => {
       if (!(o instanceof THREE.Mesh)) return;
       const mat = o.material as THREE.Material;
-      const transparentish = mat === m.glass || mat === m.glassInterior || mat === m.propDisc || mat === m.navRed || mat === m.navGreen || mat === m.navWhite;
+      const transparentish = mat === m.glass || mat === m.glassInterior || mat === m.propDisc || mat === m.navRed || mat === m.navGreen || mat === m.navWhite || mat === m.cabinInner;
       o.castShadow = shadows && !transparentish;
-      o.receiveShadow = shadows && !transparentish;
+      // The sun's shadow map spans hundreds of metres (texels of ~0.2 m): on the cockpit
+      // interior that only produces blotches, so the cabin casts (ground shadow from inside)
+      // but does not receive; it is shaded by its materials instead.
+      o.receiveShadow = shadows && !transparentish && !interiorMeshes.has(o);
     });
   }
 
@@ -155,7 +163,7 @@ export class AircraftModel {
     // δr > 0 = trailing edge left; the hinge axis points up so a negative rotation swings the TE left
     sf.rudder.rotation.y = -finiteOr(s.rudderRad);
 
-    this.propeller.update(finiteOr(state.engine.rpm), step);
+    this.propeller.update(finiteOr(state.engine.rpm), step, cameraIsCockpit);
     this.gear.update(state.gear, step);
     this.lights.update(step, inputs.lights, !cameraIsCockpit || this.night);
     this.cockpit.update(inputs);
@@ -173,9 +181,14 @@ export class AircraftModel {
     if (!interior) this.interior.visible = false;
   }
 
-  /** Feed the sun elevation (rad) so spotlights are also enabled in the cockpit view at night. */
+  /**
+   * Feed the sun elevation (rad): spotlights are also enabled in the cockpit view at night,
+   * and the cabin's bounce-light fill follows the daylight.
+   */
   setSunElevation(elevationRad: number): void {
     this.night = elevationRad < this.nightElevation;
+    const t = Math.max(0, Math.min(1, (elevationRad / D2R + 6) / 21));
+    this.materials.setCabinBounce(t * t * (3 - 2 * t));
   }
 
   get isNight(): boolean { return this.night; }

@@ -71,7 +71,7 @@ describe('quaternion mapping', () => {
   });
 
   it('cockpit view looks along the nose for heading 090 and pitch +10°, and free-look turns toward the right wing', () => {
-    const cam = new CameraController(16 / 9);
+    const cam = new CameraController(16 / 9, { cockpitNeutralPitchRad: 0 });
     const ac = new TestAircraft(90, 50, 10);
     cam.update(1 / 60, ac.state, ac.pos, ac.quat, makeInput(), EYE);
     const d = viewDir(cam);
@@ -86,6 +86,16 @@ describe('quaternion mapping', () => {
     expect(r.z).toBeCloseTo(1, 3); // right wing of an east-bound aircraft points south (+Z)
     expect(cam.camera.near).toBeCloseTo(0.05, 9);
     expect(cam.camera.far).toBeCloseTo(600_000, 3);
+  });
+
+  it('the default cockpit head pose looks 3.5° below the nose; free-look pitch is relative to it', () => {
+    const cam = new CameraController(16 / 9);
+    const ac = new TestAircraft(0, 50, 0);
+    cam.update(1 / 60, ac.state, ac.pos, ac.quat, makeInput(), EYE);
+    expect(Math.asin(viewDir(cam).y) / D2R).toBeCloseTo(-3.5, 6);
+    cam.state.lookPitch = 10 * D2R;
+    cam.update(1 / 60, ac.state, ac.pos, ac.quat, makeInput(), EYE);
+    expect(Math.asin(viewDir(cam).y) / D2R).toBeCloseTo(6.5, 6);
   });
 
   it('roll right banks the cockpit view right (camera right vector points down)', () => {

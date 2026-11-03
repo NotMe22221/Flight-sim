@@ -84,7 +84,8 @@ export function fieldInfo(airport: Airport): FieldInfo {
     atis: facility('ATIS', `${short} ATIS`, pick(airport, ['ATIS'], isAtisFreq)),
     awos: facility('AWOS', `${short} weather`, pick(airport, ['AWOS', 'ASOS'], isAtisFreq)),
     clearance: tower ? facility('CLD', `${short} Clearance`, pick(airport, ['CLD'], isCom)) : undefined,
-    ground: tower ? facility('GND', `${short} Ground`, pick(airport, ['GND'], isCom) ?? tower.mhz) : undefined,
+    // Without a ground frequency the tower handles taxi itself.
+    ground: tower ? facility('GND', `${short} Ground`, pick(airport, ['GND'], isCom)) ?? tower : undefined,
     tower,
     departure: facility('DEP', `${short} Departure`, dep),
     approach: facility('APP', `${short} Approach`, app),

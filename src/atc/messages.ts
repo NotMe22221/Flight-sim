@@ -92,7 +92,7 @@ export const ctaf = {
 
 export const atc = {
   taxi: (cs: Spoken, f: Facility, rwy: string, extra: Spoken): Spoken =>
-    say`${cs}, ${f.name}, taxi to runway ${runway(rwy)}, hold short of runway ${runway(rwy)}.${extra}`,
+    say`${cs}, ${f.name}, taxi to runway ${runway(rwy)}, hold short of runway ${runway(rwy)}. ${extra}`,
   clearance: (cs: Spoken, f: Facility, maxAltFt: number, dep: Facility | undefined, code: number): Spoken =>
     say`${cs}, ${f.name}, maintain VFR at or below ${altitude(maxAltFt)}${dep ? say`, departure frequency ${frequency(dep.mhz)}` : EMPTY}, squawk ${squawk(code)}.`,
   takeoff: (cs: Spoken, f: Facility, wind: Spoken, rwy: string, closedSide: TrafficSide | null): Spoken =>
@@ -107,7 +107,7 @@ export const atc = {
     next ? say`${cs}, radar service terminated, squawk VFR, contact ${next.name} ${frequency(next.mhz)}.`
       : say`${cs}, radar service terminated, squawk VFR, frequency change approved.`,
   patternEntry: (cs: Spoken, f: Facility, entry: PatternEntry, side: TrafficSide, rwy: string, extra: Spoken): Spoken =>
-    say`${cs}, ${f.name}, ${entryPhrase(entry, side, rwy)}, report ${entryReport(entry)}.${extra}`,
+    say`${cs}, ${f.name}, ${entryPhrase(entry, side, rwy)}, report ${entryReport(entry)}. ${extra}`,
   roger: (cs: Spoken, next: Spoken | null): Spoken => say`${cs}, roger${next ? say`, report ${next}` : EMPTY}.`,
   landing: (cs: Spoken, wind: Spoken, rwy: string, kind: Exclude<LandingClearance, 'none'>): Spoken =>
     say`${cs}, wind ${wind}, runway ${runway(rwy)}, ${kind === 'land' ? 'cleared to land' : 'cleared touch and go'}.`,

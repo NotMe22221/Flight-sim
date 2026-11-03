@@ -23,6 +23,7 @@ import { Differentiator, RateLimiter, Washout } from './filters';
 import { type AutopilotConfig, type DeepPartial, defaultAutopilotConfig, mergeConfig } from './config';
 import { cdiToDots, effectiveBankLimit, gpsInterceptTrack, headingToBank, locInterceptTrack, vorInterceptTrack } from './lateral';
 import { altCaptureDistance, altitudeToVs, glideslopeVs, levelFlightPitch } from './vertical';
+import { alphaLimitedPitch, loadFactorPitchRate, wingsFirst } from './level';
 
 export type DisconnectReason = 'pilot' | 'override' | 'stall' | 'bank' | 'overspeed' | 'crash';
 export type ApButton =
@@ -44,6 +45,12 @@ export interface GfcAutopilotState extends AutopilotState {
   t: number;
   /** altitude alerter: 1000 ft before the armed altitude, or ±200 ft off a held altitude */
   altAlert: AltAlert;
+  /**
+   * LVL (level mode) active: wings level + zero vertical speed, nothing armed, recovery from unusual
+   * attitudes allowed. The shared contract has no 'LVL' mode, so `lateral` reads 'ROL' and
+   * `vertical` reads 'VS' meanwhile; annunciators should show "LVL" in both fields when this is set.
+   */
+  lvl: boolean;
 }
 
 export interface GfcAutopilotOptions {
@@ -75,7 +82,7 @@ export class GfcAutopilot implements Autopilot {
     engaged: false, flightDirector: false, lateral: 'OFF', vertical: 'OFF', armedLateral: null, armedVertical: null,
     headingBugDeg: 0, altitudeTargetM: 0, verticalSpeedTargetMs: 0, iasTargetMs: 100 * KT, pitchTargetRad: 0, rollTargetRad: 0,
     fdPitchRad: 0, fdRollRad: 0, outPitch: 0, outRoll: 0, outYaw: 0, yawDamper: false, trimCommand: 0,
-    disconnectReason: null, modeChangeT: 0, disconnectT: Number.NEGATIVE_INFINITY, t: 0, altAlert: 'none',
+    disconnectReason: null, modeChangeT: 0, disconnectT: Number.NEGATIVE_INFINITY, t: 0, altAlert: 'none', lvl: false,
   };
   readonly config: AutopilotConfig;
   navSource: NavSource = 'auto';
@@ -104,6 +111,8 @@ export class GfcAutopilot implements Autopilot {
   private pilotTrim = 0;
   private overrideTimer = 0;
   private trimTimer = 0;
+  private trimRunning = false;
+  private gsLostTimer = 0;
   private sourceLostTimer = 0;
   private locIntegral = 0;
   private gsIntegral = 0;
@@ -167,6 +176,7 @@ export class GfcAutopilot implements Autopilot {
     if (s.vertical === 'OFF') this.selectPitchHold();
     this.overrideTimer = 0;
     this.trimTimer = 0;
+    this.trimRunning = false;
     s.trimCommand = this.pilotTrim;
     if (this.lastAc) this.syncServos(this.lastAc);
     else this.pendingEngageSync = true;
@@ -178,12 +188,14 @@ export class GfcAutopilot implements Autopilot {
     const s = this.state;
     if (!s.engaged) return;
     s.engaged = false;
+    s.lvl = false;
     s.outPitch = 0;
     s.outRoll = 0;
     s.disconnectReason = reason;
     s.disconnectT = s.t;
     this.overrideTimer = 0;
     this.trimTimer = 0;
+    this.trimRunning = false;
     this.pendingEngageSync = false;
     if (!s.flightDirector) this.clearModes();
     for (const cb of this.disconnectCbs) cb(reason);
@@ -208,17 +220,29 @@ export class GfcAutopilot implements Autopilot {
     this.modeChanged();
   }
 
-  /** LVL (blue button): AP on, wings level, zero vertical speed, then hold the altitude where it levels. */
+  /**
+   * LVL (blue button): AP on at any attitude, wings level, zero vertical speed, every armed mode
+   * disarmed, the selected altitude left alone (LVL does not hold an altitude). Recovery from unusual
+   * attitudes: the bank / overspeed / stall-warning disconnects are suspended, the wings are levelled
+   * first (faster roll-command slew), then the pitch returns to zero VS at a load-factor-limited
+   * rate and never above the LVL angle-of-attack ceiling. Any mode selection ends LVL.
+   */
   level(): void {
     const s = this.state;
     const ac = this.lastAc;
     s.lateral = 'ROL';
     s.rollTargetRad = 0;
     s.armedLateral = null;
-    s.verticalSpeedTargetMs = 0;
-    s.altitudeTargetM = ac ? ac.altitudeIndicatedM : s.altitudeTargetM;
-    this.enterVsMode('VS');
     s.armedVertical = null;
+    s.verticalSpeedTargetMs = 0;
+    this.enterVsMode('VS');
+    s.lvl = true;
+    if (ac) {
+      // AP off: the commands start from the attitude the aircraft is in, even far outside the limits
+      if (!s.engaged) { this.rollCmd.reset(ac.euler[0]); this.pitchCmd.reset(ac.euler[1]); }
+      // zero-VS loop primed with the level-flight pitch (≈ α), so its P term pulls in proportion to the sink rate
+      this.vsPid.resetToOutput(levelFlightPitch(ac.euler[1], ac.verticalSpeedMs, ac.aero.tas), ac.verticalSpeedMs, ac.verticalSpeedMs);
+    }
     if (!s.engaged) this.engage(true);
     else this.modeChanged();
   }
@@ -230,10 +254,10 @@ export class GfcAutopilot implements Autopilot {
     this.clearModes();
     s.outPitch = 0; s.outRoll = 0; s.outYaw = 0; s.trimCommand = 0;
     s.fdPitchRad = 0; s.fdRollRad = 0;
-    s.disconnectReason = null; s.altAlert = 'none';
+    s.disconnectReason = null; s.altAlert = 'none'; s.lvl = false;
     this.rollPid.reset(); this.pitchPid.reset(); this.vsPid.reset(); this.flcPid.reset();
     this.ydWashout.reset(); this.lateralDotsRate.reset();
-    this.locIntegral = 0; this.gsIntegral = 0; this.overrideTimer = 0; this.trimTimer = 0; this.sourceLostTimer = 0;
+    this.locIntegral = 0; this.gsIntegral = 0; this.overrideTimer = 0; this.trimTimer = 0; this.trimRunning = false; this.sourceLostTimer = 0; this.gsLostTimer = 0;
     this.lastAc = null; this.lastNav = null; this.pendingEngageSync = false;
   }
 
@@ -241,6 +265,8 @@ export class GfcAutopilot implements Autopilot {
 
   setLateral(mode: LateralMode): void {
     const s = this.state;
+    s.lvl = false;
+    if (mode !== 'OFF' && !s.engaged && !s.flightDirector) this.setFlightDirector(true); // a mode key turns the FD on
     switch (mode) {
       case 'OFF':
         if (s.engaged || s.flightDirector) this.selectRollHold();
@@ -264,6 +290,8 @@ export class GfcAutopilot implements Autopilot {
 
   setVertical(mode: VerticalMode): void {
     const s = this.state;
+    s.lvl = false;
+    if (mode !== 'OFF' && mode !== 'GS' && !s.engaged && !s.flightDirector) this.setFlightDirector(true);
     switch (mode) {
       case 'OFF':
         if (s.engaged || s.flightDirector) this.selectPitchHold();
@@ -345,6 +373,7 @@ export class GfcAutopilot implements Autopilot {
 
   private nudge(dir: 1 | -1): void {
     const s = this.state;
+    if (s.lvl) { s.lvl = false; this.modeChanged(); } // UP/DN in LVL turns it into plain VS
     switch (s.vertical) {
       case 'PIT': this.setPitchTarget(s.pitchTargetRad + dir * 0.5 * DEG); break;
       case 'VS': this.setVerticalSpeedTarget(s.verticalSpeedTargetMs + dir * 100 * FPM); break;
@@ -384,10 +413,12 @@ export class GfcAutopilot implements Autopilot {
 
     // Protections.
     if (s.engaged) {
+      // LVL is the recovery mode: it stays engaged in steep banks, overspeed and stall warning
+      // (its α ceiling keeps the pitch command out of the stall).
       if (ac.crashed) this.disconnect('crash');
-      else if (p.disconnectOnStallWarning && (ac.aero.stallWarning || ac.warnings.stall)) this.disconnect('stall');
-      else if (Math.abs(ac.euler[0]) > p.maxBankRad) this.disconnect('bank');
-      else if (p.disconnectOnOverspeed && ac.warnings.overspeed) this.disconnect('overspeed');
+      else if (!s.lvl && p.disconnectOnStallWarning && (ac.aero.stallWarning || ac.warnings.stall)) this.disconnect('stall');
+      else if (!s.lvl && Math.abs(ac.euler[0]) > p.maxBankRad) this.disconnect('bank');
+      else if (!s.lvl && p.disconnectOnOverspeed && ac.warnings.overspeed) this.disconnect('overspeed');
       else {
         const over = Math.abs(this.pilotPitch) > p.overrideThreshold || Math.abs(this.pilotRoll) > p.overrideThreshold;
         this.overrideTimer = over ? this.overrideTimer + dt : 0;
@@ -397,9 +428,17 @@ export class GfcAutopilot implements Autopilot {
 
     const active = s.engaged || s.flightDirector;
     if (active) {
+      // modes exist exactly while the AP or FD is on (robust to the state being written directly)
+      if (s.lateral === 'OFF') this.selectRollHold();
+      if (s.vertical === 'OFF') this.selectPitchHold();
       this.updateLateralModes(dt, ac, nav);
       this.updateVerticalModes(dt, ac, nav);
+    } else if (s.lateral !== 'OFF' || s.vertical !== 'OFF' || s.armedLateral !== null || s.armedVertical !== null) {
+      this.clearModes();
+      s.lvl = false;
     }
+    this.rollCmd.ratePerS = s.lvl ? L.lvlRollCmdRateRadS : L.rollCmdRateRadS;
+    this.pitchCmd.ratePerS = s.lvl ? loadFactorPitchRate(L.lvlLoadFactor, ac.aero.tas, L.pitchCmdRateRadS) : L.pitchCmdRateRadS;
 
     // Outer loops → attitude commands (also the FD bars).
     const prevRollCmd = this.rollCmd.value, prevPitchCmd = this.pitchCmd.value;
@@ -580,6 +619,7 @@ export class GfcAutopilot implements Autopilot {
         if (r.valid && r.gsValid && r.isLocalizer && Math.abs(cdiToDots(r.gsDeviation)) <= g.gsCaptureDots) {
           this.enterVsMode('GS');
           this.gsIntegral = 0;
+          this.gsLostTimer = 0;
           s.armedVertical = null;
           this.modeChanged();
         }
@@ -587,17 +627,19 @@ export class GfcAutopilot implements Autopilot {
     }
     if (s.vertical === 'GS') {
       const r = this.radioFor(nav);
-      if (s.lateral !== 'APR' || !(r.valid && r.gsValid)) {
-        this.sourceLostTimer += dt;
-        if (s.lateral !== 'APR' || this.sourceLostTimer >= g.sourceLossGraceS) { this.selectPitchHold(); this.modeChanged(); }
-      }
+      // own timer: the lateral source-loss timer is reset every frame while the localizer is valid
+      this.gsLostTimer = r.valid && r.gsValid ? 0 : this.gsLostTimer + dt;
+      if (s.lateral !== 'APR' || this.gsLostTimer >= g.sourceLossGraceS) { this.selectPitchHold(); this.modeChanged(); }
     }
 
     // Altitude pre-select: armed whenever a non-ALT mode flies toward (or away from) the target.
-    if (s.vertical === 'PIT' || s.vertical === 'VS' || s.vertical === 'FLC') {
+    if (!s.lvl && (s.vertical === 'PIT' || s.vertical === 'VS' || s.vertical === 'FLC')) {
       if (s.armedVertical !== 'GS') {
         const closing = err * vs > 0;
-        if (Math.abs(err) <= g.altHoldThresholdM) {
+        // within the hold band: capture unless (commanded to be) climbing/descending away from the
+        // target — in VS mode the selected VS tells the direction before the aircraft follows it
+        const dir = s.vertical === 'VS' ? s.verticalSpeedTargetMs : vs;
+        if (Math.abs(err) <= g.altHoldThresholdM && (err * dir > 0 || Math.abs(dir) < g.altLevelVsMs)) {
           this.enterVsMode('ALT');
           s.armedVertical = null;
           this.modeChanged();
@@ -674,6 +716,7 @@ export class GfcAutopilot implements Autopilot {
     const vs = ac.verticalSpeedMs;
     const err = s.altitudeTargetM - ac.altitudeIndicatedM;
     let pitch: number;
+    let lo = L.pitchMinRad, hi = L.pitchMaxRad;
     switch (s.vertical) {
       case 'PIT':
         this.vsCmd = 0;
@@ -690,7 +733,13 @@ export class GfcAutopilot implements Autopilot {
       }
       case 'VS':
         this.vsCmd = clamp(s.verticalSpeedTargetMs, -L.vsSelectMaxMs, L.vsSelectMaxMs);
-        pitch = this.vsPid.update(this.vsCmd, vs, dt);
+        if (s.lvl && wingsFirst(ac.euler[0], L.lvlWingsFirstBankRad)) {
+          // LVL, steep bank: hold the attitude (no pull while banked) and keep the VS loop primed
+          this.vsPid.resetToOutput(levelFlightPitch(theta, vs, ac.aero.tas), vs, vs);
+          pitch = theta;
+          lo = Math.min(lo, theta);
+          hi = Math.max(hi, theta);
+        } else pitch = this.vsPid.update(this.vsCmd, vs, dt);
         break;
       case 'ALT':
         this.vsCmd = altitudeToVs(err, g.altToVs, L.altVsLimitMs);
@@ -713,7 +762,8 @@ export class GfcAutopilot implements Autopilot {
         this.vsCmd = 0;
         pitch = theta;
     }
-    return clamp(pitch, L.pitchMinRad, L.pitchMaxRad);
+    if (s.lvl) pitch = Math.min(pitch, alphaLimitedPitch(theta, ac.aero.alpha, L.lvlAlphaMaxRad));
+    return clamp(pitch, lo, hi);
   }
 
   // ───────────────────────────── helpers ─────────────────────────────
@@ -732,13 +782,18 @@ export class GfcAutopilot implements Autopilot {
     s.outPitch = this.pitchPid.output;
   }
 
+  /** Spec §5.3 auto-trim: relieve a steady servo load with the trim, with a start delay and hysteresis. */
   private updateAutoTrim(dt: number): void {
     const s = this.state;
     const g = this.config.gains;
     const out = s.outPitch;
-    if (Math.abs(out) > g.trimDeadband) this.trimTimer += dt;
-    else this.trimTimer = 0;
-    if (this.trimTimer >= g.trimDelayS) s.trimCommand = clamp(s.trimCommand + Math.sign(out) * g.trimRatePerS * dt, -1, 1);
+    if (this.trimRunning) {
+      if (Math.abs(out) < g.trimStopBand) { this.trimRunning = false; this.trimTimer = 0; }
+    } else {
+      this.trimTimer = Math.abs(out) > g.trimDeadband ? this.trimTimer + dt : 0;
+      if (this.trimTimer >= g.trimDelayS) this.trimRunning = true;
+    }
+    if (this.trimRunning) s.trimCommand = clamp(s.trimCommand + Math.sign(out) * g.trimRatePerS * dt, -1, 1);
   }
 
   private updateAltAlert(ac: AircraftState): void {
@@ -759,11 +814,7 @@ export class GfcAutopilot implements Autopilot {
     s.kind = 'none'; s.radio = null; s.plan = null;
     const plan = nav.plan;
     const planOk = plan !== null && plan.waypoints.length > 0 && Number.isFinite(plan.desiredTrackDeg) && Number.isFinite(plan.crossTrackM);
-    const useRadio = (r: NavRadioState): void => {
-      if (!r.valid) return;
-      s.kind = r.isLocalizer ? 'loc' : 'vor';
-      s.radio = r;
-    };
+    let radio: NavRadioState | null = null;
     switch (mode) {
       case 'GPS':
         if (planOk) { s.kind = 'gps'; s.plan = plan; }
@@ -771,13 +822,17 @@ export class GfcAutopilot implements Autopilot {
       case 'NAV':
         if (this.navSource === 'gps' || (this.navSource === 'auto' && planOk)) {
           if (planOk) { s.kind = 'gps'; s.plan = plan; }
-        } else useRadio(this.radioFor(nav));
+        } else radio = this.radioFor(nav);
         break;
       case 'LOC': case 'APR':
-        useRadio(this.radioFor(nav));
+        radio = this.radioFor(nav);
         break;
       default:
         break;
+    }
+    if (radio && radio.valid) {
+      s.kind = radio.isLocalizer ? 'loc' : 'vor';
+      s.radio = radio;
     }
     return s;
   }

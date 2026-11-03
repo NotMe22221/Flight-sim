@@ -1,6 +1,7 @@
 /**
  * Cockpit camera: eye at the pilot eye point, free-look (pointer / look axes) with a smooth
- * return to centre, head orientation lagging the aircraft attitude (first-order, τ ≈ 0.08 s)
+ * return to the neutral head pose (a few degrees nose-down, `cockpitNeutralPitchRad`), head
+ * orientation lagging the aircraft attitude (first-order, τ ≈ 0.08 s)
  * and a head-displacement model (docs/research/01 §6): a second-order spring (ωn ≈ 6 rad/s,
  * ζ ≈ 0.7) per axis driven by the body specific force, 2 cm per g, each axis clamped ±5 cm.
  * The head moves opposite to the felt force: sinks under positive g, swings aft on the
@@ -78,7 +79,8 @@ export class CockpitMode implements CameraModeHandler {
     this.updateHead(frame);
     this.tmp.copy(frame.eye).add(this.offset);
     camera.position.copy(this.tmp).applyQuaternion(frame.quat).add(frame.pos);
-    quatFromYawPitch(s.lookYaw, s.lookPitch, this.qLook);
+    // the free-look offsets are relative to the neutral head pose (slightly nose-down)
+    quatFromYawPitch(s.lookYaw, s.lookPitch + o.cockpitNeutralPitchRad, this.qLook);
     camera.quaternion.copy(this.qHead).multiply(this.qLook);
     return undefined; // user FOV
   }

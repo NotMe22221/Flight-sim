@@ -309,6 +309,9 @@
 .fs-ui .act-detail-title { font-size: 1.5em; font-weight: 300; letter-spacing: 0.06em; margin: 4px 0 0; }
 
 /* world map extras */
+.fs-ui .wm-sidebar { overflow-y: auto; scrollbar-width: thin; }
+.fs-ui .wm-sidebar .airport-card { flex: 1 0 auto; }
+.fs-ui .departure-summary { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
 .fs-ui .wm-scale { display: flex; align-items: center; gap: 8px; }
 .fs-ui .wm-scale-bar { display: inline-block; height: 6px; min-width: 4px; border: 2px solid var(--fg-dim); border-top: 0; }
 .fs-ui .airport-item.hover { background: var(--ui-bg-hover); border-color: var(--ui-border-strong); }

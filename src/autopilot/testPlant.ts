@@ -12,7 +12,7 @@
  *   the trim speed, so the plant is hands-off stable (speed stability emerges from the lift balance).
  * Path model: α = θ − γ, L = q̄·S·CL(α) (linear up to CLmax, then a post-stall drop),
  *   γ̇ = (L·cosφ − W·cosγ)/(m·V), ψ̇ = L·sinφ/(m·V·cosγ), V̇ = (T − D)/m − g·sinγ.
- * Sideslip: β → −kr·δr + ka·δa with a 0.7 s lag (adverse yaw from aileron).
+ * Sideslip: β → β_bias − kr·δr + ka·δa with a 0.7 s lag (adverse yaw from aileron).
  */
 import type { AircraftState, ControlInputs, FlightPlan, NavRadioState, Vec3 } from '../core/types';
 import { clamp, qConj, qFromEuler, wrapPi, wrapTwoPi } from '../core/math';
@@ -48,6 +48,8 @@ export interface TestPlantConfig {
   betaPerRudderRad: number;
   betaPerAileronRad: number;
   betaTauS: number;
+  /** steady sideslip with neutral controls (e.g. P-factor slip in a full-power climb), rad */
+  betaBiasRad: number;
   /** never-exceed speed for the overspeed warning, m/s */
   vneMs: number;
   /** ground elevation under the aircraft, m */
@@ -78,6 +80,7 @@ export const defaultTestPlantConfig = (): TestPlantConfig => ({
   betaPerRudderRad: 0.17,
   betaPerAileronRad: 0.07,
   betaTauS: 0.7,
+  betaBiasRad: 0,
   vneMs: 163 * KT,
   groundElevationM: 0,
   windNED: [0, 0, 0],
@@ -248,7 +251,7 @@ export class TestPlant {
     const qCmd = c.pitchAuthorityRadS * auth * de - c.alphaStiffnessPerS * (alpha - this.alphaTrim);
     this.p += (pCmd - this.p) * (1 - Math.exp(-dt / c.rollTauS));
     this.q += (qCmd - this.q) * (1 - Math.exp(-dt / c.pitchTauS));
-    const betaSS = -c.betaPerRudderRad * dr + c.betaPerAileronRad * da;
+    const betaSS = c.betaBiasRad - c.betaPerRudderRad * dr + c.betaPerAileronRad * da;
     this.beta += (betaSS - this.beta) * (1 - Math.exp(-dt / c.betaTauS));
 
     // path

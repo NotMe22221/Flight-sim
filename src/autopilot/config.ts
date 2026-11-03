@@ -35,6 +35,14 @@ export interface AutopilotLimits {
   servoRatePerS: number;
   /** |roll| below this on ROL engage → wings level instead of holding the roll */
   rolWingsLevelRad: number;
+  /** LVL: roll-command slew rate while levelling the wings (faster than normal, it is a recovery) */
+  lvlRollCmdRateRadS: number;
+  /** LVL: the vertical loop only starts pulling/pushing once |bank| is below this (wings first) */
+  lvlWingsFirstBankRad: number;
+  /** LVL: load factor budget of the pull-up / push-over; the pitch command slews at (n − 1)·g/V */
+  lvlLoadFactor: number;
+  /** LVL: angle-of-attack ceiling on the pitch command (keeps the recovery out of the stall) */
+  lvlAlphaMaxRad: number;
 }
 
 export interface AutopilotGains {
@@ -56,6 +64,8 @@ export interface AutopilotGains {
   altCaptureMinM: number;
   /** ALTS → ALT when within this distance of the target, m */
   altHoldThresholdM: number;
+  /** within the hold band, a non-ALT mode captures only when closing or when |VS| is below this, m/s */
+  altLevelVsMs: number;
   /** VS → pitch PI (rad per m/s, rad per m/s per s) */
   vsToPitchKp: number;
   vsToPitchKi: number;
@@ -116,9 +126,14 @@ export interface AutopilotGains {
   ydGain: number;
   ydWashoutS: number;
   ydAuthority: number;
-  /** auto-trim: trim wheel rate (normalised per s), servo deadband, delay before trimming */
+  /**
+   * Auto-trim (spec §5.3): when |elevator servo| > `trimDeadband` for `trimDelayS`, the trim runs at
+   * `trimRatePerS` (normalised trim per s) in the relieving direction until |servo| < `trimStopBand`
+   * (hysteresis, so the servo ends up centred instead of parked at the deadband edge).
+   */
   trimRatePerS: number;
   trimDeadband: number;
+  trimStopBand: number;
   trimDelayS: number;
 }
 
@@ -169,6 +184,11 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     servoAuthority: 0.5,
     servoRatePerS: 1.0,
     rolWingsLevelRad: 6 * DEG,
+    lvlRollCmdRateRadS: 10 * DEG,
+    lvlWingsFirstBankRad: 30 * DEG,
+    lvlLoadFactor: 1.8,
+    // C172 FDM: stall warning α 10.3°, CLmax at 16°; test plant: warning 12.6°, stall 15.6°
+    lvlAlphaMaxRad: 10 * DEG,
   },
   gains: {
     // Spec §5.2: Kp 0.025 /deg, Ki 0.004 /deg/s, Kd 0.010 per deg/s, out ±0.5, iLim 0.15
@@ -182,6 +202,7 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     altCaptureAccelMs2: 0.03 * G0, // 1000 fpm captures ~185 ft out
     altCaptureMinM: 50 * 0.3048,
     altHoldThresholdM: 15,
+    altLevelVsMs: 100 * FPM,
     vsToPitchKp: 0.008 * DEG / FPM, // 0.008 deg per fpm → 500 fpm error = 4°
     vsToPitchKi: 0.0012 * DEG / FPM,
     flcKp: 0.6 * DEG / KT, // 0.6 deg per kt
@@ -222,9 +243,12 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     ydGain: 0.8, // rudder per rad/s of washed-out yaw rate
     ydWashoutS: 2.0,
     ydAuthority: 0.3,
-    trimRatePerS: 0.04,
+    // Spec §5.3: 0.02 /s after > 2 s above 0.03. With the C172's trim worth ≈ 0.4 of elevator travel
+    // that is ≈ 0.2°/s of elevator — slow enough that the trim never fights the pitch loop.
+    trimRatePerS: 0.02,
     trimDeadband: 0.03,
-    trimDelayS: 1.0,
+    trimStopBand: 0.01,
+    trimDelayS: 2.0,
   },
   protections: {
     overrideThreshold: 0.5,

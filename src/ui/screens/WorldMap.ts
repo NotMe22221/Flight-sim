@@ -98,7 +98,7 @@ export class WorldMap extends Screen {
     this.focused = ap;
     this.card.show(ap);
     this.search.setSelected(ap.icao);
-    if (centre) this.map.centerOn(ap.position.lat, ap.position.lon, Math.max(this.map.currentView.pxPerDeg, 400));
+    if (centre) this.map.centerOn(ap.position.lat, ap.position.lon, AIRPORT_FOCUS_PX_PER_DEG);
     else this.map.invalidate();
   }
 

@@ -31,6 +31,36 @@ const TWO_PI = Math.PI * 2;
 /** Superellipse point for exponent n: sgn(c)|c|^(2/n). */
 const sePow = (c: number, n: number): number => (c < 0 ? -1 : 1) * Math.pow(Math.abs(c), 2 / n);
 
+type StationKey = 'width' | 'height' | 'yCenter' | 'n';
+const KEYS: readonly StationKey[] = ['width', 'height', 'yCenter', 'n'];
+
+/**
+ * Monotone cubic (Fritsch–Butland) tangents for values `p` at abscissae `x`: C1, no overshoot,
+ * flat at local extrema. (A smoothstep blend would be flat at *every* station and make long
+ * tapering lofts wavy.)
+ */
+function monotoneTangents(x: readonly number[], p: readonly number[]): number[] {
+  const n = p.length;
+  const h: number[] = [], d: number[] = [];
+  for (let k = 0; k < n - 1; k++) { h.push(x[k + 1] - x[k]); d.push((p[k + 1] - p[k]) / h[k]); }
+  const m = new Array<number>(n).fill(0);
+  for (let k = 1; k < n - 1; k++) {
+    if (d[k - 1] * d[k] <= 0) continue;
+    const w1 = 2 * h[k] + h[k - 1], w2 = h[k] + 2 * h[k - 1];
+    m[k] = (w1 + w2) / (w1 / d[k - 1] + w2 / d[k]);
+  }
+  const end = (d0: number, d1: number | undefined, h0: number, h1: number | undefined): number => {
+    if (d1 === undefined || h1 === undefined) return d0;
+    let t = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1);
+    if (Math.sign(t) !== Math.sign(d0)) t = 0;
+    else if (Math.sign(d0) !== Math.sign(d1) && Math.abs(t) > Math.abs(3 * d0)) t = 3 * d0;
+    return t;
+  };
+  m[0] = end(d[0], d[1], h[0], h[1]);
+  m[n - 1] = end(d[n - 2], d[n - 3], h[n - 2], h[n - 3]);
+  return m;
+}
+
 /** A loft profile: interpolates stations and samples the skin surface. */
 export class LoftProfile {
   readonly zMin: number;
@@ -40,6 +70,7 @@ export class LoftProfile {
   private readonly tmpB = new THREE.Vector3();
   private readonly tmpC = new THREE.Vector3();
   private readonly tmpSec: LoftStation = { z: 0, width: 0, height: 0, yCenter: 0, n: 2 };
+  private readonly tangents: Record<StationKey, number[]>;
 
   constructor(readonly stations: readonly LoftStation[]) {
     if (stations.length < 2) throw new Error('LoftProfile needs at least 2 stations');
@@ -48,9 +79,12 @@ export class LoftProfile {
     }
     this.zMin = stations[0].z;
     this.zMax = stations[stations.length - 1].z;
+    const zs = stations.map((s) => s.z);
+    this.tangents = {} as Record<StationKey, number[]>;
+    for (const k of KEYS) this.tangents[k] = monotoneTangents(zs, stations.map((s) => s[k]));
   }
 
-  /** Interpolated station parameters at z (clamped to the profile range). */
+  /** Interpolated station parameters at z (clamped to the profile range); C1 monotone cubic. */
   sectionAt(z: number, out: LoftStation): LoftStation {
     const s = this.stations;
     if (z <= s[0].z) { Object.assign(out, s[0]); out.z = z; return out; }
@@ -59,15 +93,26 @@ export class LoftProfile {
     let i = 0;
     while (s[i + 1].z < z) i++;
     const a = s[i], b = s[i + 1];
-    const f = (z - a.z) / (b.z - a.z);
-    // smoothstep between stations gives C1 continuity across the stations
-    const k = f * f * (3 - 2 * f);
+    const h = b.z - a.z;
+    const f = (z - a.z) / h;
+    const f2 = f * f, f3 = f2 * f;
+    const h00 = 2 * f3 - 3 * f2 + 1, h10 = f3 - 2 * f2 + f, h01 = -2 * f3 + 3 * f2, h11 = f3 - f2;
     out.z = z;
-    out.width = a.width + (b.width - a.width) * k;
-    out.height = a.height + (b.height - a.height) * k;
-    out.yCenter = a.yCenter + (b.yCenter - a.yCenter) * k;
-    out.n = a.n + (b.n - a.n) * k;
+    for (const k of KEYS) {
+      const m = this.tangents[k];
+      out[k] = h00 * a[k] + h10 * h * m[i] + h01 * b[k] + h11 * h * m[i + 1];
+    }
     return out;
+  }
+
+  /**
+   * Parameter t on the right (+X) half of the section at z whose height is y (t = 0 bottom,
+   * π/2 side, π top); the left half is 2π − t. Heights outside the section clamp to the ends.
+   */
+  tAtHeight(z: number, y: number): number {
+    const s = this.sectionAt(z, this.tmpSec);
+    const q = Math.max(-1, Math.min(1, (y - s.yCenter) / (s.height / 2)));
+    return Math.PI / 2 + Math.asin(Math.sign(q) * Math.pow(Math.abs(q), s.n / 2));
   }
 
   /** Surface point at (z, t). */

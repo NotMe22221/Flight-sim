@@ -13,20 +13,26 @@ import type { DepartureIntent, LandingIntent } from './types';
 
 const altFt = (s: AtcSession): number => (s.ac ? s.ac.altitudeMslM / FT : 0);
 
-/** Clear the landing clearance and re-arm the approach watch (go-around, touch-and-go). */
+/**
+ * Cancel the landing clearance after a go-around / touch-and-go / pattern exit. The next
+ * clearance is held back until the aircraft has flown a lateral leg (`flags.armed`), so a
+ * go-around on final is not immediately re-cleared.
+ */
 export function resetApproach(s: AtcSession): void {
   s.landingClearance = 'none';
   s.flags.minHeightM = Infinity;
   s.flags.climbS = 0;
-  s.flags.callIssued = false;
+  s.flags.armed = false;
 }
 
-/** Issue the landing clearance (reply or unsolicited) with its readback. */
+/** Record the landing clearance just given (reply or unsolicited) and ask for its readback. */
 export function landingClearanceText(s: AtcSession, ctx: FieldCtx): void {
   const twr = ctx.info.tower, frame = s.runway;
   if (!twr || !frame) return;
   const kind = s.landingIntent === 'touch-and-go' ? 'touch-and-go' : 'land';
   s.landingClearance = kind;
+  s.flags.minHeightM = Infinity;
+  s.flags.climbS = 0;
   s.expectReadback(twr, `Read back: runway ${rwySpoken(frame.ident).text}, ${kind === 'land' ? 'cleared to land' : 'cleared touch and go'}`,
     (cs) => readback.landing(cs, frame.ident, kind));
 }
@@ -67,7 +73,6 @@ export function goingAround(s: AtcSession, ctx: FieldCtx): void {
   if (!frame) return;
   const twr = ctx.info.tower;
   resetApproach(s);
-  s.flags.callIssued = true; // the tower does not also order a go-around
   if (!twr) {
     s.announce(ctx.info.ctaf, (cs) => ctaf.goingAround(ctx.info.ctaf, cs, ctx.info.shortName, frame.ident));
     return;

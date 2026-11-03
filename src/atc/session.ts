@@ -52,6 +52,10 @@ export interface PhaseFlags {
   touchedDown: boolean;
   /** continuous time outside the pattern, s */
   outsideS: number;
+  /** a landing clearance may be issued on final (false right after a go-around / touch-and-go) */
+  armed: boolean;
+  /** the aircraft has been on a pattern leg in this phase */
+  joined: boolean;
 }
 
 const DEFAULT_UTC_MS = Date.UTC(2026, 0, 1, 12, 0, 0);
@@ -91,7 +95,7 @@ export class AtcSession {
   readonly atisHeard = new Map<string, string>();
   /** airport whose automatic INBOUND detection is suppressed until the aircraft leaves its area */
   inboundSuppressed: string | null = null;
-  readonly flags: PhaseFlags = { timeS: 0, callIssued: false, minHeightM: Infinity, climbS: 0, touchedDown: false, outsideS: 0 };
+  readonly flags: PhaseFlags = { timeS: 0, callIssued: false, minHeightM: Infinity, climbS: 0, touchedDown: false, outsideS: 0, armed: true, joined: false };
   /** kinematic timers (not reset on phase change) */
   stoppedS = 0;
   airborneS = 0;
@@ -119,12 +123,19 @@ export class AtcSession {
     if (p === this.phase) return;
     this.phase = p;
     const f = this.flags;
-    f.timeS = 0; f.callIssued = false; f.minHeightM = Infinity; f.climbS = 0; f.touchedDown = false; f.outsideS = 0;
+    f.timeS = 0; f.callIssued = false; f.minHeightM = Infinity; f.climbS = 0; f.touchedDown = false; f.outsideS = 0; f.armed = true; f.joined = false;
     this.menuDirty = true;
   }
 
-  /** ATC context of an airport (cached; ATIS refreshed). */
+  /** ATC context of an airport (cached; ATIS refreshed — allocates, call on events or at 1 Hz). */
   fieldCtx(airport: Airport): FieldCtx {
+    const ctx = this.peekField(airport);
+    this.refreshAtis(ctx);
+    return ctx;
+  }
+
+  /** Cached ATC context of an airport without refreshing its ATIS (for menus). */
+  peekField(airport: Airport): FieldCtx {
     let ctx = this.fields.get(airport.icao);
     if (!ctx) {
       ctx = {
@@ -136,7 +147,6 @@ export class AtcSession {
       };
       this.fields.set(airport.icao, ctx);
     }
-    this.refreshAtis(ctx);
     return ctx;
   }
 
@@ -155,7 +165,6 @@ export class AtcSession {
     ctx.report = buildAtis({
       airport: ap, weather: w, letter: ctx.tracker.letter, utcMs: ctx.tracker.issuedUtcMs, runways: idents,
       magVarDeg: ctx.magVarDeg, ilsRunway: lowWx ? ils : undefined, automated: !ctx.info.atis && !!ctx.info.awos,
-      name: undefined,
     });
     this.menuDirty = true;
   }
@@ -251,7 +260,7 @@ export class AtcSession {
     this.stoppedS = 0; this.airborneS = 0; this.groundS = 0;
     this.phase = 'PARKED';
     const f = this.flags;
-    f.timeS = 0; f.callIssued = false; f.minHeightM = Infinity; f.climbS = 0; f.touchedDown = false; f.outsideS = 0;
+    f.timeS = 0; f.callIssued = false; f.minHeightM = Infinity; f.climbS = 0; f.touchedDown = false; f.outsideS = 0; f.armed = true; f.joined = false;
     this.menuDirty = true;
   }
 }

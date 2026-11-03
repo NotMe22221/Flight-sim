@@ -28,8 +28,9 @@ export class Propeller {
     const r = prop.diameter / 2;
 
     // spinner: lathe profile (radius, length) revolved about Y, then pointed toward −Z
-    const pts = [new THREE.Vector2(0.0, 0.26), new THREE.Vector2(0.07, 0.21), new THREE.Vector2(0.125, 0.14), new THREE.Vector2(0.155, 0.06), new THREE.Vector2(0.165, 0.0), new THREE.Vector2(0.0, 0.0)];
-    const spinnerGeo = new THREE.LatheGeometry(pts, 20);
+    // profile with increasing y (base → tip) so LatheGeometry's faces point outward
+    const pts = [new THREE.Vector2(0.0, 0.0), new THREE.Vector2(0.165, 0.0), new THREE.Vector2(0.163, 0.03), new THREE.Vector2(0.155, 0.07), new THREE.Vector2(0.135, 0.13), new THREE.Vector2(0.1, 0.19), new THREE.Vector2(0.05, 0.24), new THREE.Vector2(0.0, 0.265)];
+    const spinnerGeo = new THREE.LatheGeometry(pts, 24);
     spinnerGeo.rotateX(-Math.PI / 2);
     this.geometries.push(spinnerGeo);
     const spinner = new THREE.Mesh(spinnerGeo, mats.paintPlain);
@@ -71,8 +72,11 @@ export class Propeller {
     this.group.add(this.disc);
   }
 
-  /** Advance by dt (s, ≥ 0) with the engine at `rpm` (non-finite values count as 0). */
-  update(rpm: number, dt: number): void {
+  /**
+   * Advance by dt (s, ≥ 0) with the engine at `rpm` (non-finite values count as 0).
+   * @param fromCockpit the disc is seen from behind the panel: much fainter, like the real blur
+   */
+  update(rpm: number, dt: number, fromCockpit = false): void {
     const r = Number.isFinite(rpm) ? rpm : 0;
     const step = dt > 0 ? dt : 0;
     const omega = (r * 2 * Math.PI) / 60;
@@ -83,7 +87,7 @@ export class Propeller {
     this.blades.visible = bladesVisible;
     if (bladesVisible) this.blades.rotation.z = this.angle;
     this.disc.visible = discK > 0.001;
-    this.discMaterial.opacity = 0.85 * discK;
+    this.discMaterial.opacity = (fromCockpit ? 0.3 : 0.85) * discK;
     // slow shimmer of the blur pattern (the real rate would alias)
     this.disc.rotation.z = (this.disc.rotation.z - this.sense * 2.5 * step) % (2 * Math.PI);
   }

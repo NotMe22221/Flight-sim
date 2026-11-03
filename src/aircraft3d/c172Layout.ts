@@ -5,14 +5,15 @@
  * span 11.0 m, length 8.28 m, height 2.72 m, S 16.2 m², MAC 1.49 m, prop 1.93 m.
  *
  * What is taken from the AircraftConfig (so the FDM and the model agree): eye point, prop
- * hub position/diameter/blade count/sense, gear contact points, tyre radii, steering range,
- * span. The fuselage shape itself is fixed C172 geometry.
+ * hub station/diameter/blade count/sense, gear contact points, tyre radii, steering range,
+ * span. The airframe itself is fixed C172 geometry built around the eye point.
  */
 import * as THREE from 'three';
 import type { AircraftConfig, GearSpec, PropellerSpec, Vec3 } from '../core/types';
 import { bodyVecToThreeLocal } from './frames';
 import type { LoftStation } from './loft';
 import type { WingSection } from './airfoil';
+import type { SideXY, SkinOutline } from './skin';
 
 /** The subset of {@link AircraftConfig} the 3D model needs. A full AircraftConfig is accepted too. */
 export interface AircraftModelConfig {
@@ -76,12 +77,25 @@ export interface GearLayout {
 export interface C172Layout {
   /** total length range used for livery u mapping */
   zNose: number; zTail: number;
-  cowlStations: LoftStation[];
-  cabinStations: LoftStation[];
-  /** window patches on the cabin loft: [z0, z1, t0, t1] */
-  windows: { name: string; z0: number; z1: number; t0: number; t1: number }[];
-  /** lining patches of the cockpit shell (opaque): [z0, z1, t0, t1] */
-  lining: { z0: number; z1: number; t0: number; t1: number }[];
+  /**
+   * One fuselage profile from the spinner to the tail, so the cowl, the cabin shell and the
+   * tailcone are regions of the same surface and shade seamlessly where they meet.
+   */
+  fuselage: {
+    stations: LoftStation[];
+    /** windshield base: the cowl (visible from the cockpit too) ends here */
+    cowlEndZ: number;
+    /** the cabin shell (replaced by the cockpit lining in the cockpit view) ends here */
+    cabinEndZ: number;
+    /** firewall (front of the cockpit lining, behind the panel) */
+    firewallZ: number;
+  };
+  /** window outlines in the side view (glass on the skin, holes in the skin and the lining) */
+  windows: SkinOutline[];
+  /** door outlines (exterior seam lines) */
+  doors: SkinOutline[];
+  /** design heights the cabin is built around (model y, m) */
+  cabin: { floorY: number; sillY: number; windowTopY: number; roofY: number; deckY: number; bellyY: number };
   wing: {
     /** right-wing sections (mirror for the left) */
     sections: WingSection[];
@@ -93,12 +107,15 @@ export interface C172Layout {
   };
   strut: { fuselage: THREE.Vector3; wing: THREE.Vector3 };
   hstab: { sections: WingSection[]; hingeFraction: number; halfSpan: number };
-  fin: { sections: WingSection[]; hingeFraction: number; rootY: number; span: number };
+  /** fin sections: `x` is the height above `rootY`; `dorsal` is the fillet ahead of the fin */
+  fin: { sections: WingSection[]; dorsal: WingSection[]; hingeFraction: number; rootY: number; span: number };
   prop: { hub: THREE.Vector3; diameter: number; blades: number; sense: 1 | -1 };
   gear: { nose: GearLayout | null; mains: GearLayout[] };
   eye: THREE.Vector3;
-  panel: { center: THREE.Vector3; width: number; height: number; tiltRad: number; g1000Height: number };
-  glareshield: { center: THREE.Vector3; width: number; depth: number };
+  /** steam panel plane (2:1 like its 1024×512 texture) and the G1000 plane (PFD+MFD, 2.74:1) */
+  panel: { center: THREE.Vector3; width: number; height: number; tiltRad: number; g1000Center: THREE.Vector3; g1000Height: number };
+  /** padded glareshield hood: rear lip over the panel, top surface running to the windshield */
+  glareshield: { lipY: number; lipZ: number; frontY: number; frontZ: number; width: number };
   lights: {
     navLeft: THREE.Vector3; navRight: THREE.Vector3; navTail: THREE.Vector3; beacon: THREE.Vector3;
     strobeLeft: THREE.Vector3; strobeRight: THREE.Vector3;
@@ -111,14 +128,34 @@ export interface C172Layout {
 /**
  * Resolve the full placement from a config. Pure (no Three.js scene objects), so it is
  * unit-testable; Vector3 is used only as a value type.
+ *
+ * The airframe is built around the pilot eye point with real C172 proportions (eye ≈ 1.0 m
+ * above the floor, 0.15 m above the cowl deck, 0.27 m below the wing chord line, window sill
+ * 0.29 m below the eye). The visual thrust line sits at most 0.62 m below the eye so the cowl
+ * keeps its shape even when the flight model puts its thrust axis lower.
  */
 export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
   const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  const eye = bodyVecToThreeLocal(cfg.geometry.eyePoint, new THREE.Vector3());
+  const E = eye.y;
+
+  // ── cabin design heights (model y) ──
+  const deckY = E - 0.15;      // cowl deck / windshield base on the centreline
+  const roofY = E + 0.25;      // cabin roof under the wing root
+  const bellyY = E - 1.12;     // cabin belly
+  const floorY = E - 1.0;      // cabin floor
+  const sillY = E - 0.29;      // side-window sill
+  const winTopY = E + 0.18;    // side-window top (door frame under the wing)
+  const zW0 = -0.93, zW1 = -0.36; // windshield base / top (at the wing leading edge)
+  const firewallZ = -1.04;     // FS 0 (CG at FS 41)
+
+  // ── wing ──
   const halfSpan = cfg.geometry.b / 2;
   const dihedralRad = 1.7 * D2R;
   const dz = Math.tan(dihedralRad);
-  const rootY = 1.0, leZ = -0.33, rootChord = 1.63, tipChord = 1.13;
-  const breakX = Math.min(3.0, halfSpan * 0.55);
+  const rootY = E + 0.27, leZ = -0.33, rootChord = 1.63, tipChord = 1.13;
+  // constant chord inboard of WS 100 (2.54 m), tapered outboard
+  const breakX = Math.min(2.55, halfSpan * 0.5);
   const wingSections: WingSection[] = [
     { x: 0.0, chord: rootChord, le: { x: 0, y: rootY, z: leZ } },
     { x: breakX, chord: rootChord, le: { x: 0, y: rootY + breakX * dz, z: leZ } },
@@ -133,8 +170,8 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
       const contact = bodyVecToThreeLocal(g.pos, new THREE.Vector3());
       const isNose = g.pos[0] > 0.5 || /nose/i.test(g.name);
       const attach = isNose
-        ? v(contact.x, -0.42, contact.z + 0.05)
-        : v(Math.sign(contact.x) * 0.42, -0.5, contact.z - 0.05);
+        ? v(contact.x, deckY - 0.82, contact.z + 0.05)
+        : v(Math.sign(contact.x) * 0.42, bellyY + 0.07, contact.z - 0.05);
       return { index, name: g.name, attach, contact, tyreRadius: g.tyreRadius, maxSteerRad: g.maxSteerDeg * D2R, width: isNose ? 0.11 : 0.14 };
     })
     .filter((g): g is GearLayout => g !== null);
@@ -142,101 +179,103 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
   const mains = gearLayouts.filter((g) => g !== nose);
 
   const propSpec = cfg.propeller;
-  const hub = propSpec ? bodyVecToThreeLocal(propSpec.position, new THREE.Vector3()) : v(0, 0.05, -1.98);
+  const hubCfg = propSpec ? bodyVecToThreeLocal(propSpec.position, new THREE.Vector3()) : v(0, -0.07, -1.98);
+  const hub = v(hubCfg.x, Math.max(hubCfg.y, E - 0.62), hubCfg.z);
   const diameter = propSpec?.diameterM ?? 1.93;
 
-  const eye = bodyVecToThreeLocal(cfg.geometry.eyePoint, new THREE.Vector3());
-  const panelCenter = v(0, eye.y - 0.35, eye.z - 0.65);
-
-  const cowlStations: LoftStation[] = [
-    { z: hub.z - 0.1, width: 0.42, height: 0.42, yCenter: hub.y, n: 2 },
-    { z: hub.z + 0.03, width: 0.74, height: 0.62, yCenter: hub.y - 0.02, n: 2.4 },
-    { z: hub.z + 0.48, width: 0.92, height: 0.8, yCenter: 0.04, n: 2.6 },
-    { z: -1.05, width: 1.06, height: 1.02, yCenter: 0.04, n: 2.8 },
-    { z: -0.95, width: 1.1, height: 1.1, yCenter: 0.0, n: 3.0 },
-  ];
-  const cabinStations: LoftStation[] = [
-    { z: -0.95, width: 1.1, height: 1.1, yCenter: 0.0, n: 3.0 },
-    { z: -0.35, width: 1.1, height: 1.5, yCenter: 0.2, n: 3.2 },
-    { z: 0.5, width: 1.1, height: 1.5, yCenter: 0.2, n: 3.2 },
-    { z: 1.1, width: 1.05, height: 1.48, yCenter: 0.2, n: 3.0 },
-    { z: 1.7, width: 0.85, height: 1.15, yCenter: 0.28, n: 2.6 },
-    { z: 2.6, width: 0.6, height: 0.8, yCenter: 0.33, n: 2.3 },
-    { z: 3.6, width: 0.42, height: 0.56, yCenter: 0.4, n: 2.2 },
-    { z: 4.6, width: 0.3, height: 0.42, yCenter: 0.47, n: 2.1 },
-    { z: 5.4, width: 0.2, height: 0.34, yCenter: 0.53, n: 2.0 },
-    { z: 5.95, width: 0.12, height: 0.28, yCenter: 0.58, n: 2.0 },
-  ];
-
-  const T_RIGHT = Math.PI / 2, T_TOP = Math.PI, T_LEFT = 1.5 * Math.PI;
-  const SIDE_UP = 0.92; // from the sill (side mid) up to the roof shoulder
-  const TOP_HALF = 0.8; // half-width of the top band (windscreen / roof / rear window)
-  const windows = [
-    { name: 'windscreen', z0: -0.93, z1: -0.38, t0: T_TOP - TOP_HALF, t1: T_TOP + TOP_HALF },
-    { name: 'rightDoor', z0: -0.42, z1: 0.42, t0: T_RIGHT, t1: T_RIGHT + SIDE_UP },
-    { name: 'rightRear', z0: 0.5, z1: 1.08, t0: T_RIGHT, t1: T_RIGHT + SIDE_UP },
-    { name: 'leftDoor', z0: -0.42, z1: 0.42, t0: T_LEFT - SIDE_UP, t1: T_LEFT },
-    { name: 'leftRear', z0: 0.5, z1: 1.08, t0: T_LEFT - SIDE_UP, t1: T_LEFT },
-    { name: 'rear', z0: 1.18, z1: 1.62, t0: T_TOP - TOP_HALF, t1: T_TOP + TOP_HALF },
-  ];
-  const zF = -0.95, zB = 1.7;
-  const lining = [
-    // lower half: left sill → bottom → right sill
-    { z0: zF, z1: zB, t0: T_LEFT, t1: 2 * Math.PI },
-    { z0: zF, z1: zB, t0: 0, t1: T_RIGHT },
-    // shoulders between the side-window top and the top band
-    { z0: zF, z1: zB, t0: T_RIGHT + SIDE_UP, t1: T_TOP - TOP_HALF },
-    { z0: zF, z1: zB, t0: T_TOP + TOP_HALF, t1: T_LEFT - SIDE_UP },
-    // side pillars (A / B / C posts and the rear quarter)
-    { z0: zF, z1: -0.42, t0: T_RIGHT, t1: T_RIGHT + SIDE_UP },
-    { z0: 0.42, z1: 0.5, t0: T_RIGHT, t1: T_RIGHT + SIDE_UP },
-    { z0: 1.08, z1: zB, t0: T_RIGHT, t1: T_RIGHT + SIDE_UP },
-    { z0: zF, z1: -0.42, t0: T_LEFT - SIDE_UP, t1: T_LEFT },
-    { z0: 0.42, z1: 0.5, t0: T_LEFT - SIDE_UP, t1: T_LEFT },
-    { z0: 1.08, z1: zB, t0: T_LEFT - SIDE_UP, t1: T_LEFT },
-    // roof between windscreen and rear window, and the rear bulkhead strip
-    { z0: -0.38, z1: 1.18, t0: T_TOP - TOP_HALF, t1: T_TOP + TOP_HALF },
-    { z0: 1.62, z1: zB, t0: T_TOP - TOP_HALF, t1: T_TOP + TOP_HALF },
+  // ── fuselage profile (top / bottom / width), spinner → tail ──
+  const st = (z: number, width: number, top: number, bottom: number, n: number): LoftStation =>
+    ({ z, width, height: top - bottom, yCenter: (top + bottom) / 2, n });
+  const hy = hub.y, hz = hub.z;
+  const stations: LoftStation[] = [
+    st(hz - 0.015, 0.34, hy + 0.17, hy - 0.17, 2.0),     // ring behind the spinner
+    st(hz + 0.06, 0.78, hy + 0.27, hy - 0.36, 2.4),      // nose bowl with the inlets
+    st(hz + 0.30, 0.96, hy + 0.36, hy - 0.45, 2.8),
+    st(-1.30, 1.04, deckY - 0.035, bellyY + 0.06, 2.6), // rounded cowl top (a hump from the seat)
+    st(firewallZ, 1.08, deckY - 0.012, bellyY + 0.02, 2.8),
+    st(zW0, 1.10, deckY, bellyY, 3.1),                  // windshield base
+    st(zW1, 1.12, roofY, bellyY, 4.0),                  // windshield top / wing LE
+    st(0.45, 1.12, roofY, bellyY, 4.0),                 // door rear post
+    st(1.10, 1.06, roofY - 0.02, bellyY + 0.05, 3.8),
+    st(1.55, 0.96, roofY - 0.10, bellyY + 0.12, 3.4),
+    st(2.00, 0.80, roofY - 0.30, bellyY + 0.19, 3.0),   // end of the rear window
+    st(3.00, 0.58, roofY - 0.45, bellyY + 0.33, 2.6),
+    st(4.00, 0.41, roofY - 0.53, bellyY + 0.43, 2.4),
+    st(5.00, 0.27, roofY - 0.58, bellyY + 0.51, 2.2),
+    st(5.70, 0.17, roofY - 0.60, bellyY + 0.57, 2.0),
+    st(6.02, 0.07, roofY - 0.61, bellyY + 0.63, 2.0),
   ];
 
+  // ── windows (side view, counter-clockwise: z to the right, y up) ──
+  // The A-pillar runs from the windshield's lower corner to the roof corner at the wing LE;
+  // the door window's front edge is parallel to it, 0.085 m further aft (≈ 5 cm pillar).
+  const aY0 = deckY - 0.08, aY1 = winTopY - 0.03;
+  const pillarSlope = (zW1 - 0.02 - zW0) / (aY1 - aY0); // dz per dy
+  const doorFrontZ = (y: number) => zW0 + 0.085 + (y - aY0) * pillarSlope;
+  const windows: SkinOutline[] = [
+    { name: 'windscreen', side: 'both', radius: 0.035, outline: [[zW0 - 0.06, aY0], [zW0, aY0], [zW1 - 0.02, aY1], [zW1 - 0.02, roofY + 0.4], [zW0 - 0.06, roofY + 0.4]] },
+    { name: 'rear', side: 'both', radius: 0.06, outline: [[1.38, winTopY - 0.08], [1.95, deckY + 0.02], [1.95, roofY + 0.4], [1.38, roofY + 0.4]] },
+  ];
+  const doorWindow: SideXY[] = [[zW0 + 0.085, sillY], [0.37, sillY], [0.37, winTopY], [doorFrontZ(winTopY), winTopY], [zW0 + 0.085, aY0]];
+  const rearSide: SideXY[] = [[0.47, sillY + 0.02], [1.10, sillY + 0.04], [1.30, winTopY - 0.08], [1.22, winTopY - 0.02], [0.47, winTopY - 0.02]];
+  const doorOutline: SideXY[] = [[zW0 + 0.055, bellyY + 0.16], [0.42, bellyY + 0.16], [0.42, winTopY + 0.045], [doorFrontZ(winTopY + 0.045) - 0.03, winTopY + 0.045], [zW0 + 0.055, aY0]];
+  for (const [side, sfx] of [['right', 'Right'], ['left', 'Left']] as const) {
+    windows.push({ name: `door${sfx}`, side, radius: 0.05, outline: doorWindow });
+    windows.push({ name: `rear${sfx}`, side, radius: 0.06, outline: rearSide });
+  }
+  const doors: SkinOutline[] = (['right', 'left'] as const).map((side) => ({ name: `door:${side}`, side, radius: 0.04, outline: doorOutline }));
+
+  // ── empennage: stabiliser on the tailcone, swept fin (≈1.36 m) with a dorsal fillet ──
   const hHalf = 1.72;
+  const stabY = bellyY + 0.66;
   const hstabSections: WingSection[] = [
-    { x: 0, chord: 1.15, le: { x: 0, y: 0.56, z: 4.9 } },
-    { x: hHalf, chord: 0.72, le: { x: 0, y: 0.56, z: 5.25 } },
+    { x: 0, chord: 1.28, le: { x: 0, y: stabY, z: 4.72 } },
+    { x: hHalf, chord: 0.82, le: { x: 0, y: stabY, z: 5.12 } },
   ];
-  const finTop = cfg.geometry.heightM - cgAglM;
-  const finRootY = 0.64; // tailcone top where the fin root sits
-  const finSpan = Math.max(0.5, finTop - finRootY);
-  // fin sections: 'x' is the vertical span (0 at the root, up), y = 0 (centred laterally)
+  const finRootY = roofY - 0.61; // tailcone top under the fin
+  const finSpan = 1.36;
   const finSections: WingSection[] = [
-    { x: 0, chord: 1.5, le: { x: 0, y: 0, z: 4.4 } },
-    { x: 0.3 * finSpan, chord: 1.15, le: { x: 0, y: 0, z: 4.85 } },
-    { x: finSpan, chord: 0.62, le: { x: 0, y: 0, z: 5.4 } },
+    { x: 0, chord: 1.62, le: { x: 0, y: 0, z: 4.42 } },
+    { x: 0.35, chord: 1.3, le: { x: 0, y: 0, z: 4.7 } },
+    { x: finSpan, chord: 0.66, le: { x: 0, y: 0, z: 5.42 } },
+  ];
+  const finLeAt = (h: number) => 4.42 + (h / finSpan) * (5.42 - 4.42);
+  const dorsal: WingSection[] = [
+    { x: 0, chord: 1.35, le: { x: 0, y: 0, z: 3.2 } },
+    { x: 0.3, chord: 0.12, le: { x: 0, y: 0, z: finLeAt(0.3) - 0.02 } },
   ];
 
   const tipY = rootY + halfSpan * dz;
   const wingTipLE = leZ;
+  // landing / taxi lights in the left wing leading edge (172S), just outboard of the strut
+  const lampY = (x: number) => rootY + x * dz - 0.01;
   return {
-    zNose: cowlStations[0].z, zTail: cabinStations[cabinStations.length - 1].z + 0.05,
-    cowlStations, cabinStations, windows, lining,
+    zNose: hz - 0.28, zTail: 6.08,
+    fuselage: { stations, cowlEndZ: zW0, cabinEndZ: 2.0, firewallZ },
+    windows, doors,
+    cabin: { floorY, sillY, windowTopY: winTopY, roofY, deckY, bellyY },
     wing: { sections: wingSections, hingeFraction: 0.75, flapSpan: [0.6, breakX - 0.05], aileronSpan: [breakX + 0.08, halfSpan - 0.15], dihedralRad, halfSpan },
-    strut: { fuselage: v(0.5, -0.38, -0.3), wing: v(breakX * 0.95, rootY + breakX * 0.95 * dz - 0.02, leZ + rootChord * 0.4) },
+    strut: { fuselage: v(0.53, bellyY + 0.17, -0.05), wing: v(breakX - 0.1, rootY + (breakX - 0.1) * dz - 0.05, leZ + rootChord * 0.25) },
     hstab: { sections: hstabSections, hingeFraction: 0.62, halfSpan: hHalf },
-    fin: { sections: finSections, hingeFraction: 0.62, rootY: finRootY, span: finSpan },
+    fin: { sections: finSections, dorsal, hingeFraction: 0.62, rootY: finRootY, span: finSpan },
     prop: { hub, diameter, blades: propSpec?.blades ?? 2, sense: propSpec?.sense ?? 1 },
     gear: { nose, mains },
     eye,
-    panel: { center: panelCenter, width: 1.0, height: 0.45, tiltRad: 8 * D2R, g1000Height: 0.36 },
-    glareshield: { center: v(0, panelCenter.y + 0.26, panelCenter.z + 0.12), width: 1.04, depth: 0.28 },
+    panel: {
+      // top edge 3.8 cm below the deck, just under the glareshield lip
+      center: v(0, deckY - 0.038 - 0.24 * Math.cos(8 * D2R), -0.8), width: 0.96, height: 0.48, tiltRad: 8 * D2R,
+      g1000Center: v(0, deckY - 0.038 - 0.175 * Math.cos(8 * D2R), -0.8 - 0.065 * Math.sin(8 * D2R)), g1000Height: 0.35,
+    },
+    glareshield: { lipY: deckY - 0.01, lipZ: -0.785, frontY: deckY - 0.02, frontZ: zW0 + 0.01, width: 1.02 },
     lights: {
       navLeft: v(-halfSpan + 0.03, tipY + 0.02, wingTipLE + tipChord * 0.15),
       navRight: v(halfSpan - 0.03, tipY + 0.02, wingTipLE + tipChord * 0.15),
-      navTail: v(0, finRootY + finSpan - 0.06, 6.0),
-      beacon: v(0, finRootY + finSpan + 0.03, 5.58),
+      navTail: v(0, finRootY + finSpan - 0.08, 6.08),
+      beacon: v(0, finRootY + finSpan + 0.04, 5.65),
       strobeLeft: v(-halfSpan + 0.03, tipY + 0.02, wingTipLE + tipChord * 0.3),
       strobeRight: v(halfSpan - 0.03, tipY + 0.02, wingTipLE + tipChord * 0.3),
-      landing: v(-0.22, hub.y - 0.16, hub.z + 0.06),
-      taxi: v(-0.22, hub.y - 0.22, hub.z + 0.06),
+      landing: v(-(breakX + 0.35), lampY(breakX + 0.35), leZ - 0.012),
+      taxi: v(-(breakX + 0.62), lampY(breakX + 0.62), leZ - 0.012),
     },
     cgAglM,
   };

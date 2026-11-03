@@ -1,57 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { defaultControlInputs, type ControlInputs } from '../core/types';
 import { DEG, FPM, FT, KT, NM } from '../core/units';
-import { GfcAutopilot, type DisconnectReason } from './Autopilot';
-import { TestPlant, makeFlightPlan, makeNavRadioState, updateTestIls, updateTestPlan, type TestCourse, type TestIls, type TestPlantInit } from './testPlant';
+import { type DisconnectReason } from './Autopilot';
+import { type TestIls } from './testPlant';
+import { Sim } from './testSim';
 import { deltaDeg } from '../core/math';
-
-/** Plant + autopilot + nav signals wired like the main loop: update → apply → step. */
-class Sim {
-  readonly plant: TestPlant;
-  readonly ap: GfcAutopilot;
-  readonly pilot: ControlInputs = defaultControlInputs();
-  readonly nav1 = makeNavRadioState();
-  readonly nav2 = makeNavRadioState();
-  plan = makeFlightPlan();
-  usePlan = false;
-  course: TestCourse | null = null;
-  ils: TestIls | null = null;
-  t = 0;
-  last: ControlInputs;
-
-  constructor(init: TestPlantInit, public readonly hz = 120, apOpts: ConstructorParameters<typeof GfcAutopilot>[0] = {}) {
-    this.plant = new TestPlant(init);
-    this.ap = new GfcAutopilot(apOpts);
-    this.pilot.throttle = this.plant.levelThrottle();
-    this.pilot.parkingBrake = false;
-    this.last = this.pilot;
-    this.updateNav();
-  }
-
-  get ac() { return this.plant.state; }
-  get s() { return this.ap.state; }
-  private updateNav(): void {
-    if (this.course) updateTestPlan(this.ac, this.course, this.plan);
-    if (this.ils) updateTestIls(this.ac, this.ils, this.nav1);
-  }
-  /** Advance one frame. */
-  frame(): void {
-    const dt = 1 / this.hz;
-    this.updateNav();
-    this.ap.update(dt, this.ac, { nav1: this.nav1, nav2: this.nav2, plan: this.usePlan ? this.plan : null });
-    this.last = this.ap.apply(this.pilot);
-    this.plant.step(dt, this.last);
-    this.t += dt;
-  }
-  /** Run for `seconds`, calling `probe` each frame; returns when probe returns true (or time is up). */
-  run(seconds: number, probe?: (sim: Sim) => boolean | void): void {
-    const n = Math.round(seconds * this.hz);
-    for (let i = 0; i < n; i++) {
-      this.frame();
-      if (probe && probe(this) === true) return;
-    }
-  }
-}
 
 const hdgDeg = (sim: Sim) => sim.ac.headingMagRad / DEG;
 const rollDeg = (sim: Sim) => sim.ac.euler[0] / DEG;
@@ -127,7 +79,7 @@ describe('GfcAutopilot lateral modes', () => {
       if (convergedT < 0 && Math.abs(s.plan.crossTrackM) < 0.1 * NM) convergedT = s.t;
     });
     expect(convergedT).toBeGreaterThan(0);
-    expect(maxIntercept).toBeLessThanOrEqual(45.5);
+    expect(maxIntercept).toBeLessThanOrEqual(45);
     expect(Math.abs(sim.plan.crossTrackM)).toBeLessThan(0.05 * NM);
     expect(Math.abs(deltaDeg(sim.ac.trackRad / DEG, 0))).toBeLessThan(2);
   });
@@ -166,7 +118,7 @@ describe('GfcAutopilot vertical modes', () => {
       if (captureT < 0 && Math.abs(altFt(s) - 3500) < 20) captureT = s.t;
     });
     expect(captureT).toBeGreaterThan(0);
-    expect(maxVs).toBeLessThanOrEqual(820);
+    expect(maxVs).toBeLessThanOrEqual(800);
     expect(maxAlt - 3500).toBeLessThan(40);
     expect(Math.abs(altFt(sim) - 3500)).toBeLessThan(10);
     expect(sim.s.fdPitchRad).toBeCloseTo(sim.ap.pitchCommandRad, 12);
@@ -232,13 +184,14 @@ describe('GfcAutopilot approach', () => {
 
   it('APR/GS: from 1 dot below at 6 nm captures and tracks within 0.2 dots', () => {
     const ils = makeIls();
+    // 6 nm DME = 6 nm from the glideslope antenna (north 300 m); the aircraft flies north toward it.
+    // One dot = 0.35° (full scale ±0.7° = two dots), so one dot low is a 2.65° path angle.
     const dist = 6 * NM;
-    const pathAlt = (dist - 300) * Math.tan(3 * DEG);
-    const alt = (dist - 300) * Math.tan(3 * DEG - 0.35 * DEG); // one dot below
-    const sim = new Sim({ speedMs: 90 * KT, altitudeM: alt, headingRad: 0, northM: -dist + 300 });
+    const alt = dist * Math.tan(3 * DEG - 0.35 * DEG);
+    const sim = new Sim({ speedMs: 90 * KT, altitudeM: alt, headingRad: 0, northM: ils.gsNorthM - dist });
     sim.ils = ils;
     sim.frame();
-    expect(sim.nav1.gsDeviation).toBeCloseTo(0.5, 1);
+    expect(sim.nav1.gsDeviation).toBeCloseTo(0.5, 3); // exactly one dot (gsDeviation is full-scale ±1 = ±2 dots)
     sim.ap.setAltitudeTarget(alt);
     sim.ap.engage(true);
     sim.ap.setVertical('ALT');
@@ -254,7 +207,6 @@ describe('GfcAutopilot approach', () => {
     expect(captureT).toBeGreaterThan(0);
     expect(maxDev).toBeLessThan(0.2);
     expect(Math.abs(sim.nav1.cdi)).toBeLessThan(0.1);
-    void pathAlt;
   });
 
   it('LOC: captures from a 30° intercept and tracks the localizer', () => {

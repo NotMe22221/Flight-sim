@@ -41,9 +41,14 @@ export function buildTail(layout: C172Layout, mats: ModelMaterials): TailAssembl
   finGeo.applyMatrix4(up); finGeo.computeVertexNormals();
   const finMesh = new THREE.Mesh(finGeo, mats.paintPlain); finMesh.name = 'fin';
   group.add(finMesh);
+  // dorsal fillet blending the fin into the tailcone (thin section, root buried in the tailcone)
+  const dorsalGeo = buildWingPanel({ airfoil: { thickness: 0.05, camber: 0, camberPos: 0.4 }, sections: fin.dorsal, capRoot: false, capTip: true, points: 10 });
+  dorsalGeo.applyMatrix4(up); dorsalGeo.computeVertexNormals();
+  const dorsal = new THREE.Mesh(dorsalGeo, mats.paintPlain); dorsal.name = 'dorsalFin';
+  group.add(dorsal);
   // fin-tip cap in trim colour
   const tipSec = fin.sections[fin.sections.length - 1];
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), mats.trim);
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 8), mats.paintPlain);
   cap.position.set(0, fin.rootY + tipSec.x + 0.01, tipSec.le.z + tipSec.chord * 0.42);
   cap.scale.set(0.04, 0.05, tipSec.chord * 0.5);
   group.add(cap);

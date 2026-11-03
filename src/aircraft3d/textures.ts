@@ -5,16 +5,20 @@
 import * as THREE from 'three';
 
 /**
- * Paint the livery: white base, blue cheat line with a thin red companion stripe along both
- * sides, registration decal on the rear fuselage, anti-glare panel on the cowl top.
- * Canvas x = fuselage length (nose → tail), y = around the fuselage (bottom at the bottom).
- * Returns null when there is no DOM (tests / workers); callers fall back to plain paint.
+ * Paint the livery for the fuselage UVs of skin.ts: u runs along the length (nose → tail),
+ * v = 0 at the bottom, 0.25 at mid-height on the right, 0.5 on top and 0.75 at mid-height on
+ * the left, so a band at constant v follows a constant fraction of the local section height
+ * (the cheat lines narrow and sweep up the tailcone with it).
+ * White base, blue cheat line with a thin red pinstripe on both sides, light grey belly and
+ * the registration on the tailcone. Returns null without a DOM (tests / workers).
  *
- * @param regUStart/regUEnd u-range (0..1 along the length) of the registration decal
+ * @param regUStart/regUEnd u-range (0..1 along the length) of the registration
+ * @param scale metres per texel along u and along v (one side spans v 0..0.5) at the
+ *        registration, so the letters keep their proportions on the stretched texture
  */
-export function createLiveryTexture(registration: string, regUStart: number, regUEnd: number, cowlUEnd: number): THREE.CanvasTexture | null {
+export function createLiveryTexture(registration: string, regUStart: number, regUEnd: number, scale: { uM: number; vM: number } = { uM: 8.4 / 2048, vM: 0.48 / 512 }): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
-  const W = 1024, H = 512;
+  const W = 2048, H = 1024;
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
@@ -28,32 +32,30 @@ export function createLiveryTexture(registration: string, regUStart: number, reg
     const y0 = yOf(v1), y1 = yOf(v0);
     ctx.fillRect(0, y0, W, y1 - y0);
   };
-  // right side (v ≈ 0.25 is the sill): blue stripe just below the sill, red stripe below it
-  band(0.205, 0.245, '#1f4e9c');
-  band(0.19, 0.203, '#c8202c');
-  // left side (v ≈ 0.75)
-  band(0.755, 0.795, '#1f4e9c');
-  band(0.797, 0.81, '#c8202c');
-  // belly: light grey
-  band(0.0, 0.06, '#d8d9d6'); band(0.94, 1.0, '#d8d9d6');
-  // anti-glare panel on the cowl top (v ≈ 0.5), only over the cowl
-  ctx.fillStyle = '#2b2b2b';
-  ctx.fillRect(0, yOf(0.56), cowlUEnd * W, yOf(0.44) - yOf(0.56));
-  // registration decal
-  const x0 = regUStart * W, x1 = regUEnd * W;
-  const fontPx = Math.floor(H * 0.085);
+  // f0..f1: fraction of the section height (0 bottom … 1 top), painted on both sides
+  const side = (f0: number, f1: number, color: string) => { band(0.5 * f0, 0.5 * f1, color); band(1 - 0.5 * f1, 1 - 0.5 * f0, color); };
+  side(0.0, 0.08, '#d9dad7');   // belly
+  side(0.455, 0.535, '#1f4e9c'); // blue cheat line
+  side(0.43, 0.447, '#c8202c');  // red pinstripe
+  // registration: cap height ≈ 0.4 of the tailcone height, letters squeezed along u (texels
+  // there are longer than along v)
+  const x0 = regUStart * (W - 1), x1 = regUEnd * (W - 1);
+  const capPx = 0.4 * 0.5 * H;
+  const fontPx = Math.round(capPx / 0.72);
+  const kx = Math.min(1, scale.vM / scale.uM);
   ctx.font = `bold ${fontPx}px "Arial Narrow", Arial, Helvetica, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#1a2a44';
   const cx = (x0 + x1) / 2;
+  const maxW = (x1 - x0) / kx;
   // right side: reads aft→fwd for a viewer on the right, so mirror in x
-  ctx.save(); ctx.translate(cx, yOf(0.3)); ctx.scale(-1, 1); ctx.fillText(registration, 0, 0, x1 - x0); ctx.restore();
+  ctx.save(); ctx.translate(cx, yOf(0.5 * 0.6)); ctx.scale(-kx, 1); ctx.fillText(registration, 0, 0, maxW); ctx.restore();
   // left side: up on the fuselage is down in the image, so flip in y
-  ctx.save(); ctx.translate(cx, yOf(0.7)); ctx.scale(1, -1); ctx.fillText(registration, 0, 0, x1 - x0); ctx.restore();
+  ctx.save(); ctx.translate(cx, yOf(1 - 0.5 * 0.6)); ctx.scale(kx, -1); ctx.fillText(registration, 0, 0, maxW); ctx.restore();
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   return tex;

@@ -56,6 +56,12 @@ export interface CameraOptions {
   lookRateRadS?: number;
   /** time constant of the return-to-centre tween (default 0.12 s) */
   recentreTauS?: number;
+  /**
+   * Neutral head pitch in the cockpit, added to the free-look pitch (default −3.5°: like the
+   * MSFS default view, the pilot looks slightly down so the whole six-pack is on screen with
+   * the horizon above the glareshield). Recentring returns to this pose.
+   */
+  cockpitNeutralPitchRad?: number;
   /** cockpit free-look limits (default ±160°, −60°/+80°) */
   cockpitYawLimitRad?: number;
   cockpitPitchMinRad?: number;
@@ -131,6 +137,7 @@ export function resolveCameraOptions(o: CameraOptions): ResolvedCameraOptions {
     pointerSensitivity: o.pointerSensitivity ?? 0.0025,
     lookRateRadS: o.lookRateRadS ?? 2.0,
     recentreTauS: o.recentreTauS ?? 0.12,
+    cockpitNeutralPitchRad: o.cockpitNeutralPitchRad ?? -3.5 * D2R,
     cockpitYawLimitRad: o.cockpitYawLimitRad ?? 160 * D2R,
     cockpitPitchMinRad: o.cockpitPitchMinRad ?? -60 * D2R,
     cockpitPitchMaxRad: o.cockpitPitchMaxRad ?? 80 * D2R,
