@@ -16,7 +16,10 @@ export { EnvironmentSynth } from './Environment';
 export type { SurfaceKind } from './environmentLaws';
 export { MARKER_TONES, type MarkerBeacon, STALL_HORN, stallHornIntensity, Warnings } from './Warnings';
 export { type UiSound } from './uiSounds';
-export { ROLE_PRESETS, type RolePreset, Speech, type SpeechOptions, type SpeechRole, type SpeechSynthesisLike } from './Speech';
+export {
+  MAX_QUEUED_TRANSMISSIONS, ROLE_PRESETS, type RolePreset, Speech, SPEECH_WATCHDOG, type SpeechOptions, type SpeechRole,
+  type SpeechSynthesisLike, speechWatchdogMs,
+} from './Speech';
 export { chunkText, MAX_CHUNK_CHARS } from './speechText';
 export { VIEW, ViewStage } from './ViewStage';
 export {

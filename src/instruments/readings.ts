@@ -167,6 +167,8 @@ export class InstrumentModel {
   private timerRunning = false;
   private timerStartS = 0;
   private timerHeldS = 0;
+  /** start/reset requested before the first update: anchor to the next snapshot's sim time */
+  private timerAnchorPending = false;
 
   constructor(public readonly cfg: InstrumentConfig = defaultInstrumentConfig()) {
     this.ai = new AttitudeGyro();
@@ -213,9 +215,22 @@ export class InstrumentModel {
   cageAttitude(caged: boolean): void { this.ai.caged = caged; }
 
   /** Elapsed timer (PFD TMR/REF). */
-  startTimer(): void { if (!this.timerRunning) { this.timerRunning = true; this.timerStartS = this.readings.clock.simTimeS - this.timerHeldS; } }
-  stopTimer(): void { if (this.timerRunning) { this.timerHeldS = this.readings.clock.simTimeS - this.timerStartS; this.timerRunning = false; } }
-  resetTimer(): void { this.timerHeldS = 0; this.timerStartS = this.readings.clock.simTimeS; }
+  startTimer(): void {
+    if (this.timerRunning) return;
+    this.timerRunning = true;
+    if (this.initialised) this.timerStartS = this.readings.clock.simTimeS - this.timerHeldS;
+    else this.timerAnchorPending = true;
+  }
+  stopTimer(): void {
+    if (!this.timerRunning) return;
+    if (!this.timerAnchorPending) this.timerHeldS = this.readings.clock.simTimeS - this.timerStartS;
+    this.timerRunning = false; this.timerAnchorPending = false;
+  }
+  resetTimer(): void {
+    this.timerHeldS = 0;
+    if (this.initialised) this.timerStartS = this.readings.clock.simTimeS;
+    else if (this.timerRunning) this.timerAnchorPending = true;
+  }
 
   /** Advance the instrument dynamics by `dt` seconds of sim time and return the shared readings object. */
   update(s: SimSnapshot, dt: number): InstrumentReadings {
@@ -334,6 +349,7 @@ export class InstrumentModel {
 
     // ── clock
     r.clock.utcMs = s.time.utcMs; r.clock.simTimeS = s.time.simTimeS;
+    if (this.timerAnchorPending) { this.timerStartS = s.time.simTimeS - this.timerHeldS; this.timerAnchorPending = false; }
     r.clock.timerS = this.timerRunning ? s.time.simTimeS - this.timerStartS : this.timerHeldS;
     return r;
   }

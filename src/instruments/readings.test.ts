@@ -220,3 +220,23 @@ describe('InstrumentModel dynamics', () => {
     expect(C172S_VSPEEDS).toMatchObject({ vso: 40, vs1: 48, vfe: 85, vno: 129, vne: 163 });
   });
 });
+
+describe('elapsed timer', () => {
+  it('counts from the first snapshot when started before the first update, and holds when stopped', () => {
+    const m = new InstrumentModel();
+    m.startTimer();
+    const s = makeSampleSnapshot({ simTimeS: 500 });
+    m.update(s, 1 / 60);
+    expect(m.readings.clock.timerS).toBeCloseTo(0, 9);
+    s.time.simTimeS += 42;
+    m.update(s, 1 / 60);
+    expect(m.readings.clock.timerS).toBeCloseTo(42, 9);
+    m.stopTimer();
+    s.time.simTimeS += 10;
+    m.update(s, 1 / 60);
+    expect(m.readings.clock.timerS).toBeCloseTo(42, 9);
+    m.resetTimer();
+    m.update(s, 1 / 60);
+    expect(m.readings.clock.timerS).toBe(0);
+  });
+});

@@ -25,9 +25,12 @@ audio.speak('Cessna one seven two, cleared to land runway two eight right.', 'at
 ```
 
 `EventBus` subscriptions (when `events` is passed): `aircraft:touchdown` → thump + chirp,
-`autopilot:changed` (engaged → disengaged) → AP-disconnect two-tone, `flight:reset` → stop speech
-and marker. Headless (Node, tests, smoke test, no Web Audio): every call is a silent no-op and
-nothing throws; `ready` stays false.
+`autopilot:changed` (engaged → disengaged) → AP-disconnect two-tone, `flight:reset` →
+`onFlightReset(spawn.engineRunning)`: stop speech and marker and snap the engine sound to the
+spawn's state (a teleport plays no shutdown ticks or start cough). Without an event bus call
+`audio.onFlightReset(engineRunning)` after a reset. Headless (Node, tests, smoke test, no Web
+Audio): every call is a silent no-op and nothing throws; `ready` stays false. `dispose()` is
+terminal: a later `resume()` or `speak()` does nothing.
 
 ## Graph
 
@@ -84,7 +87,7 @@ nothing throws; `ready` stays false.
 | AP disconnect / altitude alert | 1200/900 Hz two-tone × 3 (1.4 s) / C6 + E6 bell chime | — |
 | UI | click (2 ms BP 2.5 kHz + 20 ms 180 Hz), switch (2 clicks 35 ms), warn (3 × 880 Hz), confirm (660 → 990 Hz), error (220 Hz square) | §A5.5 |
 | Buses | engine 0.8, environment 0.7, cockpit 1.0, ui 0.6, atc 0.9, master 0.5; limiter −12 dB knee 20 ratio 4 | §A1.4 |
-| Speech | ATC rate 1.05 pitch 0.9; pilot 1.0/1.0; copilot 1.0/1.12; en-US preferred; ≤160-char chunks at sentence boundaries | §A5.6 |
+| Speech | ATC rate 1.05 pitch 0.9; pilot 1.0/1.0; copilot 1.0/1.12; en-US preferred; ≤160-char chunks at sentence boundaries; a message identical to the one speaking or waiting is ignored; ≤ 8 waiting (stalest dropped); per-chunk watchdog (4 s + 120 ms/char) when the engine never fires `end` | §A5.6 |
 
 ## Rules this module follows
 
@@ -116,7 +119,13 @@ ever shows a need.
 ## Known limitations
 
 - `speechSynthesis` output cannot be routed through Web Audio (no radio band-pass on the voice);
-  squelch/static are synthesized around it and its volume follows master × atc.
+  squelch/static are synthesized around it and its volume follows master × atc. The utterance in
+  flight is kept referenced (Chrome drops `onend` of garbage-collected utterances) and a watchdog
+  moves the queue on if the engine never reports the end, so speech and the engine duck cannot
+  stall.
+- Without `setControls` the starter is inferred from a spin-up *from rest* into 40–450 rpm; a
+  windmilling prop never counts, but a prop that stopped in flight and restarts windmilling in a
+  dive can still be mistaken for cranking.
 - `AircraftState` carries neither the starter switch, the throttle lever, the surface type nor
   the camera's world position: call `setControls`, `setSurface`, `setListener` (tower / flyby
   cameras otherwise use a 150 m co-moving estimate without Doppler).
