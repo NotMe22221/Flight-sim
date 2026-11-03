@@ -93,6 +93,9 @@ export class SceneryManager implements SceneryLike {
   private failedCount = 0;
   /** last frame's main-thread time (ms) */
   lastUpdateMs = 0;
+  /** ground samples taken last frame, and the smoothed cost of one sample (µs) */
+  private groundSamplesLast = 0;
+  private groundUsPerSample = 0;
   /** automation / debugging: geodetic camera pose forced every frame (see debugView) */
   private debugPose: { lat: number; lon: number; alt: number; headingDeg: number; pitchDeg: number; fovDeg?: number } | null = null;
   private readonly debugPos = new THREE.Vector3();
@@ -133,7 +136,11 @@ export class SceneryManager implements SceneryLike {
       if (moved || this.sinceSelect >= RESELECT_S) this.select(cam);
       this.issueRequests();
       this.processArrivals(t0);
+      const calls0 = this.sampler.calls, tg = this.now();
       this.groundTiles(t0);
+      const used = this.sampler.calls - calls0;
+      this.groundSamplesLast = used;
+      if (used > 50) this.groundUsPerSample += (((this.now() - tg) * 1000) / used - this.groundUsPerSample) * 0.1;
       for (let i = 0; i < this.ready.length; i++) {
         const o = this.ready[i].obj;
         if (o) o.updateLod(cam, this.stream, this.night);
@@ -189,6 +196,7 @@ export class SceneryManager implements SceneryLike {
       tilesLoaded: loaded, tilesPending: pending, tilesFailed: this.failedCount, tilesEmpty: empty, tilesWanted: this.wanted.length,
       buildings, trees, lights, triangles, buildingsWaiting: waiting, inFlight: this.loader.inFlight,
       workerMode: this.loader.mode === 'worker' ? 1 : 0, updateMs: this.lastUpdateMs,
+      groundSamples: this.groundSamplesLast, groundUsPerSample: Math.round(this.groundUsPerSample * 100) / 100,
     };
   }
 
