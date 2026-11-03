@@ -9,12 +9,12 @@
 import type { Airport, Geodetic, NavDatabase, Runway } from '../core/types';
 import { deltaDeg } from '../core/math';
 import { NM } from '../core/units';
-import { greatCircleDistance } from '../geo/wgs84';
+import { EARTH_RADIUS, greatCircleDistance } from '../geo/wgs84';
 import { decodeAirport, decodeNavaid, runwayForEnd, type AirportsFile, type IndexFile, type NavaidsFile } from './airportsData';
 import { buildIlsGeometry, type IlsGeometry } from './ils';
 import { memoizeLoader } from './loaders';
 import type { AirportRecord, NavDataLoader, NavaidRecord, RunwayEnd, RunwayRecord } from './navTypes';
-import { M_PER_DEG, SpatialGrid } from './spatialGrid';
+import { M_PER_DEG, SpatialGrid, capLonHalfWidthDeg } from './spatialGrid';
 
 /** Maximum distance at which a localizer can be tuned, nm. */
 export const ILS_TUNE_RANGE_NM = 40;
@@ -215,7 +215,11 @@ export class NavDb implements NavDatabase {
 
 const TYPE_RANK: Record<Airport['type'], number> = { large: 5, medium: 4, small: 3, seaplane: 2, heliport: 1 };
 
-/** Headwind-tolerance below which runway length decides (cosine units ≈ 1°). */
+/**
+ * Headwind-component tolerance (cosine units) within which the longer runway wins: 0.02 is
+ * ≈ 11° of wind angle near a direct headwind (and ≈ 1° near a direct crosswind), so parallel
+ * and nearly parallel runways compete on length.
+ */
 const HEADWIND_TIE_EPS = 0.02;
 
 /** Standalone runway-in-use selection (see `NavDb.runwayInUse`). */
@@ -233,21 +237,22 @@ export function runwayInUse(airport: Airport, windFromDeg: number): RunwayEnd | 
   return best;
 }
 
-/** 10°×10° shard ids (`${floor(lat/10)}_${floor(lon/10)}`) covering a circle. */
+/** 10°×10° shard ids (`${floor(lat/10)}_${floor(lon/10)}`) covering a circle (exact spherical cap; poles and the antimeridian included). */
 export function shardCellsAround(center: Geodetic, radiusM: number): string[] {
   const dLat = radiusM / M_PER_DEG;
-  const cosLat = Math.max(Math.cos(center.lat * (Math.PI / 180)), 0.01);
-  const dLon = Math.min(radiusM / (M_PER_DEG * cosLat), 180);
-  const latMin = Math.max(center.lat - dLat, -90), latMax = Math.min(center.lat + dLat, 89.999);
-  const out: string[] = [];
-  for (let r = Math.floor(latMin / 10); r <= Math.floor(latMax / 10); r++) {
-    for (let lon = center.lon - dLon; lon <= center.lon + dLon + 1e-9; lon += 10) {
-      const w = ((lon + 180) % 360 + 360) % 360 - 180;
-      out.push(`${r}_${Math.floor(w / 10)}`);
-    }
-    // ensure the eastern edge cell is included when the step skipped it
-    const eastLon = ((center.lon + dLon + 180) % 360 + 360) % 360 - 180;
-    out.push(`${r}_${Math.floor(eastLon / 10)}`);
+  const r0 = Math.floor(Math.max(center.lat - dLat, -90) / 10);
+  const r1 = Math.floor(Math.min(center.lat + dLat, 90) / 10);
+  // Longitude: the cap's true half-width asin(sin δ / cos φ), or every column when it holds a pole.
+  const halfLon = capLonHalfWidthDeg(center.lat, radiusM / EARTH_RADIUS);
+  let c0 = -18, c1 = 17;
+  if (halfLon < 180) {
+    c0 = Math.floor((center.lon - halfLon) / 10);
+    c1 = Math.floor((center.lon + halfLon) / 10);
+    if (c1 - c0 + 1 >= 36) { c0 = -18; c1 = 17; }
   }
-  return [...new Set(out)];
+  const out = new Set<string>();
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0; c <= c1; c++) out.add(`${r}_${(((c + 18) % 36) + 36) % 36 - 18}`);
+  }
+  return [...out];
 }

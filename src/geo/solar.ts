@@ -113,14 +113,16 @@ export interface SunEvents {
 }
 
 /**
- * Sunrise, solar noon and sunset (apparent elevation −0.833°) for the local solar day that
+ * Sunrise, solar noon and sunset (geometric elevation −0.833°: upper limb on the refracted horizon) for the local solar day that
  * contains `utcMs` at (lat, lon). Scans in 10-minute steps and refines crossings by bisection.
  */
 export function sunEvents(utcMs: number, latDeg: number, lonDeg: number): SunEvents {
   const dayMs = 86_400_000;
   const solarOffsetMs = (lonDeg / 15) * 3_600_000;
   const localMidnight = Math.floor((utcMs + solarOffsetMs) / dayMs) * dayMs - solarOffsetMs;
-  const h = (t: number) => sunPosition(t, latDeg, lonDeg).apparentElevation + 0.833;
+  // −0.833° is the standard *geometric* altitude of the sun's centre at sunrise/sunset: it already
+  // contains 34′ of refraction and the 16′ semi-diameter, so use the geometric elevation here.
+  const h = (t: number) => sunPosition(t, latDeg, lonDeg).elevation + 0.833;
   const step = 10 * 60_000;
   let rise = NaN, set = NaN, noon = localMidnight + dayMs / 2, maxEl = -Infinity;
   let tPrev = localMidnight, hPrev = h(tPrev);

@@ -64,6 +64,8 @@ export interface NavRadioStateEx extends NavRadioState {
   marker: MarkerBeacon;
   /** great-circle (ground) distance to the station, m */
   distanceM: number;
+  /** true when `dmeNm` comes from a received DME (VOR-DME/VORTAC/DME/TACAN/NDB-DME or an ILS); a plain VOR or NDB has none */
+  dmeValid: boolean;
 }
 
 /** `FlightPlan` with whole-route totals. */

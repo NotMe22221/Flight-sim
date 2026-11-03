@@ -78,10 +78,12 @@ export class FlightPlanner {
   /** Remove the waypoint at `index`. Removing the active one activates the next. */
   remove(index: number): void {
     if (index < 0 || index >= this.waypoints.length) return;
+    // Decide before re-indexing: only removing the active waypoint cancels a direct-to.
+    const removedActive = index === this.activeIndex;
     this.waypoints.splice(index, 1);
     if (index < this.activeIndex) this.activeIndex--;
     if (this.activeIndex >= this.waypoints.length) this.activeIndex = Math.max(0, this.waypoints.length - 1);
-    if (index === this.activeIndex) this.directOrigin = null;
+    if (removedActive) this.directOrigin = null;
     this.plan.complete = false;
   }
 

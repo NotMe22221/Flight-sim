@@ -5,11 +5,27 @@
  * cost is O(cells × items-per-cell), independent of the total item count.
  */
 import type { Geodetic } from '../core/types';
-import { greatCircleDistance } from '../geo/wgs84';
+import { EARTH_RADIUS, greatCircleDistance } from '../geo/wgs84';
 
 const D2R = Math.PI / 180;
-/** metres per degree of latitude (and of longitude at the equator) */
-export const M_PER_DEG = 111_195;
+/**
+ * Metres per degree of latitude (and of longitude at the equator) on the same sphere as
+ * `greatCircleDistance`. It must not exceed the true value, or the early-exit bound in
+ * `nearest` could stop one row too soon.
+ */
+export const M_PER_DEG = EARTH_RADIUS * D2R;
+
+/**
+ * Half-width in degrees of longitude of the smallest band that contains every point within
+ * angular radius `deltaRad` of latitude `latDeg`, or `Infinity` when that spherical cap
+ * contains a pole (every longitude is then reachable). Exact: asin(sin δ / cos φ).
+ */
+export function capLonHalfWidthDeg(latDeg: number, deltaRad: number): number {
+  const phi = Math.abs(latDeg) * D2R;
+  if (deltaRad >= Math.PI / 2 - phi) return Infinity;
+  const s = Math.sin(deltaRad) / Math.cos(phi);
+  return s >= 1 ? Infinity : Math.asin(s) / D2R;
+}
 
 /** Result of a nearest query. */
 export interface Neighbour<T> { item: T; distanceM: number }
@@ -53,10 +69,13 @@ export class SpatialGrid<T> {
     if (maxCount <= 0 || maxDistM <= 0) return out;
     const lat0 = Math.floor(pos.lat), lon0 = Math.floor(pos.lon);
     const latSpan = Math.min(Math.ceil(maxDistM / M_PER_DEG) + 1, 180);
-    // Longitude cells shrink with cos(lat); use the largest |lat| in range for a safe span.
-    const maxAbsLat = Math.min(89.99, Math.abs(pos.lat) + latSpan);
-    const cosLat = Math.max(Math.cos(maxAbsLat * D2R), 1e-6);
-    const lonSpan = Math.min(Math.ceil(maxDistM / (M_PER_DEG * cosLat)) + 1, 180);
+    // Columns: the exact longitude half-width of the search cap, +1 cell for flooring. When the
+    // cap contains a pole or the band would wrap, scan each of the 360 columns exactly once
+    // (scanning lon0 ± 180 would visit the antipodal column twice and duplicate its items).
+    const halfLon = capLonHalfWidthDeg(pos.lat, maxDistM / EARTH_RADIUS);
+    const lonSpan = Number.isFinite(halfLon) ? Math.ceil(halfLon) + 1 : 180;
+    const dcMin = 2 * lonSpan + 1 >= 360 ? -180 : -lonSpan;
+    const dcMax = 2 * lonSpan + 1 >= 360 ? 179 : lonSpan;
     const scratch: Geodetic = { lat: 0, lon: 0, alt: 0 };
 
     for (let k = 0; k <= latSpan; k++) {
@@ -64,7 +83,7 @@ export class SpatialGrid<T> {
       for (let s = k === 0 ? 1 : -1; s <= 1; s += 2) {
         const row = lat0 + s * k;
         if (row < -90 || row > 89) continue;
-        for (let dc = -lonSpan; dc <= lonSpan; dc++) {
+        for (let dc = dcMin; dc <= dcMax; dc++) {
           const cell = this.cells.get(SpatialGrid.key(row, lon0 + dc));
           if (!cell) continue;
           for (let j = 0; j < cell.length; j++) {

@@ -7,7 +7,7 @@ import { FT, NM } from '../core/units';
 import { destinationPoint, greatCircleDistance } from '../geo/wgs84';
 import { PUBLIC_DIR } from './__tests__/fsLoader';
 import { decodeAirport, type AirportsFile } from './airportsData';
-import { buildIlsGeometry, type IlsGeometry } from './ils';
+import { MARKER_DISTANCES_M, buildIlsGeometry, type IlsGeometry } from './ils';
 import {
   alongTrackM, computeIlsRadio, computeNavRadio, computeVorRadio, crossTrackM, desiredTrackDeg, dmeSlantNm, emptyNavRadioState,
   glideslopeDeviation, inVhfRange, legGeometry, localizerDeviation, markerBeacon, radioHorizonNm, turnAnticipationM, turnRadiusM,
@@ -204,7 +204,7 @@ describe('radio: ILS', () => {
     expect(markerBeacon(ils, over(destinationPoint(ils.markers.outer, ils.courseDeg + 180, 500)))).toBeNull();
     expect(markerBeacon(ils, over(destinationPoint(ils.markers.outer, ils.courseDeg + 90, 400)))).toBeNull();
     expect(markerBeacon(ils, over(destinationPoint(ils.markers.outer, ils.courseDeg + 90, 200)))).toBe('outer');
-    const s = computeIlsRadio(onApproach(ils, (7200 + 300) / NM), 13, ils, tuning(298));
+    const s = computeIlsRadio(onApproach(ils, (MARKER_DISTANCES_M.outer + 300) / NM), 13, ils, tuning(298)); // GS ref is 300 m past the threshold
     expect(s.marker).toBe('outer');
     expect(computeIlsRadio(onApproach(ils, 3), 13, ils, tuning(298)).marker).toBeNull();
   });

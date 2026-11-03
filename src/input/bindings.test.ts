@@ -140,3 +140,22 @@ describe('serialisation and persistence', () => {
     expect(loadBindings(null).gamepads).toEqual({});
   });
 });
+
+describe('profile JSON schema', () => {
+  it('every serialised default profile uses only schema properties and enum values', async () => {
+    const { BINDING_PROFILE_JSON_SCHEMA: schema } = await import('./profileSchema');
+    const props = schema.properties.bindings.items.properties;
+    const allowed = new Set(Object.keys(props));
+    const actions = new Set<string>(props.action.enum);
+    const axes = new Set<string>(props.axis.enum);
+    for (const id of PROFILE_IDS) {
+      const doc = JSON.parse(serializeProfile(defaultProfile(id))) as { version: number; bindings: Array<Record<string, unknown>> };
+      expect(doc.version).toBe(1);
+      for (const b of doc.bindings) {
+        for (const k of Object.keys(b)) expect(allowed.has(k), `${id}: ${k}`).toBe(true);
+        if (b.action !== undefined) expect(actions.has(String(b.action))).toBe(true);
+        if (b.axis !== undefined) expect(axes.has(String(b.axis))).toBe(true);
+      }
+    }
+  });
+});

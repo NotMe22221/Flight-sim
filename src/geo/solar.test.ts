@@ -62,6 +62,13 @@ describe('sun events', () => {
     expect(e.noonMs).toBeGreaterThan(e.sunriseMs);
     expect(e.sunsetMs).toBeGreaterThan(e.noonMs);
   });
+  it('events sit at the standard geometric altitude −0.833° (refraction + semi-diameter, not double-counted)', () => {
+    for (const [lat, lon, t] of [[37.62, -122.37, Date.UTC(2026, 10, 3, 20)], [47.26, 11.34, Date.UTC(2026, 5, 21, 12)], [-33.95, 151.18, Date.UTC(2026, 0, 10, 2)]] as const) {
+      const e = sunEvents(t, lat, lon);
+      expect(sunPosition(e.sunriseMs, lat, lon).elevation).toBeCloseTo(-0.833, 2);
+      expect(sunPosition(e.sunsetMs, lat, lon).elevation).toBeCloseTo(-0.833, 2);
+    }
+  });
   it('polar night returns NaN events', () => {
     const e = sunEvents(Date.UTC(2026, 11, 21, 12), 80, 0);
     expect(Number.isNaN(e.sunriseMs)).toBe(true);

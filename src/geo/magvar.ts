@@ -129,6 +129,45 @@ function legendre(x: number, z: number): void {
   }
 }
 
+/**
+ * Schmidt semi-normalised associated Legendre function P̄ₙᵐ(sin φ') and its latitude
+ * derivative ∂P̄ₙᵐ/∂φ' at geocentric latitude `latRad`: exactly the values the field summation
+ * uses (exposed for tests and tools; reuses the module scratch buffers).
+ */
+export function schmidtLegendre(n: number, m: number, latRad: number, out: { p: number; dp: number } = { p: 0, dp: 0 }): { p: number; dp: number } {
+  if (!(n >= 0 && n <= WMM_N_MAX && m >= 0 && m <= n)) throw new RangeError(`schmidtLegendre: need 0 ≤ m ≤ n ≤ ${WMM_N_MAX}`);
+  legendre(Math.sin(latRad), Math.cos(latRad));
+  out.p = P[idx(n, m)];
+  out.dp = dP[idx(n, m)];
+  return out;
+}
+
+/** Geocentric spherical position of a geodetic point. */
+export interface Geocentric {
+  /** distance from the Earth's centre, km */ rKm: number;
+  /** geocentric latitude φ', rad */ latRad: number;
+  /** sin φ' and cos φ' (cos ≥ 0) */ sinLat: number; cosLat: number;
+}
+
+/**
+ * WGS84 geodetic latitude/height → geocentric radius and latitude (WMM report eq. 7):
+ * p = (Rc + h)·cos φ, z = (Rc·(1 − e²) + h)·sin φ, r = √(p² + z²), φ' = atan2(z, p).
+ */
+export function geodeticToGeocentric(latDeg: number, altM: number, out: Geocentric = { rKm: 0, latRad: 0, sinLat: 0, cosLat: 1 }): Geocentric {
+  const phi = latDeg * D2R, hKm = altM / 1000;
+  const sinPhi = Math.sin(phi), cosPhi = Math.cos(phi);
+  const rc = A2 / Math.sqrt(A2 * cosPhi * cosPhi + B2 * sinPhi * sinPhi); // radius of curvature in the prime vertical (km)
+  const p = (rc + hKm) * cosPhi; // distance from the rotation axis
+  const zc = ((rc * B2) / A2 + hKm) * sinPhi; // z in ECEF
+  const r = Math.sqrt(p * p + zc * zc);
+  out.rKm = r;
+  out.sinLat = zc / r;
+  out.cosLat = Math.abs(p) / r;
+  out.latRad = Math.atan2(zc, Math.abs(p));
+  return out;
+}
+const GC: Geocentric = { rKm: 0, latRad: 0, sinLat: 0, cosLat: 1 };
+
 /** Geomagnetic field elements. Components in nT, angles in degrees. */
 export interface MagneticField {
   /** north component, nT */ X: number;
@@ -164,15 +203,9 @@ export function magneticFieldAtYear(latDeg: number, lonDeg: number, altM: number
   adjustCoefficients(year);
 
   // 1. geodetic → geocentric spherical
-  const phi = latDeg * D2R, lambda = lonDeg * D2R, hKm = altM / 1000;
-  const sinPhi = Math.sin(phi), cosPhi = Math.cos(phi);
-  const rc = A2 / Math.sqrt(A2 * cosPhi * cosPhi + B2 * sinPhi * sinPhi); // radius of curvature in the prime vertical (km)
-  const p = (rc + hKm) * cosPhi; // distance from the rotation axis
-  const zc = ((rc * B2) / A2 + hKm) * sinPhi; // z in ECEF
-  const r = Math.sqrt(p * p + zc * zc);
-  const sinPhiC = zc / r; // sin of geocentric latitude
-  const cosPhiC = Math.sqrt(1 - sinPhiC * sinPhiC);
-  const phiC = Math.asin(sinPhiC);
+  const phi = latDeg * D2R, lambda = lonDeg * D2R;
+  geodeticToGeocentric(latDeg, altM, GC);
+  const r = GC.rKm, sinPhiC = GC.sinLat, cosPhiC = GC.cosLat, phiC = GC.latRad;
 
   // 2. Legendre functions at the geocentric latitude
   legendre(sinPhiC, cosPhiC);

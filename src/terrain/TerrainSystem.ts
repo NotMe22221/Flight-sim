@@ -97,6 +97,8 @@ export interface TerrainStats {
 /** Runway centreline for flattening (`AirportsLayer.flatteningSegments()`); `alt` = threshold elevation. */
 export interface RunwaySegment { a: Geodetic; b: Geodetic; widthM: number }
 
+/** Reloads of a tile whose better sources failed transiently (network, timeout, 5xx). */
+const MAX_DEGRADED_RETRIES = 4;
 /** Radius around the camera (beyond the nearest selected tile) used by readyFraction, m. */
 export const READY_RADIUS_M = 5000;
 const IDENTITY_UV: readonly number[] = [0, 0, 1];
@@ -324,7 +326,7 @@ export class TerrainSystem {
     }
     const missing = !rec.gpu && !rec.pending;
     if (!missing && rec.haveVersion >= rec.wantVersion) return;
-    if (rec.failed && now < rec.retryAt) return;
+    if (now < rec.retryAt) return; // backoff after a failure or a degraded (fallback) load
     rec.reqVersion = rec.wantVersion;
     rec.reqKey = `${rec.key}@${rec.reqVersion}`;
     rec.req = buildLoadRequest(rec.reqKey, rec.z, rec.x, rec.y, this.frame, this.requestCfg, this.runways);
@@ -345,17 +347,26 @@ export class TerrainSystem {
   private onTile(r: TileResponse): void {
     const rec = this.disposed ? null : this.settle(r.key);
     if (!rec) { discardResponse(r); this.checkIdle(); return; }
+    const now = this.now();
     rec.failed = false;
-    rec.failures = 0;
     rec.haveVersion = rec.reqVersion;
-    this.heights.set(rec.z, rec.x, rec.y, r.heights, r.heightsWidth, r.mesh.minH, r.mesh.maxH, this.now());
+    if (r.transientFailure && rec.failures < MAX_DEGRADED_RETRIES) {
+      // a better source failed for a transient reason: keep this data, reload it later
+      rec.failures++;
+      rec.retryAt = now + Math.min(120_000, 10_000 * 2 ** (rec.failures - 1));
+      rec.wantVersion = Math.max(rec.wantVersion, rec.haveVersion + 1);
+    } else if (!r.transientFailure) {
+      rec.failures = 0;
+      rec.retryAt = 0;
+    }
+    this.heights.set(rec.z, rec.x, rec.y, r.heights, r.heightsWidth, r.mesh.minH, r.mesh.maxH, now);
     rec.hasData = true;
     discardResponse(rec.pending); // an older response that never reached the GPU
     rec.pending = r;
     if (!rec.queued) { rec.queued = true; this.uploadQueue.push(rec); }
     this.pinned.delete(rec.id);
     this.resolveWaiters(rec.id);
-    this.loader.pump(this.now());
+    this.loader.pump(now);
     this.checkIdle();
   }
 
@@ -706,6 +717,8 @@ export class TerrainSystem {
     this.records.clear();
     this.byReqKey.clear();
     this.uploadQueue.length = 0;
+    this.drawnCount = 0;
+    this.selection = [];
     this.pinned.clear();
     this.heights.clear();
     this.textures.dispose();

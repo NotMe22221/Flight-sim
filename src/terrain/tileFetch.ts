@@ -1,8 +1,8 @@
 /**
- * Worker-side I/O: fetch through the Cache API ('terrain-v1'), decode elevation tiles and
- * create imagery bitmaps. Only terrain.worker.ts imports this file (it needs fetch, caches,
- * createImageBitmap and OffscreenCanvas); everything decode-related that can be pure lives
- * in terrarium.ts so Node tests cover it.
+ * Tile I/O shared by the worker and the in-thread loader: fetch through the Cache API
+ * ('terrain-v1') with a timeout, decode elevation tiles and create imagery bitmaps. PNG
+ * elevation decodes with fast-png (bit exact, works in Node); WebP elevation and imagery need
+ * `createImageBitmap` (browser only). Pure decoding lives in terrarium.ts.
  */
 import { decodeTerrarium, decodeTerrariumPng, type DecodedHeights } from './terrarium';
 
@@ -13,13 +13,33 @@ export class HttpError extends Error {
   }
 }
 
+/** The request took longer than the cache's timeout (headers + body). */
+export class TileTimeoutError extends Error {
+  constructor(url: string, ms: number) {
+    super(`timed out after ${ms} ms: ${url}`);
+    this.name = 'TimeoutError';
+  }
+}
+
+/**
+ * True when a failure says nothing about the tile's existence (network down, timeout, 5xx,
+ * rate limiting) — worth retrying later — as opposed to a definitive 4xx "no such tile".
+ */
+export function isTransientFetchError(err: unknown): boolean {
+  if (err instanceof HttpError) return err.status >= 500 || err.status === 429 || err.status === 408;
+  return err instanceof TileTimeoutError || err instanceof TypeError;
+}
+
 /** `fetch`-compatible function (injected in tests and by the in-thread loader). */
 export type FetchFn = (url: string, init: RequestInit) => Promise<Response>;
 
 /** The platform fetch, called unbound-safe (some browsers throw "Illegal invocation" otherwise). */
 export const platformFetch: FetchFn = (url, init) => fetch(url, init);
 
-/** Raw tile responses keyed by URL. Degrades to plain fetch when the Cache API is unavailable. */
+/** Default per-request timeout (headers + body), ms. */
+export const TILE_FETCH_TIMEOUT_MS = 15_000;
+
+/** Raw tile bytes keyed by URL. Degrades to plain fetch when the Cache API is unavailable. */
 export class TileCache {
   private opening: Promise<Cache | null> | null = null;
   private puts = 0;
@@ -27,12 +47,14 @@ export class TileCache {
   /**
    * @param fetchFn network fetch (defaults to the platform fetch)
    * @param useCacheApi set false to bypass the Cache API (tests, injected fetch)
+   * @param timeoutMs abort a request whose response body has not fully arrived after this long
    */
   constructor(
     public readonly name: string,
     public readonly maxEntries: number,
     private readonly fetchFn: FetchFn = platformFetch,
     private readonly useCacheApi = true,
+    public readonly timeoutMs = TILE_FETCH_TIMEOUT_MS,
   ) {}
 
   private open(): Promise<Cache | null> {
@@ -44,20 +66,34 @@ export class TileCache {
     return this.opening;
   }
 
-  /** Cached response when present, otherwise a network fetch (stored when ok). Throws HttpError on non-2xx. */
-  async fetch(url: string, signal: AbortSignal): Promise<Response> {
+  /**
+   * Tile bytes from the cache or the network (stored when ok). Throws HttpError on non-2xx,
+   * TileTimeoutError after `timeoutMs`, and the caller's abort reason when `signal` aborts.
+   */
+  async fetchBlob(url: string, signal: AbortSignal): Promise<Blob> {
     const cache = await this.open();
     if (cache) {
       const hit = await cache.match(url).catch(() => undefined);
-      if (hit) return hit;
+      if (hit) return hit.blob();
     }
-    const res = await this.fetchFn(url, { mode: 'cors', credentials: 'omit', signal });
-    if (!res.ok) throw new HttpError(res.status, url);
-    if (cache) {
-      const copy = res.clone();
-      cache.put(url, copy).then(() => this.afterPut(cache)).catch(() => undefined);
+    const ctrl = new AbortController();
+    let timedOut = false;
+    const onAbort = (): void => ctrl.abort(signal.reason);
+    if (signal.aborted) ctrl.abort(signal.reason);
+    else signal.addEventListener('abort', onAbort, { once: true });
+    const timer = setTimeout(() => { timedOut = true; ctrl.abort(new TileTimeoutError(url, this.timeoutMs)); }, this.timeoutMs);
+    try {
+      const res = await this.fetchFn(url, { mode: 'cors', credentials: 'omit', signal: ctrl.signal });
+      if (!res.ok) throw new HttpError(res.status, url);
+      if (cache) cache.put(url, res.clone()).then(() => this.afterPut(cache)).catch(() => undefined);
+      return await res.blob();
+    } catch (err) {
+      if (timedOut && !signal.aborted) throw new TileTimeoutError(url, this.timeoutMs);
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
     }
-    return res;
   }
 
   /** Every 200 insertions, drop the oldest 10 % when over the cap (keys() preserves insertion order in practice). */
@@ -70,15 +106,13 @@ export class TileCache {
   }
 }
 
-/** Decode an elevation tile response: PNG bit-exactly via fast-png, WebP via the browser decoder. */
-export async function decodeElevationResponse(res: Response, format: 'png' | 'webp', tileSize: number): Promise<DecodedHeights> {
+/** Decode elevation tile bytes: PNG bit-exactly via fast-png, WebP via the browser decoder. */
+export async function decodeElevationBlob(blob: Blob, format: 'png' | 'webp', tileSize: number): Promise<DecodedHeights> {
   if (format === 'png') {
-    const buf = await res.arrayBuffer();
-    const d = decodeTerrariumPng(buf);
+    const d = decodeTerrariumPng(await blob.arrayBuffer());
     if (d.width !== tileSize || d.height !== tileSize) throw new Error(`elevation tile is ${d.width}×${d.height}, expected ${tileSize}`);
     return d;
   }
-  const blob = await res.blob();
   // Exact bytes: no premultiplication, no colour management (same options as Three's ImageBitmapLoader).
   const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
   try {
@@ -95,7 +129,6 @@ export async function decodeElevationResponse(res: Response, format: 'png' | 'we
 
 /** Imagery as a transferable ImageBitmap, flipped so that v = 0 is the south edge (texture.flipY must be false). */
 export async function fetchImageryBitmap(cache: TileCache, url: string, signal: AbortSignal): Promise<ImageBitmap> {
-  const res = await cache.fetch(url, signal);
-  const blob = await res.blob();
+  const blob = await cache.fetchBlob(url, signal);
   return createImageBitmap(blob, { imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
 }

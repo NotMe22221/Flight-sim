@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { Color, PerspectiveCamera, Vector3, type BufferGeometry, type Material, type Mesh } from 'three';
+import { Color, PerspectiveCamera, Vector3, type BufferGeometry, type Material, type Mesh, type ShaderMaterial, type Texture } from 'three';
 import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../core/types';
 import { LocalFrame } from '../geo/wgs84';
@@ -186,6 +186,23 @@ describe('TerrainSystem (in-thread, injected fetch)', () => {
     ts.dispose();
   });
 
+  it('tiles degraded by a network outage reload with real data once it recovers', async () => {
+    let online = false;
+    const real = fixtureFetch();
+    const flaky: FetchFn = async (url, init) => { if (!online) throw new TypeError('Failed to fetch'); return real(url, init); };
+    const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0), { fetch: flaky });
+    const cam = cameraAt(0, 300, 0);
+    await settle(ts, clock, cam);
+    const procedural = ts.heightAt(KSFO.lat, KSFO.lon)!;
+    expect(Math.abs(procedural - 3.96)).toBeGreaterThan(0.5); // synthetic terrain meanwhile
+    online = true;
+    clock.t += 15_000; // past the first retry backoff (10 s)
+    await settle(ts, clock, cam);
+    expect(Math.abs(ts.heightAt(KSFO.lat, KSFO.lon)! - 3.96)).toBeLessThan(0.5);
+    expect(ts.attribution().some((l) => l.includes('Terrain Tiles'))).toBe(true);
+    ts.dispose();
+  });
+
   it('LRU eviction frees tiles that are no longer used, and dispose frees everything', async () => {
     const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0), { maxResidentTiles: 10 });
     await settle(ts, clock, cameraAt(0, 300, 0));
@@ -206,8 +223,17 @@ describe('TerrainSystem (in-thread, injected fetch)', () => {
       }
     }
     expect(expected).toBeGreaterThan(0);
+    const textures = new Set<Texture>();
+    for (const m of meshes(ts)) for (const mat of m.material) {
+      const map = (mat as ShaderMaterial).uniforms.map?.value as Texture | null;
+      if (map) textures.add(map);
+    }
+    expect(textures.size).toBeGreaterThan(0);
+    let texDisposed = 0;
+    for (const t of textures) t.addEventListener('dispose', () => texDisposed++);
     ts.dispose();
     expect(disposed).toBe(expected);
+    expect(texDisposed).toBe(textures.size);
     expect(ts.group.children.length).toBe(0);
     expect(ts.stats().resident).toBe(0);
     expect(ts.heightAt(KSFO.lat, KSFO.lon)).toBeNull();

@@ -99,7 +99,10 @@ describe('airportsData', () => {
     expect(he.headingDeg).toBeGreaterThan(215);
     expect(he.headingDeg).toBeLessThan(225);
     expect(he.displacedThresholdM).toBe(152);
-    expect(ap.runways[0].ils).toBeUndefined(); // 1372 m < 1500 m
+    expect(ap.runways[0].ils).toBeDefined(); // 1372 m ≥ 4 000 ft (1219 m) at a medium airport
+    const short = decodeAirport({ ...a, r: [{ ...a.r![0], l: 1200 }] });
+    expect(short.runways[0].ils).toBeUndefined(); // 1200 m < 4 000 ft
+    expect(decodeAirport({ ...a, t: 'S' }).runways[0].ils).toBeUndefined(); // small airports get none
   });
 
   it('synthesises deterministic, in-band, per-airport-unique ILS frequencies', () => {
@@ -143,7 +146,7 @@ describe('airportsData', () => {
     expect(g.locFullScaleDeg).toBeCloseTo((Math.atan(106.7 / dLoc) * 180) / Math.PI, 6);
     expect(greatCircleDistance(g.gsReference, thr)).toBeCloseTo(300, 0);
     expect(greatCircleDistance(g.gsAntenna, g.gsReference)).toBeCloseTo(120, 0);
-    expect(greatCircleDistance(g.markers.outer, thr)).toBeCloseTo(7200, 0);
+    expect(greatCircleDistance(g.markers.outer, thr)).toBeCloseTo(4 * 1852, 0); // OM 4 nm
     expect(greatCircleDistance(g.markers.middle, thr)).toBeCloseTo(1050, 0);
     expect(greatCircleDistance(g.markers.inner, thr)).toBeCloseTo(300, 0);
     expect(buildIlsGeometry('KSFO', { ...rw, ends: [{ ...rw.ends[0], ils: undefined }, rw.ends[1]] }, 0)).toBeUndefined();

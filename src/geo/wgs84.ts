@@ -15,6 +15,8 @@ export const WGS84_E2 = WGS84_F * (2 - WGS84_F); // 6.69437999014e-3
 export const EARTH_RADIUS = 6371000;
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
+/** ECEF scratch for the *ToGeodetic conversions (called every physics step; all synchronous). */
+const ECEF_SCRATCH: Vec3 = [0, 0, 0];
 
 export type Ecef = Vec3;
 
@@ -101,9 +103,9 @@ export class LocalFrame implements LocalFrameInfo {
     return this.ecefToNED(geodeticToEcef(lat, lon, alt, out), out);
   }
 
-  /** local NED → geodetic (exact). */
+  /** local NED → geodetic (exact). Allocation-free when `out` is passed. */
   nedToGeodetic(n: number, e: number, d: number, out: Geodetic = { lat: 0, lon: 0, alt: 0 }): Geodetic {
-    const p = this.nedToEcef(n, e, d);
+    const p = this.nedToEcef(n, e, d, ECEF_SCRATCH);
     return ecefToGeodetic(p[0], p[1], p[2], out);
   }
 
@@ -124,8 +126,9 @@ export class LocalFrame implements LocalFrameInfo {
     return this.nedToEcef(-z, x, -y, out);
   }
 
+  /** Three.js render coords → geodetic. Allocation-free when `out` is passed. */
   threeToGeodetic(x: number, y: number, z: number, out: Geodetic = { lat: 0, lon: 0, alt: 0 }): Geodetic {
-    const p = this.threeToEcef(x, y, z);
+    const p = this.threeToEcef(x, y, z, ECEF_SCRATCH);
     return ecefToGeodetic(p[0], p[1], p[2], out);
   }
 

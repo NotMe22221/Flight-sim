@@ -1,7 +1,7 @@
 /**
  * ILS: synthesis from runway data and the antenna geometry the receiver model needs.
  *
- * OurAirports has no ILS rows, so we synthesise one for every paved runway end ≥ 1500 m at
+ * OurAirports has no ILS rows, so we synthesise one for every paved runway end ≥ 4 000 ft at
  * large/medium airports (docs/research/05 §4.4). Frequencies are deterministic (FNV-1a hash of
  * `icao:ident` → one of the 40 localizer channels), unique within an airport, and every
  * synthetic record carries `synthetic: true` so the UI can say so.
@@ -12,17 +12,18 @@
  *    at the landing threshold, clamped to the 1.5°–3.0° half-width the standards allow;
  *  - glideslope antenna 300 m from the landing threshold, 120 m right of the centreline;
  *    the vertical geometry is referenced to the centreline point abeam the antenna;
- *  - marker beacons on the approach centreline: OM 7.2 km, MM 1.05 km, IM 300 m from threshold.
+ *  - marker beacons on the approach centreline: OM 4 nm (7.4 km), MM 1.05 km, IM 300 m from threshold.
  */
 import type { Geodetic } from '../core/types';
 import { clamp, wrap360 } from '../core/math';
+import { FT, NM } from '../core/units';
 import { destinationPoint, greatCircleDistance } from '../geo/wgs84';
 import type { IlsInfo, RunwayEnd, RunwayRecord } from './navTypes';
 
 const R2D = 180 / Math.PI;
 
-/** Minimum runway length for a synthetic ILS, m. */
-export const ILS_MIN_RUNWAY_M = 1500;
+/** Minimum runway length for a synthetic ILS, m (4 000 ft, docs/research/05 §0/§7). */
+export const ILS_MIN_RUNWAY_M = 4000 * FT;
 /** Localizer antenna distance beyond the stop end, m. */
 export const LOC_ANTENNA_BEYOND_END_M = 300;
 /** Half of the 700 ft course width at the threshold, m. */
@@ -36,8 +37,8 @@ export const GS_ANTENNA_LATERAL_M = 120;
 /** Nominal glidepath angle and full-scale deviation, deg. */
 export const GS_ANGLE_DEG = 3.0;
 export const GS_FULL_SCALE_DEG = 0.7;
-/** Marker beacon distances from the landing threshold, m. */
-export const MARKER_DISTANCES_M = { outer: 7200, middle: 1050, inner: 300 } as const;
+/** Marker beacon distances from the landing threshold, m: OM 4 nm (spec: 4–7 nm), MM ≈ 3 500 ft, IM ≈ 1 000 ft. */
+export const MARKER_DISTANCES_M = { outer: 4 * NM, middle: 1050, inner: 300 } as const;
 /** Marker reception window: ± along-track and ± lateral, m. */
 export const MARKER_ALONG_TRACK_M = 300;
 export const MARKER_LATERAL_M = 300;

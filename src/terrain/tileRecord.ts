@@ -37,8 +37,9 @@ export interface TileRecord {
   wantVersion: number;
   reqVersion: number;
   haveVersion: number;
-  /** last load failed; retry not before `retryAt` (ms) */
+  /** last load failed (drawn by ancestors meanwhile) */
   failed: boolean;
+  /** consecutive failed or degraded loads; next (re)load not before `retryAt` (ms) */
   failures: number;
   retryAt: number;
   /** LRU stamp (ms) and the selection / draw passes that last used the tile */

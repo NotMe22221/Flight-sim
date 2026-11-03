@@ -11,7 +11,7 @@
  *    (Shift+↑ still pitches) unless that chord is bound to an action.
  */
 import type { SimAxis } from '../core/types';
-import { type BindableAction, LEVER_AXES, actionMeta } from './actions';
+import { AXIS_COUNT, type BindableAction, LEVER_AXES, actionMeta, axisIndexOf } from './actions';
 import { type AxisBinding, type Binding, isActionBinding } from './bindings';
 import { type Chord, MODIFIER_CODES, chordToString } from './chord';
 import { HoldTracker, KeyAxis, type KeyAxisTuning, BRAKE_KEY_TUNING, LOOK_KEY_TUNING, STICK_KEY_TUNING, type RepeatTuning } from './keyAxis';
@@ -28,6 +28,10 @@ interface KeyState {
   actions: BindableAction[];
   axes: AxisBinding[];
 }
+
+/** Axes whose keys act as rates (not ramped virtual sticks). */
+const RATE_AXES: readonly SimAxis[] = ['throttle', 'mixture', 'propeller', 'cameraZoom'];
+const RATE_AXIS_INDEX = RATE_AXES.map(axisIndexOf);
 
 /** Returns true when the event target is a text-entry control that owns the keyboard. */
 export function isEditableTarget(t: EventTarget | null): boolean {
@@ -57,6 +61,8 @@ export class KeyboardSource {
   private captured = false;
   private attached = false;
   private pressedSincePoll = false;
+  /** per-poll held direction of non-ramped axes (levers, zoom), sampled before taps are cleared */
+  private polledDirs = new Float64Array(AXIS_COUNT);
   /** rebinding hook: receives every non-modifier chord; return true to swallow it */
   listener: ((chord: Chord) => boolean) | null = null;
 
@@ -65,7 +71,7 @@ export class KeyboardSource {
     this.setBindings(bindings);
   }
 
-  /** Rebuilds the chord index (keyboard bindings only); releases keys whose bindings vanished. */
+  /** Rebuilds the chord index from the keyboard bindings; releases every key first. */
   setBindings(bindings: readonly Binding[]): void {
     this.releaseAll();
     this.chords.clear();
@@ -152,6 +158,12 @@ export class KeyboardSource {
     return dir;
   }
 
+  /**
+   * Direction requested during the last poll interval for a non-ramped axis (throttle,
+   * mixture, propeller, cameraZoom): keys bound to these act as rates. Includes sub-frame taps.
+   */
+  polledDirection(axis: SimAxis): number { return this.polledDirs[axisIndexOf(axis)]; }
+
   /** Ramped value of a centring keyboard axis (0 if none is bound). */
   value(axis: SimAxis): number { return this.axes.get(axis)?.value ?? 0; }
 
@@ -174,6 +186,7 @@ export class KeyboardSource {
       if (e.ka.direction !== 0 || e.ka.value !== 0) e.lastActive = now;
     }
     this.tracker.poll(dt, emit, hold);
+    for (let i = 0; i < RATE_AXES.length; i++) this.polledDirs[RATE_AXIS_INDEX[i]] = this.direction(RATE_AXES[i]);
     for (let i = 0; i < this.keyList.length; i++) { const s = this.keyList[i]; s.latched = s.down; }
     const pressed = this.pressedSincePoll;
     this.pressedSincePoll = false;
@@ -198,15 +211,17 @@ export class KeyboardSource {
       return;
     }
     if (this.captured || isEditableTarget(e.target)) return;
-    const prev = this.keys.get(e.code);
-    if (prev?.down) {
-      // OS auto-repeat: we generate our own repeats; only keep the browser from acting on bound keys
-      if (prev.actions.length > 0 || prev.axes.length > 0) e.preventDefault();
-      return;
-    }
     if (MODIFIER_CODES.has(e.code)) return;
     const chord: Chord = { code: e.code, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey };
-    let entry = this.chords.get(chordToString(chord));
+    const chordKey = chordToString(chord);
+    const prev = this.keys.get(e.code);
+    if (e.repeat || prev?.down) {
+      // OS auto-repeat (we generate our own repeats) or a key still held from before a rebind /
+      // menu: never a fresh press. Only keep the browser from acting on bound keys.
+      if ((prev?.down && (prev.actions.length > 0 || prev.axes.length > 0)) || this.chords.has(chordKey)) e.preventDefault();
+      return;
+    }
+    let entry = this.chords.get(chordKey);
     let axes = entry?.axes;
     const actions = entry?.actions;
     if ((!actions || actions.length === 0) && (!axes || axes.length === 0) && (e.ctrlKey || e.shiftKey || e.altKey)) {

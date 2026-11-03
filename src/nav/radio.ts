@@ -16,15 +16,19 @@ import { G0, M_TO_FT, NM } from '../core/units';
 import { EARTH_RADIUS, greatCircleDistance, initialBearingDeg } from '../geo/wgs84';
 import { GS_FULL_SCALE_DEG, MARKER_ALONG_TRACK_M, MARKER_LATERAL_M } from './ils';
 import type { IlsGeometry } from './ils';
-import type { MarkerBeacon, NavRadioStateEx } from './navTypes';
+import type { MarkerBeacon, NavRadioStateEx, NavaidRecord } from './navTypes';
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
 
 /** VOR CDI full-scale deflection, deg. */
 export const VOR_FULL_SCALE_DEG = 10;
-/** Cone of confusion radius over a VOR, m (receiver flags 'off'). */
-export const VOR_CONE_RADIUS_M = 1 * NM;
+/**
+ * Cone of confusion over a VOR (receiver flags 'off'): half-angle from the vertical, deg, and the
+ * minimum radius, m (docs/research/05 §4.3: radius = max(300 m, height above station · tan 50°)).
+ */
+export const VOR_CONE_HALF_ANGLE_DEG = 50;
+export const VOR_CONE_MIN_RADIUS_M = 300;
 /** Station antenna height above its elevation used for the radio horizon, m. */
 export const STATION_ANTENNA_HEIGHT_M = 10;
 /** Localizer usable range, nm (within ±10° of course) and the GS usable range, nm. */
@@ -66,6 +70,16 @@ export function inVhfRange(distanceM: number, aircraftAltM: number, stationAltM:
 }
 
 // ───────────────────────────── VOR ─────────────────────────────
+
+/** Ground radius of the VOR cone of confusion at a height above the station, m. */
+export const vorConeRadiusM = (heightAboveStationM: number): number =>
+  Math.max(VOR_CONE_MIN_RADIUS_M, heightAboveStationM * Math.tan(VOR_CONE_HALF_ANGLE_DEG * D2R));
+
+/** True for navaid types that carry DME (`NavaidRecord.hasDme` also covers NDB-DME). */
+export function navaidHasDme(st: Navaid): boolean {
+  if (st.type === 'VOR-DME' || st.type === 'VORTAC' || st.type === 'DME' || st.type === 'TACAN') return true;
+  return (st as Partial<NavaidRecord>).hasDme === true;
+}
 
 /** Magnetic radial from the station the aircraft is on (uses the station's declination), deg 0..360. */
 export function vorRadialDeg(station: Navaid, aircraft: Geodetic): number {
@@ -133,10 +147,12 @@ const vorScratch: VorDeviation = { toFrom: 'from', deviationDeg: 0 };
 const locScratch: LocalizerDeviation = { cdi: 0, angleDeg: 0, backCourse: false };
 const gsScratch: GlideslopeDeviation = { gs: 0, errorDeg: 0, distanceM: 0, inFront: false };
 
+const MARKER_NAMES = ['outer', 'middle', 'inner'] as const;
+
 /** Which marker beacon (if any) the aircraft is over: within ±300 m along track and ±300 m laterally. */
 export function markerBeacon(ils: IlsGeometry, aircraft: Geodetic): MarkerBeacon {
   const approachDeg = ils.courseDeg; // flying toward the runway
-  for (const name of ['outer', 'middle', 'inner'] as const) {
+  for (const name of MARKER_NAMES) {
     const m = ils.markers[name];
     const d = greatCircleDistance(m, aircraft);
     if (d > MARKER_ALONG_TRACK_M + MARKER_LATERAL_M) continue;
@@ -236,7 +252,7 @@ export function emptyNavRadioState(tuning?: Partial<NavTuning>, out?: NavRadioSt
   o.standbyKHz = tuning?.standbyKHz ?? 108_000;
   o.obsDeg = tuning?.obsDeg ?? 0;
   o.ident = ''; o.valid = false; o.cdi = 0; o.toFrom = 'off'; o.gsDeviation = 0; o.gsValid = false;
-  o.isLocalizer = false; o.dmeNm = 0; o.bearingDeg = 0; o.radialDeg = 0;
+  o.isLocalizer = false; o.dmeNm = 0; o.dmeValid = false; o.bearingDeg = 0; o.radialDeg = 0;
   o.backCourse = false; o.marker = null; o.distanceM = Infinity;
   return o;
 }
@@ -257,8 +273,9 @@ export function computeVorRadio(aircraft: Geodetic, magVarDeg: number, station: 
   const isNdb = station.type === 'NDB';
   const inRange = isNdb ? distanceM / NM <= station.rangeNm : inVhfRange(distanceM, aircraft.alt, station.position.alt, station.rangeNm);
   const hasAzimuth = station.type === 'VOR' || station.type === 'VOR-DME' || station.type === 'VORTAC';
-  const overhead = distanceM < VOR_CONE_RADIUS_M;
+  const overhead = distanceM < vorConeRadiusM(aircraft.alt - station.position.alt);
   o.valid = inRange;
+  o.dmeValid = inRange && navaidHasDme(station);
   if (inRange && hasAzimuth && !overhead) {
     const dev = vorDeviationDeg(tuning.obsDeg, o.radialDeg, vorScratch);
     o.cdi = clamp(dev.deviationDeg / VOR_FULL_SCALE_DEG, -1, 1);
@@ -286,6 +303,7 @@ export function computeIlsRadio(aircraft: Geodetic, magVarDeg: number, ils: IlsG
   const usableNm = absAngle <= 10 ? LOC_RANGE_NM : absAngle <= 35 ? LOC_WIDE_RANGE_NM : 0;
   const losOk = inVhfRange(distLocNm * NM, aircraft.alt, ils.locAntenna.alt, Infinity);
   o.valid = distLocNm <= usableNm && losOk;
+  o.dmeValid = o.valid; // ILS/DME co-located with the threshold
   o.backCourse = loc.backCourse;
   o.cdi = o.valid ? loc.cdi : 0;
   if (o.valid) {

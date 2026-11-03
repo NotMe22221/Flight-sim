@@ -101,6 +101,15 @@ export class GamepadSource {
   /** Info for a pad index, or null. */
   padInfo(index: number): PadInfo | null { return this.pads[index]?.info ?? null; }
 
+  /** Resolved preset (profile key, layout, labels) of a connected pad, or null. */
+  resolved(index: number): ResolvedPreset | null { return this.pads[index]?.resolved ?? null; }
+
+  /** Index of the active pad, else of the first connected one, else −1. */
+  preferredPad(): number {
+    if (this.activePad >= 0 && this.pads[this.activePad]) return this.activePad;
+    return this.pads.findIndex((p) => !!p);
+  }
+
   /** Recompiles every pad's bindings (after a profile change or a D-pad mode change). */
   refreshProfiles(): void {
     for (const p of this.pads) {
@@ -109,6 +118,18 @@ export class GamepadSource {
       const prof = this.profileFor(p.resolved);
       p.info.profileId = prof.id;
       p.compiled = compilePad(prof.bindings, this.options.dpadMode, p.resolved);
+      this.primeActions(p);
+    }
+  }
+
+  /** Marks actions whose input is already held as down, so a held button (e.g. the one just bound) fires only when pressed again. */
+  private primeActions(p: Pad): void {
+    const gp = p.gamepad;
+    if (!gp) return;
+    for (const a of p.compiled.actions) {
+      if (a.kind === ActionSrc.Button) a.down = this.pressed(gp, a.src);
+      else if (a.kind === ActionSrc.Hat) a.down = (decodeHat(gp.axes[a.src] ?? 0) & a.mask) !== 0;
+      else a.down = (gp.axes[a.src] ?? 0) * a.mask > 0.5;
     }
   }
 
@@ -132,7 +153,9 @@ export class GamepadSource {
     for (let i = 0; i < list.length; i++) {
       const gp = list[i];
       if (!gp || gp.connected === false) continue;
-      const pad = this.pads[gp.index] ?? this.connect(gp);
+      let pad = this.pads[gp.index];
+      if (pad && pad.info.id !== gp.id) { this.disconnect(gp.index); pad = null; } // another device took the slot
+      if (!pad) pad = this.connect(gp);
       pad.gamepad = gp;
       pad.seen = true;
     }

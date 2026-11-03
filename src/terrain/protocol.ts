@@ -96,6 +96,8 @@ export interface TileResponse {
   imagery: ImageryPayload;
   /** fraction of DEM cells at or below sea level */
   waterFraction: number;
+  /** a better source failed for a transient reason (network, timeout, 5xx): the tile is worth reloading later */
+  transientFailure: boolean;
   /** worker time, ms */
   elapsedMs: number;
 }

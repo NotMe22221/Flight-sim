@@ -127,4 +127,27 @@ describe('FlightPlanner', () => {
     fp.setWaypoints(plan());
     expect(fp.activeLeg).toBe(1);
   });
+
+  it('removing the waypoint before the active one keeps a direct-to origin', () => {
+    const extra: Waypoint = { id: 'USR', position: destinationPoint(KHAF, 270, 30_000), type: 'user' };
+    const fp = new FlightPlanner([...plan(), extra]);
+    const here = destinationPoint(KSFO, 180, 10_000);
+    fp.directTo(3, here); // direct to USR
+    fp.remove(2); // drop LOWI, the waypoint just before the active one
+    expect(fp.activeWaypoint?.id).toBe('USR');
+    expect(fp.legOrigin()).toEqual(here); // still flying direct from where D→ was pressed
+    expect(Math.abs(fp.update(here, GS)!.crossTrackM)).toBeLessThan(1);
+    // removing the active waypoint itself cancels the direct-to and activates the next one
+    const fp2 = new FlightPlanner([...plan(), extra]);
+    fp2.directTo(2, here);
+    fp2.remove(2);
+    expect(fp2.activeWaypoint?.id).toBe('USR');
+    expect(fp2.legOrigin()).toEqual(KHAF);
+  });
+
+  it('desired track and cross-track stay finite on a zero-length leg', () => {
+    const fp = new FlightPlanner([waypointFromAirport({ icao: 'A', position: KSFO }), waypointFromAirport({ icao: 'B', position: KSFO })]);
+    const s = fp.update(destinationPoint(KSFO, 45, 1000), GS)!;
+    for (const v of [s.desiredTrackDeg, s.crossTrackM, s.distanceToActiveM, s.bearingToActiveDeg, s.remainingDistanceM]) expect(Number.isFinite(v)).toBe(true);
+  });
 });
