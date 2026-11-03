@@ -311,4 +311,33 @@ describe('AudioSystem review fixes', () => {
     await new Promise((r) => setTimeout(r, 5));
     expect(spoken).toEqual([]);
   });
+
+  it('UI sounds are not queued on a suspended context (they would all fire at once on resume)', async () => {
+    const { sys, mocks } = mockSystem();
+    await sys.resume();
+    const m = mocks[0];
+    m.setState('interrupted'); // iOS: another app took the audio session
+    const live = m.liveSources().length;
+    for (let i = 0; i < 5; i++) sys.playUi('click');
+    expect(m.liveSources().length).toBe(live);
+    m.setState('running');
+    sys.playUi('click');
+    expect(m.liveSources().length).toBeGreaterThan(live);
+    sys.dispose();
+  });
+
+  it('a flight reset that changes the flap setting does not run the flap motor', async () => {
+    const { sys, mocks } = mockSystem();
+    await sys.resume();
+    const base = makeAircraftState();
+    const flaps = (deg: number) => makeAircraftState({ surfaces: { ...base.surfaces, flapDeg: deg } });
+    for (let i = 0; i < 5; i++) { sys.update(DT, flaps(30), makeCamera(), makeWeather()); mocks[0].advance(DT); }
+    sys.onFlightReset(false); // teleport to a clean-wing spawn
+    for (let i = 0; i < 5; i++) {
+      sys.update(DT, flaps(0), makeCamera(), makeWeather());
+      expect(sys.environment!.flapMotorRunning).toBe(false);
+      mocks[0].advance(DT);
+    }
+    sys.dispose();
+  });
 });

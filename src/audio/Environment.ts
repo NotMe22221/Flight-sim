@@ -202,6 +202,19 @@ export class EnvironmentSynth {
     }
   }
 
+  /**
+   * Forget frame-to-frame tracking after a flight reset / teleport, so a flap setting that differs
+   * between the old and the new spawn does not read as flap travel (and run the motor).
+   */
+  resetTracking(): void {
+    this.lastFlapDeg = Number.NaN;
+    this.flapStillS = 0;
+    if (this.flapMoving) {
+      this.flapMoving = false;
+      this.flapGain.set(0, this.ctx.currentTime, 0.06);
+    }
+  }
+
   /** Stop and disconnect every persistent node. */
   dispose(): void { this.bag.dispose(); }
 

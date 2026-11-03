@@ -176,7 +176,7 @@ export class AudioSystem implements AudioMixer {
   }
 
   /** UI sound on the ui bus. */
-  playUi(sound: UiSound): void { this.guard(() => this.voices?.warnings.playUi(sound)); }
+  playUi(sound: UiSound): void { this.guard(() => this.ready && this.voices?.warnings.playUi(sound)); }
   /** Touchdown thump + tyre chirp (also fired by the `aircraft:touchdown` event). */
   onTouchdown(vsMs: number, lateralDriftMs = 0): void { this.guard(() => this.ready && this.voices?.env.onTouchdown(vsMs, lateralDriftMs)); }
   /** Marker-beacon tone (null = none). */
@@ -187,14 +187,15 @@ export class AudioSystem implements AudioMixer {
   }
   /**
    * Flight reset / teleport (also fired by the `flight:reset` event): stops speech and the marker
-   * tone and snaps the engine sound to the spawn's state, so the teleport plays no shutdown ticks
-   * or start cough, and a reset that disengages the autopilot plays no disconnect tone.
+   * tone and snaps the engine sound to the spawn's state, so the teleport plays no shutdown ticks,
+   * start cough or flap-motor blip, and a reset that disengages the autopilot plays no disconnect
+   * tone.
    */
   onFlightReset(engineRunning: boolean): void {
     this.stopSpeaking();
     this.setMarker(null);
     this.lastApEngaged = null;
-    this.guard(() => this.voices?.engine.resetPhase(engineRunning));
+    this.guard(() => { this.voices?.engine.resetPhase(engineRunning); this.voices?.env.resetTracking(); });
   }
   /** Autopilot-disconnect two-tone (also fired when `autopilot:changed` reports a disengage). */
   apDisconnect(): void { this.guard(() => this.ready && this.voices?.warnings.apDisconnect()); }
