@@ -46,8 +46,22 @@ export class SimUiHost implements UiHost {
 
   startChallenge(id: string): Promise<void> { return this.sim.startChallenge(id); }
 
-  setWeatherPreset(id: WeatherPresetId): void { this.sim.setWeatherPreset(id, this.sim.inFlight ? 30 : 0); }
-  setCustomWeather(w: WeatherState): void { this.sim.weather.setState(w, this.sim.inFlight ? 30 : 0); this.sim.events.emit('weather:changed', { state: this.sim.weather.state }); }
+  /** In flight the weather blends over 30 s; `immediate` (a new flight starting) applies it at once. */
+  setWeatherPreset(id: WeatherPresetId, opts?: { immediate?: boolean }): void { this.sim.setWeatherPreset(id, this.sim.inFlight && !opts?.immediate ? 30 : 0); }
+  setCustomWeather(w: WeatherState, opts?: { immediate?: boolean }): void {
+    this.sim.weather.setState(w, this.sim.inFlight && !opts?.immediate ? 30 : 0);
+    this.sim.events.emit('weather:changed', { state: this.sim.weather.state });
+  }
+
+  /** COM1 frequencies for the ATC panel header. */
+  comRadio(): { activeMHz: number; standbyMHz: number } | null {
+    const c = this.sim.radios.state.com1;
+    return c ? { activeMHz: c.activeMHz, standbyMHz: c.standbyMHz } : null;
+  }
+
+  /** Settings > General > Flight info strip: the HUD's flight-data tapes in external views. */
+  infoStrip = true;
+  setInfoStrip(visible: boolean): void { this.infoStrip = visible; }
 
   async requestLiveWeather(): Promise<boolean> {
     const g = this.sim.aircraft.geo;
@@ -73,6 +87,7 @@ export class SimUiHost implements UiHost {
     this.sim.cameras.setFov(g.fov);
     this.sim.terrain?.setImagery(g.imagery);
     this.sim.sky.clouds.group.visible = g.clouds;
+    this.sim.setShadows(g.shadows);
   }
 
   setAudio(a: AudioSettings): void { this.audioSettings = { ...a }; this.onAudioSettings?.(this.audioSettings); }
@@ -91,8 +106,10 @@ export class SimUiHost implements UiHost {
   resetBindings(profile: 'msfs' | 'laptop' | 'gamepad-xbox' | 'joystick-generic'): void { this.sim.input.resetProfile(profile); }
 
   dataCredits(): string[] {
+    // the terrain system reports its own (provider-specific) lines: use them instead of the generic one
     const terrain = this.sim.terrain?.attribution() ?? [];
-    return [...CREDITS, ...terrain.filter((t) => !CREDITS.some((c) => c.includes(t.slice(0, 20))))];
+    const base = terrain.length ? CREDITS.filter((c) => !c.startsWith('Terrain:')) : CREDITS;
+    return [...base, ...terrain];
   }
 
   captureInput(captured: boolean): void { this.sim.input.setCaptured(captured); }

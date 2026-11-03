@@ -12,7 +12,7 @@ import { SimUiHost } from './uiHost';
 type Ctor<T> = new (...args: never[]) => T;
 const ctor = <T>(mod: Record<string, unknown>, name: string): Ctor<T> | null => (typeof mod[name] === 'function' ? (mod[name] as Ctor<T>) : null);
 
-interface UiManagerLike { update(s: SimSnapshot, dt: number): void; show(screen: string): void; onStart?(cb: () => void): void; handleAction?(a: SimAction): boolean }
+interface UiManagerLike { update(s: SimSnapshot, dt: number): void; show(screen: string): void; onStart?(cb: () => void): void; handleAction?(a: SimAction): boolean; readonly coversView?: boolean }
 interface AudioLike { resume(): Promise<void>; update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; updateSnapshot?(dt: number, s: SimSnapshot): void; setSurface?(s: string): void; setListener?(posNED: [number, number, number] | null, velNED?: [number, number, number]): void; onTouchdown?(vs: number, drift?: number): void; setMarker?(m: 'outer' | 'middle' | 'inner' | null): void; setVolume?(bus: string, v: number): void; setMasterVolume?(v: number): void; speak?(text: string, voice?: string): void; playUi?(s: string): void }
 interface HudLike { readonly canvas: HTMLCanvasElement; resize(w: number, h: number, dpr: number): void; update(s: SimSnapshot, dt: number): void; reset?(): void }
 interface G1000Like { readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; update(s: SimSnapshot, dt: number): boolean; reset?(s: SimSnapshot): void; setNearestAirports?(l: { icao: string; lat: number; lon: number; type: string }[]): void }
@@ -44,7 +44,7 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
     if (!UiManager) return;
     host ??= new SimUiHost(sim);
     const ui = new (UiManager as unknown as new (c: HTMLElement, h: SimUiHost) => UiManagerLike)(container, host);
-    sim.plugins.ui = { update: (s, dt) => ui.update(s, dt), handleAction: ui.handleAction ? (a) => ui.handleAction!(a) : undefined };
+    sim.plugins.ui = { update: (s, dt) => ui.update(s, dt), handleAction: ui.handleAction ? (a) => ui.handleAction!(a) : undefined, coversView: () => ui.coversView === true };
     ui.onStart?.(() => { void audio?.resume(); });
     ui.show('loading');
     return;
@@ -117,7 +117,10 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
       reset: () => hud.reset?.(),
       update: (s, dt) => {
         // the HUD itself draws only warning flags and status in the cockpit view
-        const show = sim.hudVisible && sim.inFlight && !sim.replayer.active;
+        // Settings > Flight info strip off hides the HUD's flight data (the UI's own strip is suppressed above)
+        const show = sim.hudVisible && sim.inFlight && !sim.replayer.active && host?.infoStrip !== false;
+        // the UI's status bar and pause menu already show terrain loading and PAUSED
+        (hud as HudLike & { showStatus?: boolean }).showStatus = !sim.plugins.ui;
         hud.canvas.style.display = show ? 'block' : 'none';
         if (show) hud.update(s, dt);
       },

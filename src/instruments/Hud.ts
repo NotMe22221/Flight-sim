@@ -28,6 +28,8 @@ export interface HudOptions {
   hz?: number;
   /** also show the flight data in the cockpit camera (default false: flags and status only) */
   showInCockpit?: boolean;
+  /** draw the terrain-loading / PAUSED status line (default true; off when a UI shows its own) */
+  showStatus?: boolean;
 }
 
 export class Hud {
@@ -35,6 +37,8 @@ export class Hud {
   /** Hidden HUDs clear their canvas once and stop drawing (the `toggleHud` action). */
   visible = true;
   showInCockpit: boolean;
+  /** draw the terrain-loading / PAUSED status line */
+  showStatus: boolean;
   uiScale: number;
   hz: number;
   /** Values shown by the last update (truth from the snapshot, lightly smoothed). */
@@ -60,6 +64,7 @@ export class Hud {
     this.uiScale = options.uiScale ?? 1;
     this.hz = options.hz ?? 30;
     this.showInCockpit = options.showInCockpit ?? false;
+    this.showStatus = options.showStatus ?? true;
     this.resize(1280, 720, 1);
   }
 
@@ -135,7 +140,7 @@ export class Hud {
       drawControls(ctx, w, h, k, v);
     }
     drawFlags(ctx, w, L.apY + L.apH + 12 * k, k, v, this.blinkOn);
-    drawStatus(ctx, w, h, k, v.terrainReady, this.statusText, this.showData);
+    if (this.showStatus) drawStatus(ctx, w, h, k, v.terrainReady, this.statusText, this.showData);
   }
 
   private signature(s: SimSnapshot): number {

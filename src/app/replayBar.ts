@@ -5,11 +5,11 @@
 import type { ReplayController } from './ReplayController';
 
 const CSS = `
-.rp-btn{position:absolute;right:16px;bottom:16px;z-index:30;padding:8px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.18);
+.rp-btn{position:absolute;right:16px;bottom:16px;z-index:9;padding:8px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.18);
   background:rgba(10,14,22,.72);backdrop-filter:blur(8px);color:#e8eef6;font:600 12px/1 system-ui,-apple-system,Segoe UI,sans-serif;
   letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
 .rp-btn:hover{border-color:#4cc3ff;color:#4cc3ff}
-.rp-bar{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:31;display:flex;gap:10px;align-items:center;
+.rp-bar{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:9;display:flex;gap:10px;align-items:center;
   padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(10,14,22,.82);backdrop-filter:blur(10px);
   color:#e8eef6;font:500 12px/1 system-ui,-apple-system,Segoe UI,sans-serif;min-width:min(720px,92vw)}
 .rp-bar button{background:none;border:1px solid rgba(255,255,255,.2);color:inherit;border-radius:8px;padding:6px 10px;cursor:pointer;font:inherit}

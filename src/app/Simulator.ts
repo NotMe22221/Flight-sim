@@ -69,7 +69,7 @@ export interface SceneryLike {
 /** Optional subsystems attached after construction (UI, glass cockpit, HUD, audio, ATC, scenery). */
 export interface SimPlugins {
   scenery?: SceneryLike;
-  ui?: { update(s: SimSnapshot, dt: number): void; handleAction?(a: SimAction): boolean };
+  ui?: { update(s: SimSnapshot, dt: number): void; handleAction?(a: SimAction): boolean; coversView?(): boolean };
   g1000?: { update(s: SimSnapshot, dt: number): boolean; reset?(s: SimSnapshot): void; readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas };
   hud?: { update(s: SimSnapshot, dt: number): void; reset?(): void; resize(w: number, h: number, dpr: number): void; readonly canvas: HTMLCanvasElement | OffscreenCanvas };
   audio?: { update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; onTouchdown?(vsMs: number, lateralDriftMs?: number): void; setMarker?(m: string | null): void };
@@ -273,7 +273,7 @@ export class Simulator {
     interpolateState(this.prev, this.fdm.state, running ? alpha : 1, this.interp);
     if (this.slew && !this.replayer.active) this.slewFrame(dt);
     if (this.replayer.active) this.replayer.update(dt, this.interp, this.world.frame);
-    this.replayBar?.update(this.inFlight);
+    this.replayBar?.update(this.inFlight && !(this.plugins.ui?.coversView?.() ?? false));
     this.cockpitUi?.update();
     const t2 = performance.now();
     this.mark('input', t1 - t0);
@@ -485,7 +485,8 @@ export class Simulator {
     this.plugins.ui?.update(snap, dt);
     if ((this.frameCount & 15) === 0) this.events.emit('terrain:progress', { ready: snap.terrainReady });
     tn = performance.now(); this.mark('instruments', tn - tm); tm = tn;
-    this.gfx.renderer.render(this.scene, this.cameras.camera);
+    // behind an opaque menu, draw the scene only at ~4 Hz (keeps shaders warm, saves the GPU)
+    if (!this.plugins.ui?.coversView?.() || (this.frameCount & 15) === 0) this.gfx.renderer.render(this.scene, this.cameras.camera);
     if (this.screenshotPending) { this.screenshotPending = false; this.saveScreenshot(); }
     this.mark('render', performance.now() - tm);
   }
@@ -554,6 +555,18 @@ export class Simulator {
   setPaused(p: boolean): void {
     this.paused = p;
     this.loop.reset();
+  }
+
+  /** Graphics > Shadows: sun shadow maps on/off (materials recompile once on a change). */
+  setShadows(on: boolean): void {
+    const r = this.gfx.renderer;
+    if (r.shadowMap.enabled === on && this.sky.sunLight.castShadow === on) return;
+    r.shadowMap.enabled = on;
+    this.sky.sunLight.castShadow = on;
+    this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(m)) m.forEach((x) => { x.needsUpdate = true; }); else if (m) m.needsUpdate = true;
+    });
   }
 
   /** Spawn convenience: panel lights on when the sun is below ~3° at the spawn point (off by day). */
