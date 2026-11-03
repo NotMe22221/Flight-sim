@@ -96,7 +96,7 @@ try {
     return page.evaluate(() => window.__sim.terrainReady());
   });
   await step('screenshot cockpit on runway', async () => {
-    await page.evaluate(() => { window.__sim.setTimeOfDay(10); window.__sim.setCamera('cockpit'); });
+    await page.evaluate(() => { window.__sim.setTimePreset('morning'); window.__sim.setCamera('cockpit'); });
     await page.waitForTimeout(1500);
     await page.screenshot({ path: `${outDir}/02-cockpit-runway.png` });
   });
@@ -106,12 +106,7 @@ try {
     await page.screenshot({ path: `${outDir}/03-external-runway.png` });
   });
   await step('takeoff and climb (sim)', async () => {
-    await page.evaluate(() => window.__sim.setInputs({ parkingBrake: false, throttle: 1, flapsIndex: 1 }));
-    await page.evaluate(() => window.__sim.advance(25));
-    await page.evaluate(() => window.__sim.setInputs({ pitch: 0.3 }));
-    await page.evaluate(() => window.__sim.advance(6));
-    await page.evaluate(() => window.__sim.setInputs({ pitch: 0.05, flapsIndex: 0 }));
-    await page.evaluate(() => window.__sim.advance(30));
+    await page.evaluate(() => window.__sim.flyScriptedTakeoff(45));
     const s = await page.evaluate(() => window.__sim.state());
     return { aglM: s.altitudeAglM, iasKt: s.aero.ias / 0.514444, onGround: s.onGround };
   });
@@ -126,19 +121,19 @@ try {
     await page.screenshot({ path: `${outDir}/05-cockpit-climb.png` });
   });
   await step('screenshot sunset broken clouds', async () => {
-    await page.evaluate(() => { window.__sim.setWeather('broken'); window.__sim.setTimeOfDay(18.6); window.__sim.setCamera('chase'); });
+    await page.evaluate(() => { window.__sim.setWeather('broken'); window.__sim.setTimePreset('dusk'); window.__sim.setCamera('chase'); });
     await page.waitForTimeout(2500);
     await page.screenshot({ path: `${outDir}/06-sunset-broken.png` });
   });
   await step('screenshot night', async () => {
-    await page.evaluate(() => { window.__sim.setWeather('clear'); window.__sim.setTimeOfDay(22); });
+    await page.evaluate(() => { window.__sim.setWeather('clear'); window.__sim.setTimePreset('night'); });
     await page.waitForTimeout(2000);
     await page.screenshot({ path: `${outDir}/07-night.png` });
   });
   await step('fps sample', async () => page.evaluate(async () => {
     const f0 = window.__sim.frameCount, t0 = performance.now();
-    await new Promise((r) => setTimeout(r, 3000));
-    return Math.round(((window.__sim.frameCount - f0) * 1000) / (performance.now() - t0));
+    await new Promise((r) => setTimeout(r, 6000));
+    return { fps: Math.round(((window.__sim.frameCount - f0) * 10000) / (performance.now() - t0)) / 10, stats: window.__sim.stats() };
   }));
   await browser.close();
 } catch (e) {

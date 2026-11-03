@@ -104,3 +104,41 @@ export function moonPosition(utcMs: number, latDeg: number, lonDeg: number): Moo
   const phase = 0.5 + (0.5 * inc * (angle < 0 ? -1 : 1)) / Math.PI;
   return { elevation: alt * R2D, azimuth, phase, illuminatedFraction: (1 + Math.cos(inc)) / 2 };
 }
+
+export interface SunEvents {
+  /** UTC ms of apparent sunrise / solar noon / sunset on the local solar day containing `utcMs`; NaN when the sun never rises/sets */
+  sunriseMs: number;
+  noonMs: number;
+  sunsetMs: number;
+}
+
+/**
+ * Sunrise, solar noon and sunset (apparent elevation −0.833°) for the local solar day that
+ * contains `utcMs` at (lat, lon). Scans in 10-minute steps and refines crossings by bisection.
+ */
+export function sunEvents(utcMs: number, latDeg: number, lonDeg: number): SunEvents {
+  const dayMs = 86_400_000;
+  const solarOffsetMs = (lonDeg / 15) * 3_600_000;
+  const localMidnight = Math.floor((utcMs + solarOffsetMs) / dayMs) * dayMs - solarOffsetMs;
+  const h = (t: number) => sunPosition(t, latDeg, lonDeg).apparentElevation + 0.833;
+  const step = 10 * 60_000;
+  let rise = NaN, set = NaN, noon = localMidnight + dayMs / 2, maxEl = -Infinity;
+  let tPrev = localMidnight, hPrev = h(tPrev);
+  for (let t = localMidnight + step; t <= localMidnight + dayMs; t += step) {
+    const hv = h(t);
+    if (hv > maxEl) { maxEl = hv; noon = t; }
+    if (hPrev < 0 && hv >= 0 && Number.isNaN(rise)) rise = bisect(h, tPrev, t);
+    if (hPrev >= 0 && hv < 0) set = bisect(h, tPrev, t);
+    tPrev = t; hPrev = hv;
+  }
+  return { sunriseMs: rise, noonMs: noon, sunsetMs: set };
+}
+
+function bisect(f: (t: number) => number, a: number, b: number): number {
+  let fa = f(a);
+  for (let i = 0; i < 30; i++) {
+    const m = (a + b) / 2, fm = f(m);
+    if ((fm < 0) === (fa < 0)) { a = m; fa = fm; } else b = m;
+  }
+  return (a + b) / 2;
+}

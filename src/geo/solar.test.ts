@@ -48,3 +48,22 @@ describe('solar', () => {
     expect(n.illuminatedFraction).toBeLessThan(0.03);
   });
 });
+
+import { sunEvents } from './solar';
+describe('sun events', () => {
+  it('San Francisco, 3 Nov 2026: sunrise ≈ 14:40 UTC, sunset ≈ 01:05 UTC (+1 day)', () => {
+    const e = sunEvents(Date.UTC(2026, 10, 3, 20, 0), 37.62, -122.37);
+    const rise = new Date(e.sunriseMs), set = new Date(e.sunsetMs);
+    expect(rise.getUTCHours() * 60 + rise.getUTCMinutes()).toBeGreaterThan(14 * 60 + 25);
+    expect(rise.getUTCHours() * 60 + rise.getUTCMinutes()).toBeLessThan(14 * 60 + 55);
+    const setMin = ((set.getUTCHours() + 24) % 24) * 60 + set.getUTCMinutes();
+    expect(setMin).toBeGreaterThan(0 * 60 + 50);
+    expect(setMin).toBeLessThan(1 * 60 + 20);
+    expect(e.noonMs).toBeGreaterThan(e.sunriseMs);
+    expect(e.sunsetMs).toBeGreaterThan(e.noonMs);
+  });
+  it('polar night returns NaN events', () => {
+    const e = sunEvents(Date.UTC(2026, 11, 21, 12), 80, 0);
+    expect(Number.isNaN(e.sunriseMs)).toBe(true);
+  });
+});

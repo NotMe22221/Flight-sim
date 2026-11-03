@@ -101,7 +101,8 @@ export const C172S: AircraftConfig = {
     macHeightOnGround: 1.9,
     lengthM: 8.28,
     heightM: 2.72,
-    eyePoint: [0.1, -0.33, -0.29],
+    // pilot eye (left seat): matches the cockpit geometry of src/aircraft3d (c172Layout)
+    eyePoint: [0.15, -0.25, -0.55],
   },
   mass: {
     emptyMassKg: 767,

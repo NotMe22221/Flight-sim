@@ -1,0 +1,4 @@
+html, body { margin: 0; height: 100%; background: #05080d; overflow: hidden; }
+#app { position: fixed; inset: 0; }
+.sim-canvas { position: absolute; inset: 0; outline: none; }
+.sim-hud { position: absolute; inset: 0; pointer-events: none; }

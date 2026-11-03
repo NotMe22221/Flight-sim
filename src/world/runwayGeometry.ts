@@ -5,6 +5,7 @@
 import { wrap360 } from '../core/math';
 import type { Geodetic, Runway, Vec3 } from '../core/types';
 import { LocalFrame } from '../geo/wgs84';
+import { runwayEndDisplacementB, runwayEndIdents } from './runwayIdents';
 
 export interface RunwayEndGeometry {
   ident: string;
@@ -72,9 +73,10 @@ export function runwayGeometry(rw: Runway, frame: LocalFrame, surfaceLift = 0.12
   const lengthM = rw.lengthM > 0 ? rw.lengthM : horiz;
   const halfW = rw.widthM / 2;
   const dispA = rw.displacedThresholdM || 0;
-  const dispB = (rw as Runway & { displacedThresholdEndM?: number }).displacedThresholdEndM ?? 0;
+  const dispB = runwayEndDisplacementB(rw);
+  const [identA, identB] = runwayEndIdents(rw);
   const endA: RunwayEndGeometry = {
-    ident: rw.ident.split('/')[0] ?? rw.ident,
+    ident: identA,
     pos: a,
     displacedPos: [a[0] + along[0] * dispA, a[1] + ((b[1] - a[1]) * dispA) / Math.max(horiz, 1), a[2] + along[2] * dispA],
     dir: along,
@@ -84,7 +86,7 @@ export function runwayGeometry(rw: Runway, frame: LocalFrame, surfaceLift = 0.12
   };
   const back: Vec3 = [-along[0], 0, -along[2]];
   const endB: RunwayEndGeometry = {
-    ident: rw.ident.split('/')[1] ?? '',
+    ident: identB,
     pos: b,
     displacedPos: [b[0] + back[0] * dispB, b[1] + ((a[1] - b[1]) * dispB) / Math.max(horiz, 1), b[2] + back[2] * dispB],
     dir: back,

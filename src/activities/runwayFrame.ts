@@ -4,6 +4,7 @@
  * around the threshold is exact enough within a few km.
  */
 import type { Airport, Geodetic, Runway } from '../core/types';
+import { runwayEndDisplacementB, runwayEndIdents } from '../world/runwayIdents';
 
 const D2R = Math.PI / 180;
 const R = 6371000;
@@ -24,13 +25,12 @@ export interface RunwayEndRef {
 
 /** Both landing directions of a runway as references. */
 export function runwayEnds(airport: Airport, rw: Runway): [RunwayEndRef, RunwayEndRef] {
-  const [a, b] = rw.ident.split('/');
+  const [a, b] = runwayEndIdents(rw);
   const headingA = rw.headingDeg;
   const headingB = (rw.headingDeg + 180) % 360;
-  const ext = rw as Runway & { displacedThresholdEndM?: number };
   return [
-    { airport, runway: rw, ident: a ?? rw.ident, threshold: rw.threshold, headingDeg: headingA, lengthM: rw.lengthM, widthM: rw.widthM, displacedM: rw.displacedThresholdM || 0 },
-    { airport, runway: rw, ident: b ?? rw.ident, threshold: rw.end, headingDeg: headingB, lengthM: rw.lengthM, widthM: rw.widthM, displacedM: ext.displacedThresholdEndM ?? 0 },
+    { airport, runway: rw, ident: a, threshold: rw.threshold, headingDeg: headingA, lengthM: rw.lengthM, widthM: rw.widthM, displacedM: rw.displacedThresholdM || 0 },
+    { airport, runway: rw, ident: b, threshold: rw.end, headingDeg: headingB, lengthM: rw.lengthM, widthM: rw.widthM, displacedM: runwayEndDisplacementB(rw) },
   ];
 }
 
