@@ -103,7 +103,7 @@ export class SimUiHost implements UiHost {
     return r ? { action, label: r.label, device: r.device, group: r.group } : null;
   }
 
-  resetBindings(profile: 'msfs' | 'laptop' | 'gamepad-xbox' | 'joystick-generic'): void { this.sim.input.resetProfile(profile); }
+  resetBindings(profile: 'default' | 'msfs' | 'laptop' | 'gamepad-xbox' | 'joystick-generic'): void { this.sim.input.resetProfile(profile); }
 
   dataCredits(): string[] {
     // the terrain system reports its own (provider-specific) lines: use them instead of the generic one
