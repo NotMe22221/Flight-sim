@@ -121,13 +121,19 @@ export interface PistonEngineSpec {
   displacementM3: number;
   /** volumetric efficiency */ VE: number;
   /** indicated specific fuel consumption, lb/hp/hr */ ISFC: number;
+  /** nominal full-throttle manifold pressure at sea level, inHg (used for calibration and gauges) */
   maxMAPinHg: number;
   minMAPinHg: number;
-  /** friction power model P_fric_hp = a*RPM^2 + b */ frictionA: number; frictionB: number;
+  /** Coulomb (rpm-independent) friction torque, N·m */ frictionA: number;
+  /** viscous friction torque per rad/s, N·m·s */ frictionB: number;
   /** rotating inertia of crank + accessories, kg·m² */ inertia: number;
   mixtureEfficiency: Table1DSpec; // fuel/air ratio → efficiency
   cylinders: number;
-  /** starter torque fraction of rated power */ starterTorqueFrac: number;
+  /** starter torque, N·m (cranking speed emerges from friction + compression) */ starterTorqueNm: number;
+  /** effective throttle-body flow area with the throttle closed (idle leak), m² */ throttleAreaIdleM2: number;
+  /** effective throttle-body flow area wide open, m² */ throttleAreaMaxM2: number;
+  /** intake manifold volume, m³ (sets the manifold-pressure time constant) */ manifoldVolumeM3: number;
+  /** rpm below which combustion cannot sustain itself */ minFiringRPM: number;
 }
 
 export interface TurbofanEngineSpec {
