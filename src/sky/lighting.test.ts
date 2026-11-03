@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../core/types';
 import { dirFromAzEl } from '../geo/solar';
 import {
-  DEFAULT_EXPOSURE, acesFilmic, adaptExposure, ambientFloor, cloudCoverFraction, colorTemperatureK, encodeDisplayColor,
+  DEFAULT_EXPOSURE, acesFilmic, adaptExposure, ambientFloor, cloudCoverAbove, cloudCoverFraction, colorTemperatureK, encodeDisplayColor,
   fogBetaFromVisibility, fogExp2DensityFromVisibility, hazeScaleHeight, heightFogOpticalDepth, hemisphereIntensity, linearToSrgb, moonLightIntensity,
   SUN_INTENSITY_BASE, starVisibility, sunLightIntensity, targetExposure, turbidityFromVisibility,
 } from './lighting';
@@ -112,6 +112,22 @@ describe('solar-driven lighting curves', () => {
     expect(cloudCoverFraction([])).toBe(0);
     expect(cloudCoverFraction([{ baseM: 0, topM: 1, coverage: 1, density: 1, type: 'stratus' }])).toBe(1);
     expect(cloudCoverFraction([{ baseM: 0, topM: 1, coverage: 0.5, density: 1, type: 'stratus' }, { baseM: 2, topM: 3, coverage: 0.5, density: 1, type: 'stratus' }])).toBeCloseTo(0.75, 9);
+  });
+
+  it('cloud cover above a height: all layers below them, none on top, fading through a layer', () => {
+    const layers = [
+      { baseM: 500, topM: 1500, coverage: 1, density: 1, type: 'stratus' as const },
+      { baseM: 6000, topM: 6500, coverage: 0.5, density: 1, type: 'stratus' as const },
+    ];
+    expect(cloudCoverAbove(layers, 100)).toBeCloseTo(cloudCoverFraction(layers), 9);
+    expect(cloudCoverAbove(layers, 3000)).toBeCloseTo(0.5, 9); // on top of the deck: only the high layer
+    expect(cloudCoverAbove(layers, 9000)).toBe(0);
+    const mid = cloudCoverAbove(layers, 1000);
+    expect(mid).toBeGreaterThan(0.5);
+    expect(mid).toBeLessThan(1);
+    let prev = 2;
+    for (let h = 0; h <= 7000; h += 50) { const c = cloudCoverAbove(layers, h); expect(c).toBeLessThanOrEqual(prev + 1e-12); prev = c; }
+    expect(cloudCoverAbove(layers, Number.NaN)).toBeCloseTo(cloudCoverFraction(layers), 9);
   });
 
   it('height-fog optical depth matches numerical integration of β0·exp(−h/H) along the ray', () => {

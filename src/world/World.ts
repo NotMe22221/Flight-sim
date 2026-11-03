@@ -134,6 +134,9 @@ export class World {
   update(dt: number, cameraPosThree: THREE.Vector3, camera: THREE.PerspectiveCamera, aircraftGeo: Geodetic, aircraftPosThree: Vec3, sunElevationRad: number): void {
     this.terrain?.update(cameraPosThree, camera, dt);
     this.airports.update(dt, aircraftGeo, aircraftPosThree, sunElevationRad);
+    // runway pavement comes down to the wheels near the camera only while the camera is near the ground
+    const g = this.groundHeight(-cameraPosThree.z, cameraPosThree.x);
+    if (g !== null) this.airports.nearDrop.value = runwayNearDropFor(cameraPosThree.y - g);
     this.flattenTimer += dt;
     if (this.flattenTimer > 2) {
       this.flattenTimer = 0;
@@ -225,3 +228,10 @@ export class World {
 }
 
 function zero(out: Vec3): Vec3 { out[0] = 0; out[1] = 0; out[2] = 0; return out; }
+
+/** Runway near-camera drop strength for a camera `h` m above the ground: 1 below 20 m, 0 above 60 m. */
+export function runwayNearDropFor(h: number): number {
+  if (!Number.isFinite(h)) return 0;
+  const t = Math.min(1, Math.max(0, (h - 20) / 40));
+  return 1 - t * t * (3 - 2 * t);
+}

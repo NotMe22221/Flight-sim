@@ -33,7 +33,7 @@ world.update(dt, cameraPosThree, camera, aircraftGeo, aircraftPosThree, sunEleva
 | File | Role |
 |---|---|
 | `World.ts` | Frame, rebasing, `Environment` sources (`groundHeight` clamped to the sea surface except on runways, `surfaceAt`: paved on runways and on the flattened aprons / taxiways), runway + pavement sync to the terrain, `groundShift`. |
-| `AirportsLayer.ts`, `runwayGeometry.ts`, `runwayIdents.ts` | Runway slabs (0.12 m up, curved along their length), markings, edge / threshold / approach lights, REIL, PAPI; airports built within 45 nm (max 14). `flatteningSegments()` and `builtAirports()` feed the terrain. |
+| `AirportsLayer.ts`, `runwayGeometry.ts`, `runwayIdents.ts` | Runway slabs (0.12 m up, curved along their length, 12 mm near the camera), markings, edge / threshold / approach lights, REIL, PAPI; airports built within 45 nm (max 14). `flatteningSegments()` and `builtAirports()` feed the terrain. |
 | `pavement.ts` | Scenery pavement → terrain flattening specs: `PavementArea` (the scenery's published pieces), `PavementSource`, `airportPavementPlane`, `PavementRegistry`, `PavementIndex` (point-on-pavement lookup for tyre friction). |
 | `environment.ts`, `rebase.ts`, `LandingGuide.ts` | Environment object with fallbacks, rebase transform, landing path hints. |
 
@@ -95,14 +95,20 @@ caps; `PavementIndex` inside an apron but not its hole, within half width of a c
 prefetch → the first ground under the stand is the plane < 1 cm; the near-camera pavement of every
 tier is 0–1 cm above the collision ground on the apron, also between the 16 m drape vertices
 (< 2 mm); `groundShift` reports a reload under a standing aircraft once and ignores teleports),
-plus runway geometry, landing guide, rebase and environment tests. `src/app/groundShift.test.ts`
+`runwayNearDrop.test.ts` (the shader patch lands after `project_vertex` and before the log-depth
+chunk with a shared uniform; slab / markings / designator end at 12 / 14 / 16 mm near the camera,
+above the OSM taxiways' 10 mm; only with the camera near the ground), plus runway geometry,
+landing guide, rebase and environment tests. `src/app/groundShift.test.ts`
 runs the C172 flight model on a World whose terrain jumps ±0.5 m under it: with the re-seat a
 parked and a taxiing aircraft keep their gear compression (no crash, |vz| < 0.2 m/s); without it
 the same reload collapses the gear or drops the aircraft.
 
 ## Known limitations
 
-* The runway slabs are drawn 0.12 m above the flattened strip (they must win against coarse LODs
-  that resolve the strip only partly), so tyres on a runway still sink 0.12 m; taxiways near a
-  runway sit a few millimetres up, under the slab.
+* Runway slabs are built 0.12 m above the flattened strip (markings 0.15 m, designators 0.16 m) so
+  coarse LODs that resolve the strip only partly never poke through; near the camera (full within
+  40 m, none beyond 400 m) and only while the camera is within 20–60 m of the ground, their
+  materials lower them to 12 / 14 / 16 mm (`RUNWAY_NEAR_DROP_M`, `patchRunwayNearDrop`, view-space
+  shift after `project_vertex`, log-depth safe), so tyres sink about 1 cm into a runway instead of
+  12 cm. Seen from a tower or drone camera 400 m+ away the slab is back at 0.12 m (invisible there).
 * One plane per airport: see the terrain README (Known limitations, Pavement flattening).

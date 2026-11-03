@@ -179,7 +179,7 @@ the environment's lower hemisphere is the lit ground (`GROUND_ALBEDO` · (sun + 
 hemisphere light's ground colour carries whatever the environment does not. Exposure is metered-free
 partial adaptation to the light where the camera is, `day · (DAY_ILLUMINANCE / E)^0.5` bounded by
 [day 0.5, night 1.5 (+15 % moonless)], E = sun·sin el + skylight luminance with the sun dimmed only by the
-cloud layers ABOVE the camera (`cloudCoverAbove`) and by the cloud it is in: 0.5 at a clear noon, ≈ 0.63 at
+cloud layers ABOVE the camera (`cloudCoverAbove`) and by the cloud it is in: 0.5 at a clear noon, ≈ 0.6 at
 40°, ≈ 0.9 at 20°, the night bound from a ≈ 6° sun down, ≈ 0.85 under a noon overcast and back to ≈ 0.5
 on top of it. It adapts with a 1.5 s first-order filter (frame-rate independent, no overshoot; the first
 frame snaps). `targetExposure` (elevation curve) remains exported.
@@ -265,6 +265,22 @@ medians, before → after):
 | procedural grass near the runway | 97/88/52 | 182/169/119 | mid green: albedo too high |
 | sky at the horizon / 20° / 45° | 197 / 177 / 160 | 187 / 164 / 147 | blue, brighter toward the horizon |
 | exposure | 0.60 | 0.50 | |
+
+| Other times (clear) | before | after |
+|---|---|---|
+| 40° sun: white paint top / shaded side | 161/168/181 / 74/103/127 | 231/229/227 / 133/138/144 |
+| 40° sun: asphalt; exposure | 52/56/67; 0.60 | 139/136/133; 0.60 |
+| golden hour (6°): sun-facing paint / shaded side | 219/207/196 / 119/127/137 | 246/238/221 (warm) / 98/106/122 (blue) |
+| golden hour: asphalt / markings | 19/28/49 / 96/120/156 (navy cast) | 67/59/59 / 185/176/173 |
+| golden hour: sky 45°; exposure | 14/65/126; 1.07 | 32/89/157; 1.61 (night bound) |
+| civil dusk (−3.5°): paint / markings | 77/70/81 / 104/101/105 | 79/77/85 / 114/111/116 |
+| civil dusk: exposure | 1.39 | 1.61 |
+
+The partial calibration found on disk (sun 12 and exposure 0.5 with the old skylight curve, the
+environment's ground hemisphere left at MeshBasicMaterial's default white) measured: noon shade
+91/102/121 (direct/sky ≈ 16 ×, crushed), golden-hour shade 220/222/224 and dusk paint 206–226 (the white
+lower hemisphere lit every side and belly ≈ 3 × brighter than the sky did — the old "dusk ruined by a too
+strong environment map" regression in a new form).
 
 ## Tests
 

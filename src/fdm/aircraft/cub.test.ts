@@ -528,7 +528,7 @@ describe('PA-18-150 systems and state', () => {
     expect(c.state.electrical!.lowVoltsThresholdV).toBe(24.5);
   });
 
-  it('indicates CAS (no published ASI calibration) and warns of the stall ≈ 5 kt early', () => {
+  it('indicates CAS (no published ASI calibration) and gives no stall warning in normal flight', () => {
     const env = makeEnv();
     const f = cub(GROSS);
     airborne(f, env, 600, 70);

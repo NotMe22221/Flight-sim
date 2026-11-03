@@ -185,6 +185,25 @@ describe('skylight cost and the environment’s lower hemisphere (review)', () =
     sky.dispose();
   });
 
+  it('the environment bakes the dome desaturated to the skylight’s hue; the dome on screen keeps its colour', () => {
+    const sky = settled(timeForElevation('noon'), weatherFromPreset('clear', 4));
+    const u = sky.sky.material.uniforms as Record<string, { value: unknown }>;
+    expect(sky.sky.material.fragmentShader).toContain('skySaturation');
+    expect(u.skySaturation.value).toBe(1);
+    let during = NaN;
+    (sky as unknown as { pmrem: unknown }).pmrem = {
+      fromScene: () => { during = u.skySaturation.value as number; throw new Error('no GPU in Node'); },
+      dispose: () => {},
+    };
+    const warn = console.warn;
+    console.warn = () => {};
+    try { sky.bakeEnvironment(); } finally { console.warn = warn; }
+    expect(during).toBeGreaterThan(0.1); // greyer than the dome …
+    expect(during).toBeLessThan(0.6); // … but still a blue sky
+    expect(u.skySaturation.value).toBe(1); // restored even when the bake fails
+    sky.dispose();
+  });
+
   it('the environment’s lower hemisphere is the lit ground: dark, near neutral, follows the sun', () => {
     const sky = settled(timeForElevation('noon'), weatherFromPreset('clear', 4));
     const g = (sky as unknown as { envGround: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> }).envGround.material.color;

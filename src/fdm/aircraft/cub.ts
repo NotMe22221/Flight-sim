@@ -190,7 +190,7 @@ const CUB_AERO: AircraftConfig['aero'] = {
   blendStartRad: 0.36,
   blendEndRad: 0.55,
   // stall-warning vane on the left wing: ≈ 5 kt above the stall
-  stallWarnAlphaRad: 0.205,
+  stallWarnAlphaRad: 0.19,
   stalledAlphaRad: 0.29,
 };
 

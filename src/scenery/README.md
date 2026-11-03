@@ -119,7 +119,7 @@ apron edge; nearer the edge it keeps the ribbon height so it never dips under th
 triangles that still reach onto the apron there). Within the runway zone (OSM runway
 centre line ± half width (30 m default) + 12 m, or runway polygons + 12 m) every vertex drops
 to 6–10 mm (the flattened runway strip is planar there), i.e. **under** the runway slab that
-`src/world/AirportsLayer` draws 0.12 m up,
+`src/world/AirportsLayer` draws 0.12 m up (12 mm near the camera),
 and markings / taxiway lights stop. Draped materials carry a small relative depth bias (0.25 % of the view
 distance, injected after three's `project_vertex`, so both the logarithmic and the reversed
 depth buffer work) that wins over the coarser terrain mesh; it is zero next to runways.

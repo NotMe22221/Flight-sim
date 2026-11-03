@@ -398,3 +398,24 @@ describe('review: the pause menu does not jump under the pointer', () => {
     expect(items()).toEqual(['Resume flight', 'Restart flight', 'World map', 'Settings', 'Main menu']);
   });
 });
+
+describe('review: pause menu keeps the keyboard', () => {
+  it('a press on a greyed-out item or the card itself does not take the focus away from the menu', async () => {
+    await startQuickLesson(60);
+    await esc();
+    const abort = buttonByText(t.q('.pause-menu')!, 'Abort activity');
+    abort.click();
+    await t.run(50);
+    // the second press of a double click lands on the disabled Abort: the browser would blur Resume
+    const down = new (globalThis as unknown as { MouseEvent: new (t: string, i?: object) => { defaultPrevented: boolean } }).MouseEvent('mousedown', { bubbles: true });
+    abort.dispatchEvent(down as never);
+    expect(down.defaultPrevented).toBe(true);
+    const onCard = new (globalThis as unknown as { MouseEvent: new (t: string, i?: object) => { defaultPrevented: boolean } }).MouseEvent('mousedown', { bubbles: true });
+    t.q('.pause-title')!.dispatchEvent(onCard as never);
+    expect(onCard.defaultPrevented).toBe(true);
+    // an enabled item keeps its normal press
+    const onResume = new (globalThis as unknown as { MouseEvent: new (t: string, i?: object) => { defaultPrevented: boolean } }).MouseEvent('mousedown', { bubbles: true });
+    buttonByText(t.q('.pause-menu')!, 'Resume flight').dispatchEvent(onResume as never);
+    expect(onResume.defaultPrevented).toBe(false);
+  });
+});

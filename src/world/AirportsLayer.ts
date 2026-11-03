@@ -40,6 +40,34 @@ const COLOR_WHITE = new THREE.Color(1, 0.98, 0.9);
 const EARTH_R = 6_371_000;
 /** Height of the earth's arc above the straight end-to-end chord at fraction t of a runway of length L (m). */
 export const runwayBulge = (lengthM: number, t: number): number => (lengthM * lengthM * t * (1 - t)) / (2 * EARTH_R);
+/**
+ * Near-camera drop of the runway pavement (m, at full strength). Slabs are built 0.12 m above the
+ * flattened strip (`runwayGeometry`), markings 0.15 m and designators 0.16 m, so a coarser
+ * terrain LOD never pokes through in the distance; the wheels stand on the strip itself, so
+ * within RUNWAY_NEAR_FULL_M of the camera (none beyond RUNWAY_NEAR_END_M) they come down to
+ * 12 / 14 / 16 mm, scaled by `nearDrop.value` (full with the camera near the ground, none from
+ * the air; World.update sets it). The OSM taxiways next to a runway stay under the slab (6–10 mm).
+ */
+export const RUNWAY_NEAR_DROP_M = { slab: 0.108, markings: 0.136, designator: 0.144 };
+export const RUNWAY_NEAR_FULL_M = 40;
+export const RUNWAY_NEAR_END_M = 400;
+
+/** Lower a material's vertices along the render-frame up near the camera by `drop.value × scale` (view space, after project_vertex). */
+export function patchRunwayNearDrop(m: THREE.Material, drop: { value: number }, scale: number): void {
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.rwyNearDrop = drop;
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', 'uniform float rwyNearDrop;\nvoid main() {')
+      .replace('#include <project_vertex>', [
+        '#include <project_vertex>',
+        `\tfloat rwyFade = rwyNearDrop * ${scale.toFixed(4)} * ( 1.0 - smoothstep( ${RUNWAY_NEAR_FULL_M.toFixed(1)}, ${RUNWAY_NEAR_END_M.toFixed(1)}, length( mvPosition.xyz ) ) );`,
+        '\tmvPosition.xyz -= ( viewMatrix * vec4( 0.0, rwyFade, 0.0, 0.0 ) ).xyz;',
+        '\tgl_Position = projectionMatrix * mvPosition;',
+      ].join('\n'));
+  };
+  m.customProgramCacheKey = () => `runway-near-drop-${scale.toFixed(4)}`;
+}
+
 const COLOR_RED = new THREE.Color(1, 0.12, 0.08);
 const COLOR_GREEN = new THREE.Color(0.1, 1, 0.3);
 
@@ -56,6 +84,8 @@ export class AirportsLayer {
   private rabbitMaterial: THREE.PointsMaterial;
   private clock = 0;
   private readonly tmpColor = new THREE.Color();
+  /** near-camera drop strength 0…1 (camera near the ground → 1), shared by the runway materials */
+  readonly nearDrop = { value: 0 };
 
   constructor(private frame: LocalFrame, private nav: NavDatabase, options: Partial<AirportsLayerOptions> = {}) {
     this.opts = { ...DEFAULTS, ...options };
@@ -65,6 +95,8 @@ export class AirportsLayer {
     // colour multiplied it down to ~0.03 and the pavement rendered near-black at noon)
     this.asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, color: 0xffffff, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     this.markings = new THREE.MeshStandardMaterial({ color: 0xf2f2ea, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+    patchRunwayNearDrop(this.asphalt, this.nearDrop, RUNWAY_NEAR_DROP_M.slab);
+    patchRunwayNearDrop(this.markings, this.nearDrop, RUNWAY_NEAR_DROP_M.markings);
     this.lightSprite = makeLightSprite();
     this.lightMaterial = new THREE.PointsMaterial({ size: 3.2, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true, alphaTest: 0.01 });
     this.reilMaterial = new THREE.PointsMaterial({ size: 7, map: this.lightSprite, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
@@ -328,6 +360,7 @@ export class AirportsLayer {
     const text = end.ident || '';
     const tex = makeTextTexture(text);
     const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, alphaTest: 0.2 });
+    patchRunwayNearDrop(mat, this.nearDrop, RUNWAY_NEAR_DROP_M.designator);
     const h = 18, w = Math.max(9, 9 * text.length);
     const geo = new THREE.PlaneGeometry(w, h);
     const mesh = new THREE.Mesh(geo, mat);

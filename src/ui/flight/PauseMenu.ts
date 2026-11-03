@@ -47,6 +47,12 @@ export class PauseMenu {
       h('div', { class: 'muted', style: 'text-align:center;font-size:.8em;margin-top:10px', text: isCoarsePointer() ? 'Tap outside the menu to resume' : 'Esc resumes · Pause/Break toggles active pause' }));
     arrowNavigation(card);
     trapFocus(card);
+    // a press on the card's background or on a greyed-out item (the second press of a double click
+    // on Abort) would blur the focused item: the keyboard (arrows, Enter, the Tab trap) left the menu
+    card.addEventListener('mousedown', (e) => {
+      const t = e.target as HTMLElement | null;
+      if (!t?.closest?.('button:not([disabled]), input, select, textarea, a[href]')) e.preventDefault();
+    });
     this.el = h('div', { class: 'modal-backdrop', onClick: (e) => { if (e.target === this.el) a.resume(); } }, card);
     layer.appendChild(this.el);
   }

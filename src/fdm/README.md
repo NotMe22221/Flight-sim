@@ -87,7 +87,7 @@ from the PA-18-150 owner's handbook and TCDS 1A2):
 | Check | Model | Handbook / tolerance |
 |---|---|---|
 | Stall power off, flaps up / 50°, 1 g (CLmax) | 42.0 / 37.5 KIAS (entry at ≈ 1 kt/s: 40.4 / 34.8) | 47 / 43 mph = 41 / 37 kt, ± 2.5 kt |
-| Stall warning (vane, α 11.7°) | 3.6 kt above the entry | — |
+| Stall warning (vane, α 10.9°) | 4.4 / 4.6 kt above the entry | ≈ 5 kt |
 | Best rate of climb, 61 KIAS, full throttle | 990 fpm at 2,475 rpm | 960 fpm, ± 12 % |
 | Top speed, sea level, full throttle | 109.7 KTAS at 2,700 rpm, 14.2 gph | 130 mph = 113 kt, ± 6 % |
 | 75 % cruise, sea level / 5,000 ft | 98.4 / 103.0 KTAS | 115 mph = 100 kt, ± 6 % |
