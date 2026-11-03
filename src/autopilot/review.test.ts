@@ -3,9 +3,14 @@
  * before the fix) or pins a convention against the real producers (src/nav, src/fdm).
  */
 import { describe, expect, it } from 'vitest';
+import { defaultControlInputs } from '../core/types';
+import { deltaDeg } from '../core/math';
 import { DEG, FPM, FT, KT, NM } from '../core/units';
-import { makeEnv } from '../fdm/testing';
-import { ZohSim } from './reviewHarness';
+import { airborne, makeEnv, makeFdm } from '../fdm/testing';
+import { GfcAutopilot } from './Autopilot';
+import { FlightAssists } from './assists';
+import { FDM_DT, ZohSim } from './reviewHarness';
+import { makeNavRadioState } from './testPlant';
 import { type TestIls } from './testPlant';
 import { Sim } from './testSim';
 
@@ -40,6 +45,38 @@ describe('review: vertical mode logic', () => {
     expect(altT).toBeGreaterThan(0); // the selected altitude was captured ...
     expect(minAltBeforeGs).toBeGreaterThan(1500 - 40); // ... without descending through it
     expect(gsT).toBeGreaterThan(altT); // and the glideslope (still armed) captured afterwards
+  });
+});
+
+describe('review: altitude alerter (KAP 140 bands: 1000 → 200 ft before, ±200 ft after reaching)', () => {
+  it('a 1500 fpm climb and capture shows approach, never deviation; deviation only after the altitude was held', () => {
+    const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 0 });
+    sim.pilot.throttle = 1;
+    sim.ap.setAltitudeTarget(5000 * FT);
+    sim.ap.engage(true);
+    sim.ap.setVerticalSpeedTarget(1500 * FPM);
+    sim.ap.setVertical('VS');
+    const seen = new Set<string>();
+    let deviationDuringCapture = false, approachBand = true;
+    sim.run(300, (s) => {
+      const a = s.s.altAlert, err = 5000 - altFt(s);
+      seen.add(a);
+      if (a === 'deviation') deviationDuringCapture = true;
+      if (a === 'approach' && (err > 1001 || err < 199)) approachBand = false; // 1 ft: the alert is computed before the step
+    });
+    expect(sim.s.vertical).toBe('ALT');
+    expect(seen.has('approach')).toBe(true);
+    expect(approachBand).toBe(true);
+    expect(deviationDuringCapture).toBe(false);
+    expect(sim.s.altAlert).toBe('none');
+    // held: a 300 ft excursion is a deviation
+    const low = { ...sim.ac, altitudeIndicatedM: sim.ac.altitudeIndicatedM - 300 * FT };
+    sim.ap.update(1 / 120, low, { nav1: sim.nav1, nav2: sim.nav2, plan: null });
+    expect(sim.s.altAlert).toBe('deviation');
+    // a newly selected altitude is approached again, not a deviation from the old one
+    sim.ap.setAltitudeTarget(3000 * FT);
+    sim.ap.update(1 / 120, sim.ac, { nav1: sim.nav1, nav2: sim.nav2, plan: null });
+    expect(sim.s.altAlert).not.toBe('deviation');
   });
 });
 
@@ -102,6 +139,29 @@ describe('review: lateral mode logic', () => {
   });
 });
 
+describe('review: apply() returns complete controls', () => {
+  it('carries every pilot field, including the optional master / avionics / fuel-pump switches', () => {
+    const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 0 });
+    const p = sim.pilot;
+    Object.assign(p, {
+      rudderTrim: 0.1, aileronTrim: -0.1, flapsIndex: 2, throttle: 0.7, mixture: 0.8, propeller: 0.9, brakeLeft: 0.2, brakeRight: 0.3,
+      parkingBrake: true, magnetos: 2, starter: true, fuelSelector: 'left', gearDown: false, speedbrake: 0.4, pitotHeat: true, carbHeat: true,
+      masterBattery: false, masterAlternator: false, avionicsMaster: false, fuelPump: true,
+    });
+    Object.assign(p.lights, { nav: true, beacon: true, strobe: true, landing: true, taxi: true, panel: 0.5 });
+    sim.ap.setYawDamper(true); // AP off, YD on: apply() returns its private copy
+    for (const engaged of [false, true]) {
+      if (engaged) sim.ap.engage(true);
+      const o = sim.ap.apply(p) as unknown as Record<string, unknown>;
+      expect(o).not.toBe(p);
+      for (const [k, v] of Object.entries(p)) {
+        if (k === 'pitch' || k === 'roll' || k === 'yaw' || k === 'pitchTrim') continue; // the AP's outputs
+        expect(o[k], k).toEqual(v);
+      }
+    }
+  });
+});
+
 describe('review: NaN never reaches (or latches in) the servos', () => {
   const finiteOut = (sim: Sim) =>
     [sim.s.outRoll, sim.s.outPitch, sim.s.outYaw, sim.s.trimCommand, sim.last.roll, sim.last.pitch, sim.last.yaw, sim.last.pitchTrim].every(Number.isFinite);
@@ -149,6 +209,36 @@ describe('review: NaN never reaches (or latches in) the servos', () => {
   });
 });
 
+describe('review: assists never pass NaN to the flight model', () => {
+  it('a frame of NaN air data neither reaches the controls nor latches the assist integrators', () => {
+    const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 0 });
+    const a = new FlightAssists({ antiStall: { stallAlphaRad: 0.28 } });
+    const flags = { autoRudder: true, assistedTakeoff: true, antiStall: true };
+    sim.beforeStep = (s, u, dt) => { a.apply(u, s.ac, dt, flags); };
+    sim.pilot.roll = 0.1;
+    sim.pilot.pitch = 0.2;
+    sim.run(2);
+    const bad = { ...sim.ac, rates: [NaN, NaN, NaN] as [number, number, number], aero: { ...sim.ac.aero, beta: NaN, alpha: NaN, alphaDot: NaN, ias: NaN } };
+    const u = { ...sim.pilot };
+    a.apply(u, bad, 1 / 120, flags);
+    expect(Number.isFinite(u.yaw) && Number.isFinite(u.pitch)).toBe(true);
+    sim.run(2);
+    expect(Number.isFinite(sim.last.yaw) && Number.isFinite(sim.last.pitch)).toBe(true);
+    expect(Number.isFinite(a.rudderAssist)).toBe(true);
+    // ground roll: garbage heading for a frame during the hold
+    const g = new FlightAssists();
+    const ac = { ...sim.ac, onGround: true, groundSpeedMs: 5, headingTrueRad: 1, posNED: [0, 0, 0] as [number, number, number] };
+    const v = { ...sim.pilot, throttle: 1, parkingBrake: false };
+    g.apply(v, ac, 1 / 120, flags);
+    expect(g.takeoffHeadingRad).toBeCloseTo(1, 9);
+    g.apply(v, { ...ac, headingTrueRad: NaN }, 1 / 120, flags);
+    v.yaw = 0;
+    g.apply(v, ac, 1 / 120, flags);
+    expect(Number.isFinite(v.yaw)).toBe(true);
+    expect(g.takeoffHeadingRad).toBeCloseTo(1, 9);
+  });
+});
+
 describe('review: protections on the real C172S flight model', () => {
   it('stays engaged in moderate turbulence at approach speed when the pilot manages power (75 KCAS flaps 10, 3 min)', () => {
     // Evidence for keeping the immediate stall-warning disconnect: with the energy managed, gusts
@@ -188,5 +278,62 @@ describe('review: protections on the real C172S flight model', () => {
     expect(sim.s.disconnectReason).toBe('stall');
     expect(sim.t - warnT).toBeLessThan(0.1);
     expect(sim.ac.aero.stalled).toBe(false);
+  });
+});
+
+describe('review: checks the test plant cannot make', () => {
+  it('yaw damper damps the C172 dutch roll (the test plant has no yaw dynamics, so a flipped sign passed there)', () => {
+    const doublet = (ydGain: number | null) => {
+      const env = makeEnv();
+      const f = makeFdm(1043);
+      const pilot = airborne(f, env, 3000 * FT, 100);
+      const ap = new GfcAutopilot(ydGain === null ? {} : { config: { gains: { ydGain } } });
+      const nav = { nav1: makeNavRadioState(), nav2: makeNavRadioState(), plan: null };
+      if (ydGain !== null) ap.setYawDamper(true);
+      const u = defaultControlInputs();
+      let sum = 0, n = 0;
+      for (let t = 0; t < 14; t += 2 * FDM_DT) {
+        Object.assign(u, pilot);
+        u.lights = pilot.lights;
+        u.yaw = t > 1 && t < 1.5 ? 0.4 : t >= 1.5 && t < 2 ? -0.4 : 0;
+        ap.update(2 * FDM_DT, f.state, nav);
+        const o = ap.apply(u);
+        f.step(FDM_DT, o, env);
+        f.step(FDM_DT, o, env);
+        if (t > 2.5) { sum += f.state.rates[2] ** 2; n++; }
+      }
+      return Math.sqrt(sum / n); // yaw-rate RMS after the pedal doublet
+    };
+    const off = doublet(null), on = doublet(0.8), flipped = doublet(-0.8);
+    expect(on).toBeLessThan(0.5 * off);
+    expect(flipped).toBeGreaterThan(2 * off);
+  });
+
+  it('flies the same at 30 Hz as at 120 Hz with the simulator wiring (AP per frame, FDM sub-stepped at 120 Hz)', () => {
+    const hdg = (sub: number) => {
+      const sim = new ZohSim(3000 * FT, 100, 0, sub);
+      sim.ap.engage(true);
+      sim.ap.setHeadingBug(90);
+      sim.ap.setLateral('HDG');
+      const out: number[] = [];
+      let next = 10;
+      sim.run(60, (s) => { if (s.t >= next - 1e-9) { out.push(s.ac.headingMagRad / DEG); next += 10; } });
+      return out;
+    };
+    const alt = (sub: number) => {
+      const sim = new ZohSim(3000 * FT, 100, 0, sub);
+      sim.pilot.throttle = 1;
+      sim.ap.engage(true);
+      sim.ap.setAltitudeTarget(3500 * FT);
+      sim.ap.setVertical('ALT');
+      const out: number[] = [];
+      let next = 10;
+      sim.run(90, (s) => { if (s.t >= next - 1e-9) { out.push(s.ac.altitudeIndicatedM / FT); next += 10; } });
+      return out;
+    };
+    const h1 = hdg(1), h4 = hdg(4), a1 = alt(1), a4 = alt(4);
+    expect(h4.length).toBe(h1.length);
+    for (let i = 0; i < h1.length; i++) expect(Math.abs(deltaDeg(h4[i], h1[i]))).toBeLessThan(1);
+    for (let i = 0; i < a1.length; i++) expect(Math.abs(a4[i] - a1[i])).toBeLessThan(10);
   });
 });

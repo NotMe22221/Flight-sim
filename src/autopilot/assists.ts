@@ -199,6 +199,7 @@ export class FlightAssists {
         if (w === 0) this.dropHold();
       } else assist = air;
     }
+    if (!Number.isFinite(assist)) assist = 0; // garbage air data: never hand NaN to the flight model
     this.rudderAssist = assist;
     inputs.yaw = clamp(pilotYaw + assist, -1, 1);
   }
@@ -213,6 +214,7 @@ export class FlightAssists {
     const c = this.config.antiStall;
     if (s.onGround || s.aero.ias < c.minIasMs) { this.antiStallFactor = 1; this.antiStallPush = 0; return; }
     const alphaEff = s.aero.alpha + c.leadS * s.aero.alphaDot;
+    if (!Number.isFinite(alphaEff)) { this.antiStallFactor = 1; this.antiStallPush = 0; return; } // no α: leave the stick alone
     const start = c.stallAlphaRad - c.startMarginRad;
     const protect = c.stallAlphaRad - c.endMarginRad;
     const factor = 1 - smoothstep(start, protect, alphaEff);
@@ -241,7 +243,10 @@ export class FlightAssists {
     const fade = smoothstep(c.minIasMs, c.minIasMs + 10 * KT, s.aero.ias);
     if (fade === 0) { this.betaI = 0; return 0; }
     const beta = s.aero.beta;
-    if (Math.abs(inputs.yaw) <= c.pilotYawFreeze) this.betaI = clamp(this.betaI + c.betaKi * beta * dt, -c.iLim, c.iLim);
+    if (Math.abs(inputs.yaw) <= c.pilotYawFreeze) {
+      const bi = clamp(this.betaI + c.betaKi * beta * dt, -c.iLim, c.iLim);
+      if (Number.isFinite(bi)) this.betaI = bi; // clamp() passes NaN: it would latch the integral
+    }
     return fade * clamp(c.betaKp * beta + this.betaI + c.aileronFf * inputs.roll, -c.authority, c.authority);
   }
 
@@ -276,7 +281,8 @@ export class FlightAssists {
     const c = this.config.takeoff;
     const err = wrapPi(this.holdHeading - s.headingTrueRad);
     const scale = clamp(c.refSpeedMs / Math.max(s.groundSpeedMs, 0.1), c.scaleMin, c.scaleMax);
-    this.hdgI = clamp(this.hdgI + c.headingKi * err * dt, -c.iLim, c.iLim);
+    const hi = clamp(this.hdgI + c.headingKi * err * dt, -c.iLim, c.iLim);
+    if (Number.isFinite(hi)) this.hdgI = hi;
     return clamp(scale * (c.headingKp * err - c.yawRateKd * s.rates[2]) + this.hdgI, -c.authority, c.authority);
   }
 

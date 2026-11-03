@@ -75,6 +75,10 @@ const copyInputs = (src: ControlInputs, dst: ControlInputs): void => {
   dst.lights.nav = src.lights.nav; dst.lights.beacon = src.lights.beacon; dst.lights.strobe = src.lights.strobe;
   dst.lights.landing = src.lights.landing; dst.lights.taxi = src.lights.taxi; dst.lights.panel = src.lights.panel;
   dst.pitotHeat = src.pitotHeat; dst.carbHeat = src.carbHeat;
+  // optional switches, with the contract's meaning of "absent" (masters on, pump off): a caller
+  // flying the returned copy must not see a switched-off avionics master come back on
+  dst.masterBattery = src.masterBattery ?? true; dst.masterAlternator = src.masterAlternator ?? true;
+  dst.avionicsMaster = src.avionicsMaster ?? true; dst.fuelPump = src.fuelPump ?? false;
 };
 
 export class GfcAutopilot implements Autopilot {
@@ -126,6 +130,9 @@ export class GfcAutopilot implements Autopilot {
   private pendingEngageSync = false;
   /** a nav mode was selected from ROL before any nav data was seen: apply the ROL auto-intercept on the first update */
   private interceptOnFirstNav = false;
+  /** altitude alerter: the selected altitude was reached (hold band) since it was last changed */
+  private altReached = false;
+  private altAlertTargetM = Number.NaN;
   /** LVL wings-first phase is flying the load-factor (unload) law instead of the θ loop */
   private lvlUnloading = false;
   /** avionics bus powered (from `AircraftState.electrical`; flight models without one count as powered) */
@@ -150,6 +157,7 @@ export class GfcAutopilot implements Autopilot {
       pitch: 0, roll: 0, yaw: 0, pitchTrim: 0, rudderTrim: 0, aileronTrim: 0, flapsIndex: 0, throttle: 0, mixture: 1, propeller: 1,
       brakeLeft: 0, brakeRight: 0, parkingBrake: false, magnetos: 3, starter: false, fuelSelector: 'both', gearDown: true, speedbrake: 0,
       lights: { nav: false, beacon: false, strobe: false, landing: false, taxi: false, panel: 0 }, pitotHeat: false, carbHeat: false,
+      masterBattery: true, masterAlternator: true, avionicsMaster: true, fuelPump: false,
     };
     this.changedPayload = { state: this.state };
   }
@@ -280,6 +288,7 @@ export class GfcAutopilot implements Autopilot {
     this.locIntegral = 0; this.gsIntegral = 0; this.overrideTimer = 0; this.trimTimer = 0; this.trimRunning = false; this.sourceLostTimer = 0; this.gsLostTimer = 0;
     this.lastAc = null; this.lastNav = null; this.pendingEngageSync = false; this.lvlUnloading = false; this.powered = true; this.unpoweredT = 0;
     this.pilotSampled = false; this.seedOnApply = false; this.interceptOnFirstNav = false;
+    this.altReached = false; this.altAlertTargetM = Number.NaN;
   }
 
   // ───────────────────────────── mode selection ─────────────────────────────
@@ -869,12 +878,21 @@ export class GfcAutopilot implements Autopilot {
     if (this.trimRunning) s.trimCommand = clamp(s.trimCommand + Math.sign(out) * g.trimRatePerS * dt, -1, 1);
   }
 
+  /**
+   * KAP 140 alerter bands: 'approach' from 1000 ft until 200 ft before the selected altitude,
+   * 'deviation' when more than 200 ft off it after it was reached. A capture in progress (ALTS,
+   * or ALT flying toward a newly selected altitude) is an approach, not a deviation.
+   */
   private updateAltAlert(ac: AircraftState): void {
     const s = this.state;
+    if (s.altitudeTargetM !== this.altAlertTargetM) { this.altAlertTargetM = s.altitudeTargetM; this.altReached = false; }
     const err = Math.abs(s.altitudeTargetM - ac.altitudeIndicatedM);
+    if (err <= this.config.gains.altHoldThresholdM) this.altReached = true;
+    const toward = s.vertical === 'ALT' || s.vertical === 'ALTS' ||
+      (!s.lvl && (s.vertical === 'PIT' || s.vertical === 'VS' || s.vertical === 'FLC') && (s.armedVertical === 'ALTS' || s.armedVertical === 'GS'));
     let alert: AltAlert = 'none';
-    if ((s.vertical === 'ALT' || s.vertical === 'ALTS') && err > 200 * FT) alert = 'deviation';
-    else if (s.armedVertical === 'ALTS' && err <= 1000 * FT) alert = 'approach';
+    if (this.altReached) { if ((s.vertical === 'ALT' || s.vertical === 'ALTS') && err > 200 * FT) alert = 'deviation'; }
+    else if (toward && err <= 1000 * FT && err > 200 * FT) alert = 'approach';
     s.altAlert = alert;
   }
 

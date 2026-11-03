@@ -56,7 +56,7 @@ const u = ap.apply(effectiveControls);               // every frame; returns the
 
 | Call | Effect |
 |---|---|
-| `engage(on)` / `disconnect(reason)` | AP servos on/off. Engaging with no modes selects ROL + PIT; engage is bumpless (servos start at the pilot's stick, commands at the current attitude). A disconnect keeps the modes while the FD is on |
+| `engage(on)` / `disconnect(reason)` | AP servos on/off. Engaging with no modes selects ROL + PIT; engage is bumpless (servos start at the pilot's stick, commands at the current attitude; engaged before the first `apply()` it seeds trim and servos from that first call). A disconnect keeps the modes while the FD is on |
 | `setFlightDirector(on)`, `setYawDamper(on)` | FD (outer loops + bars without servos), yaw damper (independent of the AP) |
 | `setLateral(mode)`, `setVertical(mode)` | Contract modes. Selecting a mode with AP and FD off turns the FD on (GFC 700). `NAV`/`APR` arm until capture; `APR` arms `GS` on a localizer |
 | `setHeadingBug(deg)`, `setAltitudeTarget(m)`, `setVerticalSpeedTarget(ms)`, `setIasTarget(ms)`, `setPitchTarget(rad)` | Targets (heading bug magnetic) |
@@ -70,7 +70,8 @@ const u = ap.apply(effectiveControls);               // every frame; returns the
 `state` (`GfcAutopilotState` ⊃ the contract's `AutopilotState`) adds `disconnectReason`
 (`pilot | override | stall | bank | overspeed | crash | power`), `disconnectT` and `modeChangeT` (autopilot
 clock, for the red "AP" flash / tone and the 10 s annunciator flash), `t`, `altAlert`
-(`none | approach | deviation`: 1 000 ft before the selected altitude, ±200 ft off a held one) and
+(`none | approach | deviation`, KAP 140 bands: approach from 1 000 ft until 200 ft before the selected
+altitude; deviation when more than 200 ft off it after it was reached — never during a capture) and
 `lvl`. The contract has no LVL mode, so while `lvl` is set `lateral` reads `ROL` and `vertical`
 reads `VS` (target 0); annunciators should show "LVL" in both fields. `fdRollRad`/`fdPitchRad`
 are exactly the commands fed to the inner loops (smooth the bar drawing in the UI if wanted).
@@ -105,15 +106,19 @@ yaw damper: rudder = −0.8 · washout(r, 2 s), ±0.3 (steady turn rate passes; 
 
 * **HDG**: φc = 1.0 · wrap(ψbug − ψmag), limited. **ROL**: φ at engage (wings level below 6°).
 * **NAV (GPS)**: desired track − clamp(60°/nm · cross-track, ±44°), flown as a *track* error (wind
-  corrected). **VOR**: course + 45° · CDI (gain scaled down inside 10 nm). **LOC/APR**: course +
+  corrected). **VOR**: course + 45° · CDI · (distance / 10 nm, clamped 0.3–3) — the needle is angular,
+  so the gain follows DME to stay constant per metre of cross-track. **LOC/APR**: course +
   15°/dot · (distance / 6 nm, clamped 0.3–1.5) + integral 0.05°/s per dot (±5°), capped ±30°.
   Armed NAV/LOC captures at |deviation| ≤ 1 dot or when the deviation will reach zero within 8 s;
   selecting NAV/APR from ROL captures at once and flies the intercept law (MSFS behaviour,
-  `behaviour.autoInterceptFromRol`); from HDG it stays armed (GFC 700).
+  `behaviour.autoInterceptFromRol`; selected before the first `update()` it decides on that update);
+  from HDG it stays armed (GFC 700). The course of VOR and LOC tracking is the receiver's `obsDeg`
+  (magnetic), like the HSI: the radio stack must put the localizer course there (auto-course).
 * **ALT**: ḣc = 8 fpm/ft · error, ±800 fpm. **ALTS** (armed whenever PIT/VS/FLC fly toward the
   selected altitude): captures at max(50 ft, 1.3 · ḣ² / (2 · 0.03 g)) with a gain that makes the
   command continuous at capture (an exponential level-off with no snatch), then becomes ALT within
-  15 m. **VS**: ±1 500 fpm, 100 fpm steps. **FLC**: θc from a PID on IAS (fast → nose up), never
+  15 m. It keeps working while GS is armed (the contract's single `armedVertical` then shows GS): a
+  descent below the glideslope still stops at the selected altitude and GS captures from there. **VS**: ±1 500 fpm, 100 fpm steps. **FLC**: θc from a PID on IAS (fast → nose up), never
   pitching below level flight while the target is above (and vice versa). **GS**: ḣc = −GS·tan 3° +
   350 fpm/dot · (distance / 3 nm, 0.4–1.3) + integral, [−1 500, +200] fpm; captures within 0.5 dot
   once the localizer is captured. Every VS-based mode drives the same VS→pitch PI, which is re-seeded
@@ -177,7 +182,7 @@ modes exist exactly while the AP or FD is on (also when `state.flightDirector` i
 | VS → pitch PI | 0.008°/fpm, 0.0012°/fpm/s | Raised from the spec's 0.006 / 0.0008; 500 fpm error → 4° |
 | FLC PID | 1.0°/kt, 0.15°/kt/s, 0.5° per kt/s (τ 0.5 s) | ±1.5 kt in full-power climbs and idle descents 75–100 kt on both plants; the earlier 0.6 / 0.06 (spec 0.4 / 0.02) let the speed run 3–4 kt off for 20 s after FLC + full power |
 | GPS intercept | 60°/nm, cap 44° | Spec 60°/nm en route, cap 45° minus room for the heading overshoot |
-| VOR intercept | 45° × CDI, ≥ 0.3 scale inside 10 nm | Cone of confusion |
+| VOR intercept | 45° × CDI × (d/10 nm, 0.3–3) | Cone of confusion inside 10 nm; beyond it a CDI dot is wider (the old cap at 1 left a 2 nm offset at 25 nm only 0.6 nm smaller after 4 min) |
 | LOC | 15°/dot × (d/6 nm, 0.3–1.5), ±30°, ki 0.05°/s/dot (±5°) | Spec 12°/dot + integral; distance schedule instead of a 2 nm step |
 | GS | 350 fpm/dot × (d/3 nm, 0.4–1.3), ki 8 fpm/s/dot (±200 fpm), [−1 500, +200] fpm | Spec Kgs |
 | Servos | ±0.5 authority, 1.0/s slew | Spec; the pilot can always out-muscle the servo |
@@ -217,12 +222,23 @@ Acceptance on the test plant at 120 Hz (`Autopilot.test.ts`, `pid.test.ts`, `lev
 | Auto-rudder | roll-in slip −70 %+, steady 2° slip trimmed to < 0.05° | peak 6.6° → 2.5°, final 0.0° |
 | Assisted take-off holds the brake-release heading | < 3°, < 2 m (calm, 10 kt crosswind); taxi never steered | < 2.3°, < 2 m (calm, 10 kt crosswind); 159° swing without it |
 | Anti-stall | no stall at full aft stick, factor → 0 | α ≤ 13.6° (stall 16°) |
+| Review (`review.test.ts`): ALTS under an armed GS | VS −500 below the GS levels at the selected altitude (−12 ft), GS then captures | — |
+| Review: NaN targets / deviations / air data | servos, trim and assists stay finite and recover | — |
+| Review: engage before the first `apply()` | trim and stick kept (was: trim zeroed) | — |
+| Review: altitude alerter bands | approach 1 000→200 ft only, no deviation during a 1 500 fpm capture | — |
+| Real nav receivers (`realNav.test.ts`, src/nav) | — | APR (30° LOC intercept, GS from below): GS ≤ 0.17 dot, CDI ≤ 0.02; VOR TO 25/40 nm and FROM: needle < 0.1 in 4 min, no overshoot |
+| Simulator wiring (AP per frame, FDM sub-stepped) | — | 30 Hz vs 120 Hz: HDG within 1°, ALT within 10 ft; yaw damper halves the dutch-roll yaw rate (a flipped sign doubles it) |
 | LVL from unusual attitudes | 70° nose-low spiral, nose-high slow, FLC climb: wings < 10 s, < 2 g, zero VS | 143° rolling dive: ≤ 0.8 g inverted, ≤ 1.8 g, wings level 7 s |
 
 ## Limitations
 
 * Two-axis GFC 700 subset: no BC, VNAV/GP, GA, CWS button, ALTV, PTRM warnings or engage-speed
   limits; LOC course and GS path are whatever the receiver reports (no false-glideslope logic).
+  With the OBS left off the localizer course (e.g. the radio stack's default 0°) LOC captures and
+  then flies OBS ± 30° off the beam: the radio stack has to auto-set the course on an ILS.
+* The stall-warning disconnect is immediate (no debounce): on the C172 FDM, with power managed,
+  gusts up to severe never trip the warning at normal speeds; it only chirps once the speed has
+  really decayed, where an early disconnect keeps α ≤ 10.5° (a 1 s debounce let it reach 14.7°).
 * The contract's `AutopilotState` has no LVL mode (`lateral` reads `ROL`, `vertical` `VS` while
   `state.lvl`), no FLC/PIT annunciation of the selected value, and `ALTS` is used both as the armed
   pre-select and the capture phase.
