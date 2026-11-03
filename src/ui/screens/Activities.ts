@@ -8,7 +8,7 @@ import {
   CHALLENGE_FILTERS, categoryCounts, challengeConditions, challengesIn, landingChallenges, loadBestScores,
   type BestScores, type CategoryFilter, type LandingChallenge,
 } from '../activities';
-import { scoreBand } from '../flight/LandingReport';
+import { scoreBand } from '../landingReportModel';
 import { formatDateUtc } from '../format';
 
 export class Activities extends Screen {

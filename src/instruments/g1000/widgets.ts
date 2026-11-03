@@ -27,7 +27,9 @@ export const TWENTIES = ['00', '20', '40', '60', '80'];
 
 /**
  * Rolling drum: draws `labels[i mod n]` stacked vertically with line height `lineH`, scrolled so
- * that fractional `position` sits at (x, yCentre). The caller clips to the window.
+ * that fractional `position` sits at (x, yCentre). Like the tapes it sits in, larger values are
+ * above: as `position` grows the digits roll down and the next one enters from the top. The caller
+ * clips to the window.
  */
 export function drum(ctx: Ctx2D, x: number, yCentre: number, lineH: number, position: number, labels: readonly string[], font: string, color: string, align: 'left' | 'center' | 'right' = 'center'): void {
   const n = labels.length;
@@ -35,7 +37,7 @@ export function drum(ctx: Ctx2D, x: number, yCentre: number, lineH: number, posi
   ctx.font = font; ctx.fillStyle = color; ctx.textBaseline = 'middle';
   for (let k = -1; k <= 2; k++) {
     const idx = (((base + k) % n) + n) % n;
-    const y = yCentre + (k - frac) * lineH;
+    const y = yCentre - (k - frac) * lineH;
     fillTabular(ctx, labels[idx], x, y, align);
   }
 }

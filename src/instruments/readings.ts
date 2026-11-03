@@ -55,7 +55,7 @@ export interface InstrumentReadings {
   attitude: { pitchDeg: number; rollDeg: number; valid: boolean; spin: number };
   /** solid-state AHRS truth for glass displays; valid while the avionics bus is live */
   ahrs: { pitchDeg: number; rollDeg: number; valid: boolean };
-  /** avionics bus live (> 20 V) */
+  /** avionics bus live: `AircraftState.electrical.avionicsPowered` when the FDM models it, else avionics master on and bus > 20 V */
   avionicsOn: boolean;
   altimeter: { indicatedFt: number; pressureAltFt: number; settingInHg: number; settingHPa: number; modeCFt: number };
   turn: { rateStd: number; ballWidths: number; valid: boolean };
@@ -70,7 +70,8 @@ export interface InstrumentReadings {
   /** usable gallons [left, right] as the float gauges show them */
   fuelGal: [number, number];
   fuelTotalGal: number;
-  suctionInHg: number; ampsA: number; voltsV: number; oatC: number;
+  /** `ampsA`: steam ammeter (alternator output while online, battery discharge − otherwise); `batteryAmpsA`: battery current, + charging (G1000 M BATT) */
+  suctionInHg: number; ampsA: number; batteryAmpsA: number; voltsV: number; oatC: number;
   flapsDeg: number; flapsIndex: number; gearDown: boolean;
   /** −1 (nose down) .. +1 (nose up) trim wheel position */ trimNorm: number; rudderTrimNorm: number; aileronTrimNorm: number;
   throttle: number; mixture: number; propeller: number;
@@ -122,7 +123,7 @@ export function createReadings(): InstrumentReadings {
     vsiFpm: 0,
     engine: { running: false, rpm: 0, mapInHg: 29.92, fuelFlowGph: 0, oilTempF: 60, oilPressPsi: 0, egtF: 60, chtF: 60, pctPower: 0 },
     fuelGal: [0, 0], fuelTotalGal: 0,
-    suctionInHg: 0, ampsA: 0, voltsV: 0, oatC: 15,
+    suctionInHg: 0, ampsA: 0, batteryAmpsA: 0, voltsV: 0, oatC: 15,
     flapsDeg: 0, flapsIndex: 0, gearDown: true, trimNorm: 0, rudderTrimNorm: 0, aileronTrimNorm: 0,
     throttle: 0, mixture: 1, propeller: 1,
     hobbsHours: 0, tachHours: 0,
@@ -257,14 +258,28 @@ export class InstrumentModel {
     a.modeCFt = Math.round(a.pressureAltFt / 100) * 100;
     r.vsiFpm = this.vsi.step(ac.verticalSpeedMs * MS_TO_FPM, dt);
 
+    // Processes that run on simulated time (DG drift, hour meters, annunciator hold timers) stop
+    // while the sim is paused or replaying; display lags keep using `dt` so needles still follow a replay.
+    const simDt = s.paused ? 0 : dt;
+
     // ── systems first: the gyros need their power sources
     const flapsMoving = Number.isFinite(this.lastFlapDeg) && Math.abs(ac.surfaces.flapDeg - this.lastFlapDeg) > 1e-3;
     this.lastFlapDeg = ac.surfaces.flapDeg;
-    this.electrical.step(inp, running, ac.engine.rpm, flapsMoving, dt);
-    r.voltsV = this.electrical.voltsV; r.ampsA = this.electrical.ampsA;
-    const busLive = r.voltsV > 20;
-    r.avionicsOn = busLive;
-    r.ahrs.pitchDeg = pitchRad * RAD; r.ahrs.rollDeg = rollRad * RAD; r.ahrs.valid = busLive;
+    // the FDM's electrical system (master/avionics switches, battery, alternator) wins when present
+    const el = ac.electrical;
+    let busLive: boolean, avionicsLive: boolean, lowVolts: boolean;
+    if (el) {
+      r.voltsV = Number.isFinite(el.busVolts) ? Math.max(0, el.busVolts) : 0;
+      const alt = Number.isFinite(el.alternatorAmps) ? el.alternatorAmps : 0, bat = Number.isFinite(el.batteryAmps) ? el.batteryAmps : 0;
+      r.ampsA = alt > 0 ? alt : bat; r.batteryAmpsA = bat;
+      busLive = el.mainPowered; avionicsLive = el.avionicsPowered; lowVolts = el.lowVoltage;
+    } else {
+      this.electrical.step(inp, running, ac.engine.rpm, flapsMoving, dt);
+      r.voltsV = this.electrical.voltsV; r.ampsA = this.electrical.ampsA; r.batteryAmpsA = this.electrical.batteryAmpsA;
+      busLive = r.voltsV > 20; avionicsLive = busLive && this.electrical.avionicsSwitch; lowVolts = this.electrical.lowVolts;
+    }
+    r.avionicsOn = avionicsLive;
+    r.ahrs.pitchDeg = pitchRad * RAD; r.ahrs.rollDeg = rollRad * RAD; r.ahrs.valid = avionicsLive;
     r.suctionInHg = suctionInHg(running, ac.engine.rpm);
     const vacPower = r.suctionInHg / cfg.minVacuumInHg;
 
@@ -283,7 +298,7 @@ export class InstrumentModel {
     h.trueDeg = wrap360(ac.headingTrueRad * RAD);
     h.magVarDeg = deltaDeg(h.trueDeg, h.magDeg);
     h.trackMagDeg = wrap360(ac.trackRad * RAD - h.magVarDeg);
-    h.dgDeg = this.dg.step(h.magDeg, vacPower, s.assists.gyroDrift, dt);
+    h.dgDeg = this.dg.step(h.magDeg, vacPower, s.assists.gyroDrift && simDt > 0, dt);
     h.dgValid = this.dg.valid;
     h.bugDeg = wrap360(s.autopilot.headingBugDeg);
     h.bugErrorDeg = deltaDeg(h.bugDeg, h.dgDeg);
@@ -304,7 +319,7 @@ export class InstrumentModel {
     e.oilPressPsi = Math.max(0, this.oilP.step(sane(fe.oilPressurePa, 0) ? fe.oilPressurePa / PSI : this.oilFallback.pressPsi, dt));
     e.egtF = this.egt.step(sane(fe.egtK, 200) ? kToF(fe.egtK) : 1.8 * oatC + 32, dt);
     e.chtF = this.cht.step(sane(fe.chtK, 200) ? kToF(fe.chtK) : 1.8 * oatC + 32, dt);
-    this.hours.step(e.oilPressPsi, e.rpm, dt);
+    this.hours.step(e.oilPressPsi, e.rpm, simDt);
     r.hobbsHours = this.hours.hobbsHours; r.tachHours = this.hours.tachHours;
 
     // ── fuel
@@ -323,9 +338,9 @@ export class InstrumentModel {
 
     // ── annunciators
     const an = r.annunciators, w = ac.warnings;
-    an.lowVolts = this.electrical.lowVolts;
-    an.lowFuelL = this.lowFuelL.step(busLive && r.fuelGal[0] < cfg.lowFuelGal, dt);
-    an.lowFuelR = this.lowFuelR.step(busLive && r.fuelGal[1] < cfg.lowFuelGal, dt);
+    an.lowVolts = lowVolts;
+    an.lowFuelL = this.lowFuelL.step(busLive && r.fuelGal[0] < cfg.lowFuelGal, simDt);
+    an.lowFuelR = this.lowFuelR.step(busLive && r.fuelGal[1] < cfg.lowFuelGal, simDt);
     an.oilPress = busLive && e.oilPressPsi < OIL_PRESS.redLo;
     an.vacuum = busLive && r.suctionInHg < SUCTION.lowWarn;
     an.pitotHeatOff = busLive && !inp.pitotHeat;
@@ -335,7 +350,10 @@ export class InstrumentModel {
     // ── trends for glass displays
     r.trends.iasKtPer6s = this.iasTrend.step(iasRaw, dt) * 6;
     r.trends.altFtPer6s = ac.verticalSpeedMs * MS_TO_FPM / 10;
-    r.trends.headingDegPer6s = ac.rates[2] * RAD * 6;
+    // heading changes at the Euler rate ψ̇ = (q·sinφ + r·cosφ)/cosθ; the body yaw rate r alone reads
+    // cosφ low in a bank (13 % at 30°)
+    const psiDot = (ac.rates[1] * Math.sin(rollRad) + ac.rates[2] * Math.cos(rollRad)) / Math.max(Math.cos(pitchRad), 0.05);
+    r.trends.headingDegPer6s = psiDot * RAD * 6;
 
     // ── wind (windNED is the velocity the air moves toward; pilots quote the direction it comes from)
     const wN = ac.windNED[0], wE = ac.windNED[1];

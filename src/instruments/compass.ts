@@ -51,7 +51,10 @@ export class MagneticCompass {
    */
   step(headingMagDeg: number, rollRad: number, ballRad: number, longAccelG: number, dt: number): number {
     const floatRoll = rollRad - ballRad;
-    const floatPitch = clamp(longAccelG, -1, 1) * this.cfg.accelTiltRadPerG;
+    // The pendulous float lags behind when the aircraft accelerates: it hangs along apparent
+    // gravity, i.e. pitched nose-DOWN (θ −= k·a_x/g, docs/research/05 §1.2). With dip this gives
+    // the "ANDS" error: accelerate → north, decelerate → south on E/W headings (north. hemisphere).
+    const floatPitch = -clamp(longAccelG, -1, 1) * this.cfg.accelTiltRadPerG;
     const target = compassTargetDeg(headingMagDeg, floatRoll, floatPitch, this.cfg.dipDeg * DEG) + deviationDeg(headingMagDeg, this.cfg.deviationDeg);
     // Under-damped second-order card response, semi-implicit Euler with sub-stepping for stability.
     let remaining = Math.max(0, dt);

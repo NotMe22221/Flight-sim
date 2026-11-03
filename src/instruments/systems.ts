@@ -28,28 +28,40 @@ export function electricalLoadA(inputs: ControlInputs, flapsMoving: boolean, avi
   return a;
 }
 
-/** 28 V bus with a 60 A alternator; without the alternator the battery carries the load. */
+/**
+ * 28 V bus with a 60 A alternator; without the alternator the battery carries the load. Only used
+ * when the flight model provides no `AircraftState.electrical` (the C172S FDM does).
+ */
 export class ElectricalSystem {
   voltsV: number = ELECTRICAL.batteryV;
+  /** steam ammeter (docs/research/05 §1.3): alternator output while online, battery discharge (−) otherwise */
   ampsA = 0;
+  /** battery current, + charging / − discharging (G1000 "M BATT") */
+  batteryAmpsA = 0;
   alternatorOnline = false;
+  /** avionics master on (the avionics bus is live when this is set and the bus has voltage) */
+  avionicsSwitch = true;
   private readonly voltLag = new Lag(0.4, ELECTRICAL.batteryV);
   private readonly chargeLag = new Lag(120, 0);
   private batteryV: number = ELECTRICAL.batteryV;
 
   step(inputs: ControlInputs, engineRunning: boolean, rpm: number, flapsMoving: boolean, dt: number): void {
-    const masterOn = inputs.magnetos !== 0 || engineRunning; // we have no master switch in ControlInputs; mags off ≈ cold & dark
-    const load = masterOn ? electricalLoadA(inputs, flapsMoving, true) : 0;
-    this.alternatorOnline = engineRunning && rpm > ELECTRICAL.alternatorMinRpm;
+    // BAT half of the master switch; models that leave it undefined get the old proxy (mags off ≈ cold & dark)
+    const masterOn = inputs.masterBattery ?? (inputs.magnetos !== 0 || engineRunning);
+    this.avionicsSwitch = inputs.avionicsMaster !== false;
+    const load = masterOn ? electricalLoadA(inputs, flapsMoving, this.avionicsSwitch) : 0;
+    this.alternatorOnline = masterOn && inputs.masterAlternator !== false && engineRunning && rpm > ELECTRICAL.alternatorMinRpm;
     if (this.alternatorOnline) {
       // recharge current decays from ~12 A toward 2 A as the battery tops up
       if (this.chargeLag.value < 1) this.chargeLag.reset(12);
       const charge = 2 + this.chargeLag.step(0, dt);
       this.ampsA = Math.min(60, load + charge);
+      this.batteryAmpsA = charge;
       this.voltsV = this.voltLag.step(ELECTRICAL.busV, dt);
       this.batteryV = Math.min(ELECTRICAL.batteryV, this.batteryV + 0.002 * dt);
     } else {
       this.ampsA = -load;
+      this.batteryAmpsA = -load;
       this.batteryV = Math.max(20, this.batteryV - (load / 60) * 0.004 * dt);
       this.voltsV = this.voltLag.step(masterOn ? this.batteryV - 0.02 * load : 0, dt);
       if (!masterOn) this.chargeLag.reset(0);
@@ -61,7 +73,7 @@ export class ElectricalSystem {
   reset(engineRunning: boolean): void {
     this.batteryV = ELECTRICAL.batteryV;
     this.voltLag.reset(engineRunning ? ELECTRICAL.busV : ELECTRICAL.batteryV);
-    this.voltsV = this.voltLag.value; this.ampsA = 0; this.chargeLag.reset(0);
+    this.voltsV = this.voltLag.value; this.ampsA = 0; this.batteryAmpsA = 0; this.chargeLag.reset(0);
   }
 }
 

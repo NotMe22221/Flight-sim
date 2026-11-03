@@ -80,7 +80,7 @@ export function drawEis(ctx: Ctx2D, r: InstrumentReadings): void {
   text(ctx, 'M BATT', EIS.barX, y, cond.get(12), G.white);
   text(ctx, 'S BATT', EIS.barX + EIS.barW, y, cond.get(12), G.white, 'right');
   y += 16;
-  num(ctx, ampsLabels.get(r.ampsA), EIS.barX, y, condBold.get(15), G.white, 'left');
+  num(ctx, ampsLabels.get(r.batteryAmpsA), EIS.barX, y, condBold.get(15), G.white, 'left');
   text(ctx, 'AMPS', EIS.w / 2, y, cond.get(11), G.grey, 'center');
   num(ctx, ampsLabels.get(0), EIS.barX + EIS.barW, y, condBold.get(15), G.white, 'right');
 }

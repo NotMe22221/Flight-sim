@@ -52,7 +52,9 @@ otherwise the header shows the last transmission's frequency), `setInfoStrip(vis
 "Flight info strip" setting, for a host whose own HUD replaces the UI's strip).
 
 Events consumed: `ui:toast`, `terrain:progress` (flight loading bar), `landing:scored` (report +
-challenge best score), `atc:message`, `atc:options`, `aircraft:crash` (pause menu titled
+challenge best score; `landingReportModel.ts` maps the scorer's `centre/smooth/zone/stop` percentages,
+`centrelineOffsetM`, `verticalSpeedFpm`, `touchdownFromThresholdM`, `stopDistanceM`, `peakG`,
+`crabDeg`, `bounces`, `grade`, and also accepts 0..1 fractions or other spellings), `atc:message`, `atc:options`, `aircraft:crash` (pause menu titled
 "Crashed" after 1.5 s), `autopilot:changed` ("AP OFF" toast), `flight:reset` (fresh panels; a
 flight started outside the UI, e.g. by automation, switches to the flight view).
 
@@ -69,7 +71,8 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
   field has focus (`shouldCaptureInput`). Entering flight blurs any focused UI field.
 - **Pause menu.** Esc in flight closes the topmost overlay, else toggles the pause menu, which
   pauses the sim and restores the previous pause state on resume. World map / Settings / Main
-  menu from the pause menu keep the sim paused; coming back to the flight re-opens the menu.
+  menu from the pause menu keep the sim paused; coming back to the flight with Esc/back re-opens
+  the menu, while the main menu's "Resume flight" resumes directly.
 - **Starting a flight** (`fly()`): weather (immediate) + time from the selection → `host.spawn(...)` with
   the loading screen (progress from `terrain:progress`) → live weather (needs the new position) →
   arrival waypoint (the planner is cleared at spawn) → flight view. Failures toast and return
@@ -114,7 +117,8 @@ update path. The World Map draws on demand via `requestAnimationFrame`, never pe
 
 ## Tests (Node, `npx vitest run src/ui`)
 
-Pure modules only: routing + Esc de-duplication + capture rules, debounced search (fake timers,
+Pure modules only: routing + Esc de-duplication + capture rules, landing report adapter (the real
+TouchdownDetector payload: percent components, raw measurements, touch-and-go), debounced search (fake timers,
 stale async results), settings reducer (changed groups, presets vs. per-item, sanitizing,
 resets), bindings view model (groups, conflicts, filters), activities (filters, briefing text,
 best scores, challenge session), World Map model (zoom filtering, dot sizes, query radius,
@@ -132,6 +136,9 @@ DOM classes and the CSS-importing barrel) in Node to prove nothing touches the D
 - Binding conflicts are detected per device by identical labels from `host.bindings()`.
 - DOM classes are not unit-tested (no DOM in the test environment); they are covered by
   import-safety tests and manual/browser checks.
+- Graphics › Shadows and Terrain detail are only as effective as the host's `setGraphics`
+  (the current SimUiHost applies quality, render scale, FOV, imagery and clouds).
+- Runway idents are shown as the nav data spells them ('1R/19L' for OurAirports' KSFO data).
 
 ## Tuning knobs
 

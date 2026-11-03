@@ -44,11 +44,11 @@ albedo/π · irradiance), so terrain matches `MeshStandardMaterial` objects unde
 | `group: THREE.Group` | Add to the scene. One mesh per resident tile, ocean patches as child meshes. |
 | `constructor(frame: LocalFrame, options?)` | Options below. Starts module workers in the browser, in-thread loading in Node / with an injected `fetch`. |
 | `update(cameraPosThree, camera, dtS)` | CDLOD selection every 100 ms or after a 5 % range0 move, prioritised requests, ≤ `uploadsPerFrame` GPU uploads, coverage plan, LRU eviction. Never throws. |
-| `heightAt(latDeg, lonDeg)` | DEM height (m) from the finest loaded tile, runway-flattened; `null` if nothing covers the point. |
-| `heightAtLocalNED(north, east)` | Local up (−D) of the ground under a NED point in the current frame, on the curved surface the meshes draw; `null` if not loaded. |
-| `groundNormalNED(north, east, out)` | Unit ground normal in NED (`[0,0,−1]` on flat ground at the origin); `null` if not loaded. |
+| `heightAt(latDeg, lonDeg)` | Height (m) of the drawn surface of the finest loaded tile (its mesh triangles), runway-flattened; `null` if nothing covers the point. |
+| `heightAtLocalNED(north, east)` | Local up (−D) of the ground under a NED point in the current frame, on the curved triangles the meshes draw (checked by raycasting the mesh: < 1 cm); `null` if not loaded. |
+| `groundNormalNED(north, east, out)` | Unit normal (NED) of the drawn triangle under the point (`[0,0,−1]` on flat ground at the origin); `null` if not loaded. |
 | `readyFraction(cameraPosThree?)` | 0…1 of selected tiles within 5 km beyond the nearest selected tile that have data (works at altitude). A moved camera position re-runs the selection, so it also drives loading on a loading screen. |
-| `prefetch(lat, lon, radiusM = 1500)` | Requests the two finest zooms around a point (+ coverage anchors) and resolves when the finest tile under it has data or failed. Works without `update()`; never rejects. |
+| `prefetch(lat, lon, radiusM = 1500)` | Requests the two finest zooms around a point (+ coverage anchors) and resolves when nothing more is outstanding for the finest tile under it: current data (a resident tile made stale by `setRunways` is reloaded first, so a respawn never starts on unflattened ground), or a failure. Works without `update()`; never rejects. Only tiles with a request in flight are pinned. |
 | `whenIdle()` | Resolves when no request is outstanding (tests, loading screens). |
 | `setFrame(frame)` | Rebase: every tile object is re-placed from its float64 ECEF centre plus the rotation between its build frame and the new frame. No vertex is rebuilt. |
 | `setRunways(segments)` | `{ a, b: Geodetic (alt = threshold elevation), widthM }[]` — tiles touching added/removed runways reload; old data stays drawn meanwhile. Unchanged input is a no-op. |
@@ -75,7 +75,7 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
                         imagery    EOX S2 2016 → GIBS (z ≤ 8) → procedural colours   (fetched concurrently)
                         runway flattening → curved mesh + skirts + ocean patch (tilePipeline.ts)
                               ▼ transferables
-         ◄─ onTile: heights → HeightField immediately (collision, prefetch); mesh → upload queue
+         ◄─ onTile: mesh vertex lattice → HeightField immediately (collision, prefetch); mesh → upload queue
          ─► upload ≤ N/frame: BufferGeometry from the transferred buffers, shared Morton index,
             per-tile ShaderMaterial, refcounted imagery texture, placeTile() from float64 ECEF
          ─► DrawPlanner: every selected node → own tile | 4 ready children | nearest ready ancestor
@@ -85,18 +85,35 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
 
 * **Curvature for free** (§4.3): every vertex is tile fraction → lon/lat → bilinear DEM height →
   ECEF → local frame in float64, stored float32 relative to the tile centre. The object matrix
-  carries the large translation; three composes `modelViewMatrix` in doubles.
+  carries the large translation; three composes `modelViewMatrix` in doubles. Within the last half
+  pixel of a tile the edge cell is extrapolated, so a tile's edge vertices take the surface value at
+  the edge (not the edge pixel's centre value half a pixel inside): neighbours agree on their shared
+  edge to first order instead of stepping by one pixel of slope (2 m on a 30° slope at z15, 17 m at z12).
+* **Collision = drawn surface** (§8.1): the HeightField stores each tile's mesh vertex lattice
+  (`mesh.height`, (N+1)²) and interpolates it on the mesh's own triangles (NE–SW diagonals, as in
+  `gridIndex.ts`); the normal is the face normal. A bilinear sample of the 256² DEM differs from the
+  drawn triangles by up to 0.8 m at N = 128 (z15) and ~10 m at N = 64 on hilly z12 tiles; z < 11 tiles
+  used to answer from a 4× box-downsampled grid. The lattice is also 4–16× smaller than the DEM grid.
 * **Rebasing** (§4.4): tiles keep their build frame; `placeTile` sets position = frame.ecefToThree(centre)
   and the build→current axis rotation (0.18° at 20 km — it matters for 250 km tiles).
 * **Never holes** (§3.2): CDLOD parent patches and stand-ins are sub-squares of a tile. The index
-  buffer is in Morton order, so any aligned sub-square is one contiguous range plus its edge-skirt
-  segments; ranges are merged per tile and written as `geometry.groups` (materials are a
-  one-element array). Coverage anchors (ancestor `anchorLevels` up, down to `minZoom − anchorLevels`)
+  buffer is in Morton order, so any aligned sub-square is one contiguous range plus the skirt
+  segments on its border; ranges are merged per tile and written as `geometry.groups` (materials are
+  a one-element array). Coverage anchors (ancestor `anchorLevels` up, down to `minZoom − anchorLevels`)
   give every node a coarse stand-in while finer tiles load.
+* **Skirts** (§3.3): the four tile edges plus both midlines, each midline in both facings, so a
+  parent patch (a quadrant of the parent mesh) has outward-facing skirts on all four sides and no
+  crack opens where the coarse patch lies above the finer neighbour's edge (0.3–1.7 m on the fixtures).
 * **Fallbacks**: HTTP 4xx is definitive (try the next source). Network errors, 15 s timeouts and 5xx
-  are transient: the job skips that provider's remaining ancestors (same host), falls back, and flags
-  the response; the tile is reloaded with backoff (10 s, 20 s, 40 s, 80 s) so a blip does not leave a
-  permanent procedural patch. A module worker that fails to start switches the loader to in-thread.
+  are transient: the job skips that provider's remaining ancestors (same host) and flags the response.
+  Synthetic (procedural) heights never replace real data: when the tile already has data or a real
+  ancestor is resident, the request says `proceduralOnTransient: false` and the job answers a transient
+  error, so the real data (the tile's own, or the ancestor drawn in its place) stays on screen and under
+  the wheels while the tile retries with backoff (2 s … 60 s). Only where no real data exists at all
+  (offline cold start) do procedural stand-ins appear; they are retried without limit (10 s … 120 s)
+  and dropped the moment real data covers them. A cached response that fails to decode is evicted from
+  the Cache API. A module worker that fails to start switches the loader to in-thread; a worker reply
+  that cannot be posted becomes an `error`, so no request waits forever.
 * **Materials** (`materials.ts`): ShaderMaterial, sRGB imagery, sun + hemisphere-ish ambient with low
   slope contrast (`uSlopeContrast` 0.4, imagery has baked shading), local vertical from the earth
   centre, the sky module's exponential height fog (`β(y) = β0·exp(−(y − groundY)·falloff)`, closed-form
@@ -115,7 +132,7 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
 | `tileJob.ts`, `tileFetch.ts`, `tilePipeline.ts`, `requests.ts`, `protocol.ts` | The per-tile load job and its inputs/outputs. |
 | `tileGpu.ts`, `textureCache.ts`, `materials.ts`, `tileRecord.ts` | Three.js objects, shared uniforms, per-tile bookkeeping. |
 | `drawPlan.ts`, `gridIndex.ts`, `quadtree.ts` | CDLOD selection, coverage planning, Morton index ranges. |
-| `heightfield.ts`, `groundQueries.ts`, `sampling.ts` | Collision heights, NED ground queries, bilinear sampling, parent sub-grid extraction. |
+| `heightfield.ts`, `groundQueries.ts`, `sampling.ts` | Collision heights (mesh lattice on its triangles), NED ground queries, bilinear/triangle sampling, parent sub-grid extraction. |
 | `tileMesh.ts`, `terrarium.ts`, `procedural.ts`, `noise.ts`, `runways.ts`, `imagery.ts`, `providers.ts` | Pure geometry, decoding, synthetic terrain, flattening, provider catalogue. |
 
 ## Tests (`npx vitest run src/terrain`, Node)
@@ -127,10 +144,20 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   (centre and a vertex land on the same ECEF point, < 1 cm) and leaves heights unchanged; runway
   flattening reloads tiles; `prefetch` without `update()`; rejecting fetch → procedural, no throw;
   outage then recovery → degraded tiles reload with real data; LRU eviction disposes evicted GPU
-  objects; `dispose` frees every geometry, material and texture; shared uniforms.
+  objects; `dispose` frees every geometry, material and texture; shared uniforms. Review additions:
+  `heightAtLocalNED`/`groundNormalNED` against a three `Raycaster` on the drawn mesh (< 1 cm, < 1e-3);
+  an outage over a real z12 ancestor keeps the real ground (no synthetic patch) and recovers; `prefetch`
+  after `setRunways` on resident tiles (and with runways changing mid-load) resolves on flattened
+  ground; `prefetch` over resident tiles pins nothing (they are still evicted).
+* `tileMesh.test.ts` — also: neighbouring tiles agree on a sloped shared edge (< 1 mm); every
+  sub-square down to depth 2 has outward-facing skirts, and a quadrant gets all four sides.
+* `sampling.test.ts` — `triangleSample` equals barycentric interpolation on the `gridIndex`
+  triangles; its gradient is the face slope. `heightfield.test.ts` — mesh-lattice layout.
+* `quadtree.test.ts` — also: root tiles visited once (`coarsestZoom: 0`, 89.9° N) and bounded loops.
 * `tileJob.test.ts` — request building (fallback chain, sub-square offsets, per-level quads, runway
   filtering), job outputs: bit-exact decode, parent fallback agrees with the z12 ancestor, procedural
-  fallback, abort, timeout of a hanging server, 404 vs transient classification.
+  fallback, abort, timeout of a hanging server, 404 vs transient classification,
+  `proceduralOnTransient: false` → transient error, a poisoned Cache API entry is evicted and refetched.
 * `drawPlan.test.ts`, `groundQueries.test.ts`, `materials.test.ts` (shader includes resolve against
   three's `ShaderChunk`, log-depth chunks present, declared uniforms exist), `sampling.test.ts`, plus
   the earlier pure-module tests (quadtree, tileMesh, gridIndex, heightfield, terrarium, procedural,
@@ -161,22 +188,33 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
 
 ## Known limitations
 
-* **Patch seams**: a sub-square drawn from a parent/ancestor has skirts only on the tile's outer
-  edges, not on its interior borders, so where a coarse patch is higher than the adjacent finer tile a
-  sub-pixel crack can show at CDLOD ring boundaries. Fix: interior skirt lines at multiples of N/8.
+* **Patch seams** are closed for CDLOD parent patches (midline skirts). Ancestor stand-ins two or
+  more levels down (only while finer tiles stream in) still lack skirts on borders at N/4, 3N/4, …;
+  a sub-pixel crack can show there for a moment.
 * **No geomorphing** (§3.3 v2): LOD transitions pop at ring boundaries.
-* **Mesh vs collision**: the mesh samples the DEM every 2–4 px (N = 128 at z15 → 7.6 m spacing); the
-  collision samples the full grid, so wheels can sit a few cm off the visual surface on rough ground
-  (runways are flattened, so not there).
-* **Water**: only the sea (DEM ≤ 0.5 m) gets an ocean patch; lakes and rivers need OSM water polygons
-  (§6.5). Wave pattern is in render-frame x/z, so it shifts at a rebase.
+* **Collision follows the finest *resident* tile**, which is the drawn one wherever the camera is
+  near the aircraft. With the camera far away (tower/flyby view ≳ 3.5 km) the aircraft's tile may be
+  drawn from a coarser level while collision still uses the finer resident lattice, so the aircraft can
+  look a metre or so off the ground from that distance. A new tile's heights apply when it arrives;
+  its mesh appears with the next upload (≤ a few frames later).
+* **Tile-edge continuity** is first-order: on curved ground, same-level neighbours can still differ by
+  the second-order residual (≈ half the bay pair's former 0.9 m maximum); skirts hide it visually.
+* **Water**: the sea is detected from heights (DEM ≤ 0.5 m, §6.5) and the ocean patch covers the
+  whole tile at h = 0, so land *below* sea level is drowned: Amsterdam Schiphol (EHAM, −3 m) and the
+  Dutch polders, the Dead Sea, the Caspian shore, Death Valley. A water mask (OSM water polygons, §6.5)
+  is needed to fix it; `World.groundHeight` clamps the ground to sea level the same way. Lakes and
+  rivers get no water patch. Wave pattern is in render-frame x/z, so it shifts at a rebase.
+* **High latitudes**: the Web-Mercator pyramid ends at ±85.05°; selection and prefetch clamp there
+  (no hang at the poles) and draw nothing beyond. Near the limit tiles shrink with cos(lat), so a
+  fixed radius needs many more tiles.
 * **Fog** treats render-frame y as height (as the sky module does), which over-thickens haze for very
   distant terrain below the tangent plane; at those distances the terrain is fully hazed anyway.
 * **No terrain shadows**, no detail textures (§6.3), no night lights.
 * **Datum**: Terrarium heights are orthometric (≈ MSL) and treated as ellipsoidal (§8.1).
 * **Providers**: EOX and GIBS endpoints are unverified from the build container ([verify] in §0).
   Mapterhorn (WebP) is catalogued but not in the default chain (WebP decode needs `createImageBitmap`).
+  Imagery that fails transiently falls back to procedural colours and is retried 4 times.
 * **In-thread fallback** runs decode and meshing on the main thread (hitches); it exists for Node
   tests and broken worker environments.
 * Uploads are throttled by count, not bytes; the selection uses a fixed range0 rather than adapting
-  to FOV/viewport.
+  to FOV/viewport. Geometry keeps its CPU-side arrays after upload (≈ 0.15–0.55 MB per tile).

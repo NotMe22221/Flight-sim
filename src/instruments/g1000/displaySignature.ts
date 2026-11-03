@@ -27,7 +27,8 @@ export function pfdSignature(h: Signature, s: SimSnapshot, r: InstrumentReadings
   h.num(r.ahrs.pitchDeg, 0.1).num(r.ahrs.rollDeg, 0.1).num(r.turn.ballWidths, 0.02);
   h.num(r.iasKt, 0.05).num(r.tasKt, 1).num(r.gsKt, 1).num(r.trends.iasKtPer6s, 0.5);
   h.num(r.altimeter.indicatedFt, 0.5).num(r.altimeter.settingInHg, 0.005).num(r.trends.altFtPer6s, 5).num(r.vsiFpm, 5);
-  h.num(r.heading.magDeg, 0.1).num(r.heading.bugDeg, 0.5).num(r.trends.headingDegPer6s, 0.2);
+  // magnetic variation converts the plan's true bearings for the nav status box
+  h.num(r.heading.magDeg, 0.1).num(r.heading.bugDeg, 0.5).num(r.trends.headingDegPer6s, 0.2).num(r.heading.magVarDeg, 0.1);
   h.num(r.wind.fromMagDeg, 1).num(r.wind.speedKt, 1).num(r.wind.headwindKt, 1).num(r.wind.crosswindKt, 1);
   h.num(r.oatC, 1).num(r.clock.utcMs, 1000).num(r.clock.timerS, 1);
   for (const d of ALERT_DEFS) h.bool(r.annunciators[d.key]);
@@ -56,8 +57,8 @@ export function pfdSignature(h: Signature, s: SimSnapshot, r: InstrumentReadings
 export function mfdSignature(h: Signature, s: SimSnapshot, r: InstrumentReadings, st: MfdState, pxPerNm: number, version: number): number {
   const ac = s.aircraft, e = r.engine;
   h.reset().bool(r.avionicsOn).num(version);
-  h.num(e.rpm, 5).num(e.fuelFlowGph, 0.1).num(e.oilPressPsi, 1).num(e.oilTempF, 1).num(e.egtF, 2);
-  h.num(r.suctionInHg, 0.1).num(r.fuelGal[0], 0.1).num(r.fuelGal[1], 0.1).num(r.tachHours, 0.1).num(r.voltsV, 0.1).num(r.ampsA, 1).bool(r.annunciators.lowVolts);
+  h.num(e.rpm, 5).num(e.fuelFlowGph, 0.1).num(e.oilPressPsi, 1).num(e.oilTempF, 1).num(e.egtF, 1);
+  h.num(r.suctionInHg, 0.1).num(r.fuelGal[0], 0.1).num(r.fuelGal[1], 0.1).num(r.tachHours, 0.1).num(r.voltsV, 0.1).num(r.batteryAmpsA, 1).bool(r.annunciators.lowVolts);
   // half a map pixel of movement, in degrees of latitude
   const q = 0.5 / (Math.max(pxPerNm, 1e-6) * 60);
   h.num(ac.geo.lat, q).num(ac.geo.lon, q).num(ac.headingTrueRad, 0.003).num(ac.trackRad, 0.003).num(r.gsKt, 1);

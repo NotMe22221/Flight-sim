@@ -34,9 +34,9 @@ export function drawAttitude(ctx: Ctx2D, r: InstrumentReadings, ap: AutopilotSta
   ctx.fillStyle = G.ground; ctx.fillRect(-big, hy, big * 2, big);
   ctx.strokeStyle = G.white; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(-big, hy); ctx.lineTo(big, hy); ctx.stroke();
-  // pitch ladder (±45° drawn, viewport clips)
+  // pitch ladder to ±80° (labels every 10°); rungs more than 260 px from the centre are culled
   ctx.font = cond.get(16); ctx.fillStyle = G.white; ctx.textBaseline = 'middle';
-  for (let p = -45; p <= 45; p += 5) {
+  for (let p = -80; p <= 80; p += 5) {
     if (p === 0) continue;
     const y = hy - p * k;
     if (Math.abs(y) > 260) continue;
@@ -68,13 +68,16 @@ export function drawAttitude(ctx: Ctx2D, r: InstrumentReadings, ap: AutopilotSta
   }
   ctx.beginPath(); ctx.moveTo(0, -R); ctx.lineTo(-12, -R - 20); ctx.lineTo(12, -R - 20); ctx.closePath();
   ctx.fillStyle = G.white; ctx.fill();
-  // flight director single cue (inverted V) when FD or AP is on
+  // flight director single cue (inverted V) when FD or AP is on. The cue shows the commanded
+  // attitude relative to the fixed aircraft symbol: up by (θ_FD − θ) and banked by (φ_FD − φ), so a
+  // right-bank command tilts it clockwise (unlike the horizon, which turns by −φ) and flying the
+  // wedge into the cue zeroes both errors (docs/research/05 §5.5).
   if (ap.flightDirector || ap.engaged) {
     const dp = (ap.fdPitchRad * RAD - pitch) * k;
     const dr = ap.fdRollRad - roll;
     ctx.save();
     ctx.translate(0, -clamp(dp, -150, 150));
-    ctx.rotate(-clamp(dr, -60 * DEG, 60 * DEG));
+    ctx.rotate(clamp(dr, -60 * DEG, 60 * DEG));
     ctx.strokeStyle = G.magenta; ctx.lineWidth = 6; ctx.lineJoin = 'round';
     ctx.beginPath(); ctx.moveTo(-70, 30); ctx.lineTo(0, 0); ctx.lineTo(70, 30); ctx.stroke();
     ctx.restore();

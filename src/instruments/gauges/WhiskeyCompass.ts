@@ -32,7 +32,9 @@ export class WhiskeyCompassGauge extends Gauge {
     ctx.strokeStyle = GAUGE_COLORS.white; ctx.lineWidth = 1;
     ctx.font = gaugeFont(h * 0.26, true); ctx.fillStyle = GAUGE_COLORS.white; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (let d = first; d <= hdg + 36; d += 5) {
-      const x = -deltaDeg(hdg, d) * pxPerDeg;
+      // The pilot reads the card from behind, so it runs "backwards": heading north, 030 is to the
+      // LEFT of the lubber line and 330 to the right, and the card slides right in a right turn.
+      const x = deltaDeg(hdg, d) * pxPerDeg;
       const major = d % 10 === 0;
       ctx.beginPath(); ctx.moveTo(x, bottom); ctx.lineTo(x, bottom - (major ? h * 0.18 : h * 0.1)); ctx.stroke();
       if (d % 30 === 0) ctx.fillText(LABELS[(((d / 30) % 12) + 12) % 12], x, top + h * 0.3);

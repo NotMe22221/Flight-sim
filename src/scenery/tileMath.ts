@@ -45,7 +45,6 @@ export function expandTileUrl(template: string, z: number, x: number, y: number)
  * < 0.1 % error within 10 km, plenty for streaming decisions.
  */
 export function tilesAround(lat: number, lon: number, radiusM: number, z = SCENERY_ZOOM, out: TileDist[] = []): TileDist[] {
-  out.length = 0;
   const n = 2 ** z;
   const ky = (Math.PI * 6371000) / 180;
   const kx = ky * Math.cos(lat * D2R);
@@ -53,8 +52,9 @@ export function tilesAround(lat: number, lon: number, radiusM: number, z = SCENE
   const a = lonLatToTile(lon - dLon, Math.min(85, lat + dLat), z);
   const b = lonLatToTile(lon + dLon, Math.max(-85, lat - dLat), z);
   const x0 = Math.floor(a.x), x1 = Math.floor(b.x), y0 = Math.max(0, Math.floor(a.y)), y1 = Math.min(n - 1, Math.floor(b.y));
+  let count = 0;
   for (let ty = y0; ty <= y1; ty++) {
-    const north = tileToLonLat(0, ty, z).lat, south = tileToLonLat(0, ty + 1, z).lat;
+    const north = tileLat(ty, n), south = tileLat(ty + 1, n);
     for (let tx = x0; tx <= x1; tx++) {
       const west = (tx / n) * 360 - 180, east = ((tx + 1) / n) * 360 - 180;
       const cx = lon < west ? west : lon > east ? east : lon;
@@ -63,12 +63,23 @@ export function tilesAround(lat: number, lon: number, radiusM: number, z = SCENE
       if (distM > radiusM) continue;
       const centerDistM = Math.hypot(((west + east) / 2 - lon) * kx, ((north + south) / 2 - lat) * ky);
       const wx = ((tx % n) + n) % n;
-      out.push({ z, x: wx, y: ty, key: sceneryTileKey(z, wx, ty), distM, centerDistM });
+      // reuse the objects already in `out` (no garbage when called periodically)
+      let t = out[count];
+      if (!t) { t = { z, x: wx, y: ty, key: sceneryTileKey(z, wx, ty), distM, centerDistM }; out[count] = t; }
+      else {
+        if (t.z !== z || t.x !== wx || t.y !== ty) { t.z = z; t.x = wx; t.y = ty; t.key = sceneryTileKey(z, wx, ty); }
+        t.distM = distM; t.centerDistM = centerDistM;
+      }
+      count++;
     }
   }
-  out.sort((p, q) => p.distM - q.distM || p.centerDistM - q.centerDistM);
+  out.length = count;
+  out.sort(byDistance);
   return out;
 }
+
+const byDistance = (p: TileDist, q: TileDist): number => p.distM - q.distM || p.centerDistM - q.centerDistM;
+const tileLat = (ty: number, n: number): number => Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / n))) * R2D;
 
 /**
  * Projects tile coordinates of one tile into its tile-local ENU frame (metres) and back.

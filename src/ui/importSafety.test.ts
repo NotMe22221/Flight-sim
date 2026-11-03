@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 const MODULES = [
   './index', './UiManager', './UiHost', './dom', './icons', './routing', './selection', './settingsStore', './settingsModel',
-  './bindingsModel', './activities', './worldMapModel', './searchDebounce', './timeOfDay', './flightLauncher',
+  './bindingsModel', './activities', './worldMapModel', './searchDebounce', './timeOfDay', './flightLauncher', './landingReportModel',
   './screens/Screen', './screens/LoadingScreen', './screens/MainMenu', './screens/WorldMap', './screens/AircraftSelect',
   './screens/WeatherPanel', './screens/WeatherScreen', './screens/Settings', './screens/CreditsScreen', './screens/Activities',
   './screens/worldmap/AirportSearch', './screens/worldmap/AirportCard', './screens/worldmap/MapCanvas', './screens/worldmap/mapDraw',

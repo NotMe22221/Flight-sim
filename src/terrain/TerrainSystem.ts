@@ -6,7 +6,8 @@
  * parent tile → procedural; EOX → GIBS → procedural colours) → a budget of GPU uploads from
  * finished tiles → a coverage plan that draws every selected node with its own mesh, four
  * ready children, or the nearest ready ancestor's sub-square (never holes) → LRU eviction
- * above `maxResidentTiles`. Heights for collision come from the same (runway-flattened) grids.
+ * above `maxResidentTiles`. Collision heights come from each tile's own mesh vertex lattice,
+ * interpolated on its triangles, so the flight model touches exactly the surface that is drawn.
  *
  * Every tile mesh is a rigid object positioned from its float64 ECEF centre, so a floating-
  * origin rebase (`setFrame`) only rewrites object matrices. Nothing here throws into the
@@ -277,10 +278,12 @@ export class TerrainSystem {
     }
     for (const id of this.pinned) {
       const rec = this.records.get(id);
-      if (!rec) continue;
+      if (!rec) { this.pinned.delete(id); this.resolveWaiters(id); continue; }
       rec.wantedPass = this.pass;
       rec.lastUsed = now;
       this.ensureRequested(rec, 50, now);
+      // nothing outstanding any more (e.g. a worker failover dropped it during a retry backoff)
+      if (!rec.reqKey) { this.pinned.delete(id); this.resolveWaiters(id); }
     }
     for (const rec of this.records.values()) {
       if (rec.wantedPass === this.pass) continue;
@@ -557,7 +560,7 @@ export class TerrainSystem {
 
   // ───────────────────────────── queries ─────────────────────────────
 
-  /** Terrain height (m, DEM datum ≈ MSL, treated as ellipsoidal) from the finest loaded tile, or null. */
+  /** Height (m, DEM datum ≈ MSL, treated as ellipsoidal) of the drawn surface of the finest loaded tile, or null. */
   heightAt(latDeg: number, lonDeg: number): number | null {
     if (this.disposed || !Number.isFinite(latDeg) || !Number.isFinite(lonDeg)) return null;
     return this.heights.heightAt(lonDeg, latDeg);
@@ -613,9 +616,11 @@ export class TerrainSystem {
   }
 
   /**
-   * Load the finest two zooms around a spawn point (radius in metres). Resolves when the
-   * finest tile under the point has data (real, parent-derived or procedural) or failed;
-   * never rejects. Works without update() being called.
+   * Load the finest two zooms around a spawn point (radius in metres). Resolves when nothing
+   * more is outstanding for the finest tile under the point: it has current data (real,
+   * parent-derived or procedural — a resident tile made stale by setRunways is reloaded first,
+   * so a respawn never starts on unflattened ground) or its load failed. Never rejects. Works
+   * without update() being called.
    */
   prefetch(latDeg: number, lonDeg: number, radiusM = 1500): Promise<void> {
     if (this.disposed || !Number.isFinite(latDeg) || !Number.isFinite(lonDeg)) return Promise.resolve();

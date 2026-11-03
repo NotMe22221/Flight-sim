@@ -679,28 +679,30 @@ export class GfcAutopilot implements Autopilot {
     }
 
     // Altitude pre-select: armed whenever a non-ALT mode flies toward (or away from) the target.
+    // It keeps working while GS is armed (the GFC 700 arms ALTS and GS together; `armedVertical`
+    // holds one value, so GS keeps the display): a descent below the glideslope must still stop at
+    // the selected altitude, and GS stays armed to capture from the level-off.
     if (!s.lvl && (s.vertical === 'PIT' || s.vertical === 'VS' || s.vertical === 'FLC')) {
-      if (s.armedVertical !== 'GS') {
-        const closing = err * vs > 0;
-        // within the hold band: capture unless (commanded to be) climbing/descending away from the
-        // target — in VS mode the selected VS tells the direction before the aircraft follows it
-        const dir = s.vertical === 'VS' ? s.verticalSpeedTargetMs : vs;
-        if (Math.abs(err) <= g.altHoldThresholdM && (err * dir > 0 || Math.abs(dir) < g.altLevelVsMs)) {
-          this.enterVsMode('ALT');
-          s.armedVertical = null;
-          this.modeChanged();
-        } else if (closing && Math.abs(err) <= altCaptureDistance(vs, g)) {
-          // Capture law: VS = K·err with K chosen so the command is continuous at capture and
-          // never faster than the current VS → smooth exponential level-off.
-          this.altCaptureVs = Math.abs(vs);
-          this.altCaptureK = clamp(Math.abs(vs) / Math.max(Math.abs(err), 1), g.altToVs, 4 * g.altToVs);
-          this.enterVsMode('ALTS');
-          s.armedVertical = null;
-          this.modeChanged();
-        } else if (s.armedVertical !== 'ALTS') {
-          s.armedVertical = 'ALTS';
-          this.modeChanged();
-        }
+      const gsArmed = s.armedVertical === 'GS';
+      const closing = err * vs > 0;
+      // within the hold band: capture unless (commanded to be) climbing/descending away from the
+      // target — in VS mode the selected VS tells the direction before the aircraft follows it
+      const dir = s.vertical === 'VS' ? s.verticalSpeedTargetMs : vs;
+      if (Math.abs(err) <= g.altHoldThresholdM && (err * dir > 0 || Math.abs(dir) < g.altLevelVsMs)) {
+        this.enterVsMode('ALT');
+        if (!gsArmed) s.armedVertical = null;
+        this.modeChanged();
+      } else if (closing && Math.abs(err) <= altCaptureDistance(vs, g)) {
+        // Capture law: VS = K·err with K chosen so the command is continuous at capture and
+        // never faster than the current VS → smooth exponential level-off.
+        this.altCaptureVs = Math.abs(vs);
+        this.altCaptureK = clamp(Math.abs(vs) / Math.max(Math.abs(err), 1), g.altToVs, 4 * g.altToVs);
+        this.enterVsMode('ALTS');
+        if (!gsArmed) s.armedVertical = null;
+        this.modeChanged();
+      } else if (!gsArmed && s.armedVertical !== 'ALTS') {
+        s.armedVertical = 'ALTS';
+        this.modeChanged();
       }
     } else if (s.armedVertical === 'ALTS') {
       s.armedVertical = null;

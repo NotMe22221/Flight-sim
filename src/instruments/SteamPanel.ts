@@ -110,9 +110,13 @@ export class SteamPanel {
   update(snapshot: SimSnapshot, dt: number): boolean {
     this.model.update(snapshot, dt);
     this.snapshot = snapshot;
-    this.acc += dt;
-    if (this.acc < 1 / this.hz) return false;
-    this.acc = 0;
+    const d = Number.isFinite(dt) && dt > 0 ? Math.min(dt, 1) : 0;
+    const period = 1 / Math.max(this.hz, 1e-3);
+    this.acc += d;
+    if (this.acc + 5e-4 < period) return false;
+    // carry the remainder (at most one period) so the cadence does not depend on the frame rate:
+    // resetting to 0 turned 30 Hz into 20 Hz at 40 fps or with ordinary 60 fps frame jitter
+    this.acc = Number.isFinite(this.acc) ? Math.min(this.acc - period, period) : 0;
     this.draw();
     return true;
   }

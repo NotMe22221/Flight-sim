@@ -25,4 +25,5 @@ export { settingsReducer, type SettingsAction, type SettingsGroup, type Settings
 export { ASSIST_ITEMS, ASSIST_LEVELS, assistPreset, detectAssistLevel } from './assistPresets';
 export { WEATHER_PRESETS, weatherPresetTemplate, weatherSummary } from './weatherPresets';
 export { BEST_SCORES_KEY, landingChallenges, loadBestScores } from './activities';
+export { landingComponents, landingBand, scoreBand } from './landingReportModel';
 export * as format from './format';
