@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { lonLatToTile, tileToLonLat, tileWidthMeters } from '../geo/mercator';
 import { LocalFrame, destinationPoint } from '../geo/wgs84';
-import { gridIndex, tileIndexCount, tileVertexCount } from './gridIndex';
+import { gridIndex, gridIndexCount, subSquareRanges, tileIndexCount, tileVertexCount } from './gridIndex';
 import { decodeTerrariumPng } from './terrarium';
 import { buildTileMesh, buildWaterPatch, skirtDepthFor } from './tileMesh';
 
@@ -97,6 +97,35 @@ describe('tileMesh', () => {
       const ha = a.height[j * Wv + N], hb = b.height[j * Wv]; // A's east edge = B's west edge
       expect(Math.abs(ha - hb)).toBeLessThan(1e-3);
       expect(ha).toBeCloseTo(100 + slope * tw - 0.2 * (j / N) * tw, 2); // the plane at the edge itself
+    }
+  });
+
+  it('every sub-square (CDLOD parent patch, ancestor stand-in) gets outward-facing skirts on all its borders that lie on the tile edge or a midline', () => {
+    const N = 8, flat = new Float32Array(256 * 256).fill(5);
+    const m = buildTileMesh(15, 5246, 12684, flat, 256, frame, N, 30);
+    const idx = gridIndex(N), out = new Int32Array(10), P = m.position;
+    const v = (k: number) => [P[k * 3], P[k * 3 + 1], P[k * 3 + 2]];
+    for (let depth = 0; depth <= 2; depth++) {
+      for (let code = 0; code < 4 ** depth; code++) {
+        const n = subSquareRanges(N, depth, code, out);
+        // sub-square centre in tile-local x/z (vertex positions are relative to the tile centre)
+        let sx = 0, sz = 0, cnt = 0;
+        for (let t = out[0]; t < out[0] + (depth === 0 ? gridIndexCount(N) : out[1]); t++) { const p = v(idx[t]); sx += p[0]; sz += p[2]; cnt++; }
+        sx /= cnt; sz /= cnt;
+        const facings = new Set<string>();
+        for (let r = depth === 0 ? 0 : 1; r < n; r++) {
+          const start = depth === 0 ? gridIndexCount(N) : out[2 * r], end = depth === 0 ? out[1] : start + out[2 * r + 1];
+          for (let t = start; t < end; t += 3) {
+            const a = v(idx[t]), b = v(idx[t + 1]), c = v(idx[t + 2]);
+            const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            const nx = e1[1] * e2[2] - e1[2] * e2[1], nz = e1[0] * e2[1] - e1[1] * e2[0];
+            const mx = (a[0] + b[0] + c[0]) / 3 - sx, mz = (a[2] + b[2] + c[2]) / 3 - sz;
+            expect(nx * mx + nz * mz).toBeGreaterThan(0); // front face points away from the sub-square
+            facings.add(Math.abs(nx) > Math.abs(nz) ? (nx > 0 ? 'E' : 'W') : (nz > 0 ? 'S' : 'N'));
+          }
+        }
+        if (depth <= 1) expect([...facings].sort().join('')).toBe('ENSW'); // whole tile or quadrant: all four sides
+      }
     }
   });
 

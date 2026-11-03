@@ -97,6 +97,8 @@ function enrouteItems(s: AtcSession, out: MenuItem[]): void {
 function inboundItems(s: AtcSession, ctx: FieldCtx, out: MenuItem[]): void {
   const atis = atisItem(s, ctx, true);
   if (atis) out.push(atis);
+  const ff = s.flightFollowing;
+  if (ff) out.push({ label: `Cancel flight following${via(ff)}`, run: () => cancelFlightFollowing(s) });
   const twr = ctx.info.tower;
   if (twr) {
     out.push({ label: `Inbound for landing, full stop${via(twr)}`, run: () => callInbound(s, ctx, 'full-stop') });

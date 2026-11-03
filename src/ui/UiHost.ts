@@ -62,4 +62,6 @@ export interface UiHost {
    * Activities screen lists the challenges but disables "Start".
    */
   startChallenge?(id: string): Promise<void>;
+  /** COM1 active/standby frequencies, MHz: the ATC panel header shows the tuned station. */
+  comRadio?(): { activeMHz: number; standbyMHz: number } | null;
 }

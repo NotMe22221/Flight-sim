@@ -7,13 +7,19 @@
 
 /**
  * Sample the grid at continuous pixel coordinates `(px, py)` measured in pixels from the
- * tile's NW corner (so `px = u * width` for a normalised `u`). Clamps at the borders.
+ * tile's NW corner (so `px = u * width` for a normalised `u`).
+ *
+ * Between the outermost pixel centres and the tile border (the last half pixel) the edge cell
+ * is extrapolated linearly, and coordinates beyond the border are clamped to it. A tile edge
+ * (px = 0 or width) therefore gets the surface value *at the edge* rather than the edge pixel's
+ * centre value half a pixel inside: two neighbouring tiles then agree on their shared edge to
+ * first order, instead of differing by one pixel of slope (2 m on a 30° slope at z15, 17 m at z12).
  */
 export function bilinearSample(heights: ArrayLike<number>, width: number, height: number, px: number, py: number): number {
   let fx = px - 0.5, fy = py - 0.5;
   const maxX = width - 1, maxY = height - 1;
-  if (fx < 0) fx = 0; else if (fx > maxX) fx = maxX;
-  if (fy < 0) fy = 0; else if (fy > maxY) fy = maxY;
+  if (fx < -0.5) fx = -0.5; else if (fx > maxX + 0.5) fx = maxX + 0.5;
+  if (fy < -0.5) fy = -0.5; else if (fy > maxY + 0.5) fy = maxY + 0.5;
   let x0 = Math.floor(fx), y0 = Math.floor(fy);
   if (x0 >= maxX) x0 = maxX - 1;
   if (y0 >= maxY) y0 = maxY - 1;
@@ -29,13 +35,13 @@ export function bilinearSample(heights: ArrayLike<number>, width: number, height
 
 /**
  * Bilinear gradient (∂h/∂px, ∂h/∂py) in metres per pixel at continuous pixel coordinates,
- * written to `out[0]`, `out[1]`. Uses the same cell as `bilinearSample`.
+ * written to `out[0]`, `out[1]`. Uses the same cell (and edge extrapolation) as `bilinearSample`.
  */
 export function bilinearGradient(heights: ArrayLike<number>, width: number, height: number, px: number, py: number, out: Float64Array | number[]): void {
   let fx = px - 0.5, fy = py - 0.5;
   const maxX = width - 1, maxY = height - 1;
-  if (fx < 0) fx = 0; else if (fx > maxX) fx = maxX;
-  if (fy < 0) fy = 0; else if (fy > maxY) fy = maxY;
+  if (fx < -0.5) fx = -0.5; else if (fx > maxX + 0.5) fx = maxX + 0.5;
+  if (fy < -0.5) fy = -0.5; else if (fy > maxY + 0.5) fy = maxY + 0.5;
   let x0 = Math.floor(fx), y0 = Math.floor(fy);
   if (x0 >= maxX) x0 = maxX - 1;
   if (y0 >= maxY) y0 = maxY - 1;

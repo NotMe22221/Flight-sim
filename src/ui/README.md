@@ -47,7 +47,8 @@ host may transition gradually in flight. A host that ignores the option still wo
 
 Optional (feature-detected, UI hides/disables the feature when absent):
 `addWaypoint(wp)` (World Map "Set as arrival", VFR map "Direct to"), `clearPlan()` (Nav log),
-`startChallenge(id)` (Activities "Start").
+`startChallenge(id)` (Activities "Start"), `comRadio()` (COM1 frequency in the ATC panel header;
+otherwise the header shows the last transmission's frequency).
 
 Events consumed: `ui:toast`, `terrain:progress` (flight loading bar), `landing:scored` (report +
 challenge best score), `atc:message`, `atc:options`, `aircraft:crash` (pause menu titled

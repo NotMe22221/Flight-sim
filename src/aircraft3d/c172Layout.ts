@@ -289,7 +289,7 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
       taxi: v(-(breakX + 0.62), lampY(breakX + 0.62), leZ - 0.012),
     },
     details: {
-      noseInlets: { x: 0.27, y: hy - 0.03, r: 0.062, squash: 1.15 },
+      noseInlets: { x: 0.265, y: hy - 0.035, r: 0.074, squash: 1.1 },
       exhaust: { x: 0.2, z: -1.22, length: 0.17, radius: 0.024, dir: v(0, -0.8, 0.6).normalize() },
       antenna: { z: 2.25, length: 0.55, radius: 0.007, dir: v(0, Math.cos(32 * D2R), Math.sin(32 * D2R)) },
     },

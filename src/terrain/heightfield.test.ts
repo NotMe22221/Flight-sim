@@ -32,8 +32,11 @@ describe('HeightField', () => {
     expect(bilinearSample(h, w, w, 1.0, 0.5)).toBeCloseTo(5, 10);       // between pixel 0 and 1 in x
     expect(bilinearSample(h, w, w, 2.0, 2.0)).toBeCloseTo((110 + 120 + 210 + 220) / 4, 10);
     expect(bilinearSample(h, w, w, 1.5, 1.5)).toBe(h[1 * w + 1]);     // pixel centre
-    expect(bilinearSample(h, w, w, -3, -3)).toBe(h[0]);               // clamped
-    expect(bilinearSample(h, w, w, 99, 99)).toBe(h[w * w - 1]);
+    // beyond the outermost pixel centres: the edge cell extrapolated to the tile border, then clamped
+    expect(bilinearSample(h, w, w, 0, 0)).toBeCloseTo(-55, 10);       // plane 10·(px−½) + 100·(py−½) at the NW corner
+    expect(bilinearSample(h, w, w, -3, -3)).toBeCloseTo(-55, 10);
+    expect(bilinearSample(h, w, w, 4, 4)).toBeCloseTo(385, 10);
+    expect(bilinearSample(h, w, w, 99, 99)).toBeCloseTo(385, 10);
     // same through the HeightField: synthetic z10 tile, probe exactly half way between two pixel centres
     const hf = new HeightField(15);
     hf.set(10, 163, 395, h, w);

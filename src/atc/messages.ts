@@ -133,7 +133,8 @@ export const readback = {
   taxi: (cs: Spoken, rwy: string): Spoken => say`Taxi to runway ${runway(rwy)}, hold short of runway ${runway(rwy)}, ${cs}.`,
   clearance: (cs: Spoken, maxAltFt: number, dep: Facility | undefined, code: number): Spoken =>
     say`Maintain VFR at or below ${altitude(maxAltFt)}${dep ? say`, departure frequency ${frequency(dep.mhz)}` : EMPTY}, squawk ${squawk(code)}, ${cs}.`,
-  takeoff: (cs: Spoken, rwy: string): Spoken => say`Runway ${runway(rwy)}, cleared for takeoff, ${cs}.`,
+  takeoff: (cs: Spoken, rwy: string, closedSide: TrafficSide | null = null): Spoken =>
+    say`${closedSide ? `${cap(closedSide)} closed traffic, runway` : 'Runway'} ${runway(rwy)}, cleared for takeoff, ${cs}.`,
   holdShort: (cs: Spoken, rwy: string): Spoken => say`Hold short runway ${runway(rwy)}, ${cs}.`,
   handoff: (cs: Spoken, to: Facility): Spoken => say`${frequency(to.mhz)}, ${cs}.`,
   goodDay: (cs: Spoken): Spoken => say`Good day, ${cs}.`,
@@ -141,7 +142,7 @@ export const readback = {
   squawk: (cs: Spoken, code: number): Spoken => say`Squawk ${squawk(code)}, maintain VFR, ${cs}.`,
   squawkVfr: (cs: Spoken, next: Facility | null): Spoken => (next ? say`Squawk VFR, ${frequency(next.mhz)}, ${cs}.` : say`Squawk VFR, ${cs}.`),
   patternEntry: (cs: Spoken, entry: PatternEntry, side: TrafficSide, rwy: string): Spoken =>
-    entry === 'straight-in' ? say`Straight-in runway ${runway(rwy)}, report three mile final, ${cs}.`
+    entry === 'straight-in' ? say`Straight-in runway ${runway(rwy)}, report ${entryReport(entry)}, ${cs}.`
       : say`${cap(side)} ${entry} runway ${runway(rwy)}, ${cs}.`,
   landing: (cs: Spoken, rwy: string, kind: Exclude<LandingClearance, 'none'>): Spoken =>
     say`Runway ${runway(rwy)}, ${kind === 'land' ? 'cleared to land' : 'cleared touch and go'}, ${cs}.`,

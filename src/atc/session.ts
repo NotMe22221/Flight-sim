@@ -188,8 +188,9 @@ export class AtcSession {
     this.menuDirty = true;
   }
 
-  /** Pilot transmission on a facility (tunes it first). */
+  /** Pilot transmission on a facility (tunes it first). Any readback still pending is dropped (its moment has passed). */
   pilotSays(f: Facility, build: (cs: Spoken) => Spoken): void {
+    this.pendingReadback = null;
     this.tune(f);
     this.radio.transmit('pilot', build(this.pilotCallsign()), f.mhz);
     this.menuDirty = true;
@@ -197,6 +198,7 @@ export class AtcSession {
 
   /** CTAF self-announcement (type + last three; nobody abbreviates on CTAF). */
   announce(f: Facility, build: (cs: Spoken) => Spoken): void {
+    this.pendingReadback = null;
     this.tune(f);
     this.radio.transmit('pilot', build(this.callsign.short), f.mhz);
     this.menuDirty = true;

@@ -275,6 +275,41 @@ describe('GfcAutopilot protections and servos', () => {
     expect(sim.s.disconnectReason).toBe('overspeed');
   });
 
+  it('needs avionics power: a bus failure drops AP, FD and YD, and nothing engages until power returns', () => {
+    const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 0 });
+    const elec = { busVolts: 28, avionicsPowered: true, mainPowered: true, batteryAmps: 0, alternatorAmps: 10, loadAmps: 10, batteryCharge: 1, lowVoltage: false };
+    sim.ac.electrical = elec;
+    const reasons: DisconnectReason[] = [];
+    sim.ap.onDisconnect((r) => reasons.push(r));
+    sim.ap.engage(true);
+    sim.ap.setYawDamper(true);
+    sim.ap.setHeadingBug(90);
+    sim.ap.setLateral('HDG');
+    sim.run(1);
+    expect(sim.s.engaged).toBe(true);
+    elec.avionicsPowered = false;
+    sim.frame();
+    expect(reasons).toEqual(['power']);
+    expect(sim.s.engaged).toBe(false);
+    expect(sim.s.flightDirector).toBe(false);
+    expect(sim.s.yawDamper).toBe(false);
+    expect(sim.s.lateral).toBe('OFF');
+    expect(sim.ap.isPowered).toBe(false);
+    sim.ap.engage(true);
+    sim.ap.press('LVL');
+    sim.ap.setLateral('HDG');
+    sim.ap.press('FD');
+    expect(sim.s.engaged).toBe(false);
+    expect(sim.s.flightDirector).toBe(false);
+    expect(sim.s.lateral).toBe('OFF');
+    sim.frame();
+    expect(sim.last.pitch).toBe(sim.pilot.pitch); // the pilot flies
+    elec.avionicsPowered = true;
+    sim.frame();
+    sim.ap.engage(true);
+    expect(sim.s.engaged).toBe(true);
+  });
+
   it('engage is bumpless: elevator output continuity < 0.05', () => {
     const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 0 });
     sim.plant.setTrimSpeed(85 * KT); // trimmed for a slower speed → needs forward pressure

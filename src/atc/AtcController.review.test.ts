@@ -6,9 +6,12 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type { Airport } from '../core/types';
 import { destinationPoint } from '../geo/wgs84';
 import type { NavDb } from '../nav';
-import { findRunwayEnd } from '../nav';
+import { findRunwayEnd, magneticDeclinationDeg } from '../nav';
+import { buildAtis } from './atis';
+import { makeCallsign } from './callsign';
 import { allRunwayRefs } from './field';
 import { makeRunwayFrame, relativeTo } from './geometry';
+import { readback } from './messages';
 import { frequency, wind } from './phraseology';
 import { Harness, type Frame, type Point } from './__tests__/harness';
 import { ksfoWeather, loadBayAreaDb } from './__tests__/fixtures';
@@ -319,5 +322,96 @@ describe('menu labels', () => {
     h.select(/^Announce taxi to runway 30L for departure \(CTAF 122\.9\)/);
     expect(h.messages[h.messages.length - 1].text).toBe('Half Moon Bay traffic, Cessna 2FS, taxiing to runway 30L, Half Moon Bay.');
     expect(h.atc.runwayIdent).toBe('30L');
+  });
+});
+
+describe('more review findings', () => {
+  it('a start beside the runway end (ramp, run-up area) is parked, not holding short', () => {
+    const ksfo = airport('KSFO');
+    const h = new Harness(db, ksfoWeather(), frameOf(ksfo, '28R'), { along: 40, cross: -120, h: 0 }, UTC);
+    h.setEngine(true);
+    h.atc.reset(ksfo);
+    h.tick();
+    expect(h.atc.phase).toBe('PARKED');
+    expect(h.atc.options.some((o) => o.startsWith('Request taxi for VFR departure'))).toBe(true);
+  });
+
+  it('ATIS magnetic wind is converted from the observed direction, not from the true wind already rounded to 10°', () => {
+    const ksfo = airport('KSFO');
+    const decl = magneticDeclinationDeg(ksfo.position.lat, ksfo.position.lon, 0, UTC);
+    expect(decl).toBeGreaterThan(11);
+    expect(decl).toBeLessThan(15);
+    const weather = ksfoWeather({ winds: [{ altM: 14, directionDeg: 285, speedKt: 12, gustKt: 0 }] });
+    const r = buildAtis({ airport: ksfo, weather, letter: 'A', utcMs: UTC, runways: ['28R'], magVarDeg: decl });
+    expect(r.text).toContain('Wind 270 at 12.'); // 285 − 13 = 272 → 270 (not 290 − 13 → 280)
+    expect(r.metar).toContain('29012KT');
+  });
+
+  it('readbacks: straight-in subtitle uses digits; a closed-traffic takeoff readback includes the pattern', () => {
+    const cs = makeCallsign('N172FS', 'Cessna').short;
+    expect(readback.patternEntry(cs, 'straight-in', 'left', '28R')).toEqual({
+      text: 'Straight-in runway 28R, report 3 mile final, Cessna 2FS.',
+      speech: 'Straight-in runway two eight right, report three mile final, Cessna Two Foxtrot Sierra.',
+    });
+    const ksfo = airport('KSFO');
+    const h = new Harness(db, ksfoWeather(), frameOf(ksfo, '28R'), { along: 800, cross: -700, h: 0 }, UTC);
+    h.setEngine(true);
+    h.atc.reset(ksfo);
+    h.wait(1);
+    h.select(/^Request taxi for closed traffic/);
+    h.wait(3);
+    h.select(/^Read back: taxi/);
+    const rwy = h.atc.runwayIdent ?? '';
+    const ref = allRunwayRefs(ksfo).find((r) => r.ident === rwy);
+    const r28R = allRunwayRefs(ksfo).find((r) => r.ident === '28R');
+    if (!ref || !r28R) throw new Error(`runway ${rwy} missing`);
+    const thr = relativeTo(makeRunwayFrame(ksfo, r28R), ref.threshold, 4, 0);
+    h.move({ along: thr.alongM + 40, cross: thr.crossM - 90, h: 0 }, 8, true);
+    h.wait(3);
+    expect(h.atc.phase).toBe('HOLDING_SHORT');
+    h.select(new RegExp(`^Ready for departure, runway ${rwy}, remaining in the pattern`));
+    h.wait(3);
+    expect(h.find(/cleared for takeoff\.$/)?.text).toMatch(/^Cessna 2FS, San Francisco Tower, make left closed traffic, wind .*, runway 28L, cleared for takeoff\.$/);
+    h.select(/^Read back: left closed traffic, runway 28L, cleared for takeoff/);
+    expect(h.messages[h.messages.length - 1].text).toBe('Left closed traffic, runway 28L, cleared for takeoff, Cessna 2FS.');
+  });
+
+  it('with flight following active, an arrival chosen from the menu can cancel it', () => {
+    const ksfo = airport('KSFO');
+    const h = new Harness(db, ksfoWeather(), frameOf(ksfo, '28R'), OFFSHORE, UTC);
+    h.setMotion(50, 0, false);
+    h.atc.reset(null);
+    h.wait(2);
+    h.select(/^Request VFR flight following \(Departure [\d.]+\)/);
+    h.wait(3);
+    h.select(/^Read back squawk/);
+    expect(h.atc.squawk).not.toBe(1200);
+    h.select(/^Prepare to land at Half Moon Bay \(KHAF\)/);
+    expect(h.atc.phase).toBe('INBOUND');
+    h.select(/^Cancel flight following \(Departure [\d.]+\)/);
+    h.wait(3);
+    expect(h.find(/radar service terminated/)?.text).toBe('Cessna 2FS, radar service terminated, squawk VFR, frequency change approved.');
+    expect(h.atc.squawk).toBe(1200);
+    expect(h.atc.phase).toBe('INBOUND');
+  });
+
+  it('a readback not given before the next call is no longer offered', () => {
+    const ksfo = airport('KSFO');
+    const h = new Harness(db, ksfoWeather(), frameOf(ksfo, '28R'), { along: 17000, cross: 12700, h: 900 }, UTC);
+    h.setMotion(50, 0, false);
+    h.atc.reset(null);
+    h.wait(2);
+    h.select(/^Prepare to land at San Francisco \(KSFO\)/);
+    h.select(/^Inbound for landing, full stop/);
+    h.wait(3);
+    expect(h.atc.options[0]).toMatch(/^Read back: enter right downwind runway 28R/);
+    // No readback: fly to the downwind and report there.
+    h.move({ along: 3500, cross: 2300, h: 300 }, 50, false, 0.25);
+    h.move({ along: 1500, cross: 1500, h: 300 }, 40, false);
+    expect(h.atc.patternLeg).toBe('downwind');
+    h.select(/^Report midfield right downwind runway 28R/);
+    h.wait(3);
+    expect(h.find(/roger, report base/)).toBeDefined();
+    expect(h.atc.options.some((o) => o.startsWith('Read back'))).toBe(false);
   });
 });

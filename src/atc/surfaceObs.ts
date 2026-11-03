@@ -21,6 +21,8 @@ export interface SkyLayer {
 export interface SurfaceObservation {
   /** wind direction the wind blows FROM, true deg rounded to 10 (0 when calm) */
   windDirTrueDeg: number;
+  /** the same, unrounded (0 when calm): voice reports convert this to magnetic, then round once */
+  windDirTrueRawDeg: number;
   /** whole knots */
   windSpeedKt: number;
   /** whole knots, 0 when no gust is reported */
@@ -116,7 +118,8 @@ export function observeSurface(w: WeatherState, fieldElevM: number): SurfaceObse
   for (const l of w.winds) if (sfc && l.altM < sfc.altM) sfc = l;
   const spd = sfc ? Math.round(sfc.speedKt) : 0;
   const gust = sfc && sfc.gustKt > sfc.speedKt + 0.5 ? Math.round(sfc.gustKt) : 0;
-  let dir = sfc && spd > 0 ? Math.round(wrap360(sfc.directionDeg) / 10) * 10 : 0;
+  const rawDir = sfc && spd > 0 ? wrap360(sfc.directionDeg) : 0;
+  let dir = Math.round(rawDir / 10) * 10;
   if (spd > 0 && dir === 0) dir = 360;
 
   const visibilitySM = reportableVisibilitySM(w.visibilityM);
@@ -133,6 +136,7 @@ export function observeSurface(w: WeatherState, fieldElevM: number): SurfaceObse
   const td = Math.min(t, dewpointC(t, w.humidity));
   return {
     windDirTrueDeg: dir,
+    windDirTrueRawDeg: rawDir,
     windSpeedKt: spd,
     windGustKt: gust,
     visibilitySM,

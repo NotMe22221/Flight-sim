@@ -120,7 +120,8 @@ export function readyForDeparture(s: AtcSession, ctx: FieldCtx): void {
     s.runway = makeRunwayFrame(ctx.info.airport, ref);
     if (closedSide) s.side = closedSide;
     s.setPhase('CLEARED_TAKEOFF');
-    s.expectReadback(twr, `Read back: runway ${rwySpoken(ref.ident).text}, cleared for takeoff`, (cs) => readback.takeoff(cs, ref.ident));
+    const label = `${closedSide ? `${closedSide} closed traffic, ` : ''}runway ${rwySpoken(ref.ident).text}, cleared for takeoff`;
+    s.expectReadback(twr, `Read back: ${label}`, (cs) => readback.takeoff(cs, ref.ident, closedSide));
   });
 }
 

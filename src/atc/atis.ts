@@ -132,7 +132,8 @@ export function buildAtis(input: AtisInput): AtisReport {
   const { airport, weather } = input;
   const obs = observeSurface(weather, airport.elevationM);
   const name = input.name ?? atisName(airport);
-  const windDir = input.magVarDeg === undefined ? obs.windDirTrueDeg : obs.windDirTrueDeg - input.magVarDeg;
+  // Magnetic from the observed direction (rounding the METAR's true value first could err by 10°).
+  const windDir = input.magVarDeg === undefined ? obs.windDirTrueDeg : obs.windDirTrueRawDeg - input.magVarDeg;
   const parts: Spoken[] = [];
   const letter = atisLetter(input.letter);
   const time = zuluTime(input.utcMs);

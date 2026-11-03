@@ -25,7 +25,7 @@ import { cdiToDots, effectiveBankLimit, gpsInterceptTrack, headingToBank, locInt
 import { altCaptureDistance, altitudeToVs, glideslopeVs, levelFlightPitch } from './vertical';
 import { alphaLimitedPitch, loadFactorPitchRate, wingsFirst } from './level';
 
-export type DisconnectReason = 'pilot' | 'override' | 'stall' | 'bank' | 'overspeed' | 'crash';
+export type DisconnectReason = 'pilot' | 'override' | 'stall' | 'bank' | 'overspeed' | 'crash' | 'power';
 export type ApButton =
   | 'AP' | 'FD' | 'YD' | 'HDG' | 'NAV' | 'APR' | 'ALT' | 'VS' | 'FLC' | 'LVL'
   | 'NOSE_UP' | 'NOSE_DN' | 'HDG_SYNC' | 'ALT_SYNC';
@@ -122,6 +122,8 @@ export class GfcAutopilot implements Autopilot {
   private pendingEngageSync = false;
   /** LVL wings-first phase is flying the load-factor (unload) law instead of the θ loop */
   private lvlUnloading = false;
+  /** avionics bus powered (from `AircraftState.electrical`; flight models without one count as powered) */
+  private powered = true;
 
   constructor(opts: GfcAutopilotOptions = {}) {
     this.config = mergeConfig(defaultAutopilotConfig(), opts.config);
@@ -168,10 +170,14 @@ export class GfcAutopilot implements Autopilot {
 
   // ───────────────────────────── engagement ─────────────────────────────
 
+  /** False while the avionics bus is unpowered: the AP, FD and YD are off and cannot be turned on. */
+  get isPowered(): boolean { return this.powered; }
+
   engage(on: boolean): void {
     const s = this.state;
     if (on === s.engaged) return;
     if (!on) { this.disconnect('pilot'); return; }
+    if (!this.powered) return;
     s.engaged = true;
     s.disconnectReason = null;
     if (s.lateral === 'OFF') this.selectRollHold();
@@ -207,7 +213,7 @@ export class GfcAutopilot implements Autopilot {
 
   setFlightDirector(on: boolean): void {
     const s = this.state;
-    if (on === s.flightDirector) return;
+    if (on === s.flightDirector || (on && !this.powered)) return;
     s.flightDirector = on;
     if (on) {
       if (s.lateral === 'OFF') this.selectRollHold();
@@ -217,7 +223,7 @@ export class GfcAutopilot implements Autopilot {
   }
 
   setYawDamper(on: boolean): void {
-    if (on === this.state.yawDamper) return;
+    if (on === this.state.yawDamper || (on && !this.powered)) return;
     this.state.yawDamper = on;
     if (this.lastAc) this.ydWashout.reset(this.lastAc.rates[2]);
     this.modeChanged();
@@ -231,6 +237,7 @@ export class GfcAutopilot implements Autopilot {
    * rate and never above the LVL angle-of-attack ceiling. Any mode selection ends LVL.
    */
   level(): void {
+    if (!this.powered) return;
     const s = this.state;
     const ac = this.lastAc;
     s.lateral = 'ROL';
@@ -261,13 +268,14 @@ export class GfcAutopilot implements Autopilot {
     this.rollPid.reset(); this.pitchPid.reset(); this.vsPid.reset(); this.flcPid.reset();
     this.ydWashout.reset(); this.lateralDotsRate.reset();
     this.locIntegral = 0; this.gsIntegral = 0; this.overrideTimer = 0; this.trimTimer = 0; this.trimRunning = false; this.sourceLostTimer = 0; this.gsLostTimer = 0;
-    this.lastAc = null; this.lastNav = null; this.pendingEngageSync = false; this.lvlUnloading = false;
+    this.lastAc = null; this.lastNav = null; this.pendingEngageSync = false; this.lvlUnloading = false; this.powered = true;
   }
 
   // ───────────────────────────── mode selection ─────────────────────────────
 
   setLateral(mode: LateralMode): void {
     const s = this.state;
+    if (!this.powered && mode !== 'OFF') return;
     s.lvl = false;
     if (mode !== 'OFF' && !s.engaged && !s.flightDirector) this.setFlightDirector(true); // a mode key turns the FD on
     switch (mode) {
@@ -293,6 +301,7 @@ export class GfcAutopilot implements Autopilot {
 
   setVertical(mode: VerticalMode): void {
     const s = this.state;
+    if (!this.powered && mode !== 'OFF') return;
     s.lvl = false;
     if (mode !== 'OFF' && mode !== 'GS' && !s.engaged && !s.flightDirector) this.setFlightDirector(true);
     switch (mode) {
@@ -395,6 +404,14 @@ export class GfcAutopilot implements Autopilot {
     s.t += dt;
     this.lastAc = ac;
     this.lastNav = nav;
+
+    // The GFC 700 runs off the avionics bus: losing it drops the servos, the FD and the YD.
+    this.powered = !ac.electrical || ac.electrical.avionicsPowered;
+    if (!this.powered) {
+      if (s.engaged) this.disconnect('power');
+      if (s.flightDirector) this.setFlightDirector(false);
+      if (s.yawDamper) this.setYawDamper(false);
+    }
 
     if (this.pendingEngageSync) {
       this.pendingEngageSync = false;

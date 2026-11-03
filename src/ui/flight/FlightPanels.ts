@@ -82,7 +82,8 @@ export class FlightPanels {
   /** New flight: fresh checklist, empty ATC transcript. */
   reset(): void {
     this.checklist.resetAll();
-    this.atc.clearLog();
+    this.atc.reset();
+    this.lastAtc = -Infinity;
   }
 
   /** Per frame while in flight; each panel throttles itself. Allocation-free when panels are closed. */
