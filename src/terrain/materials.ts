@@ -264,6 +264,14 @@ void main() {
 }
 `;
 
+/**
+ * Wrap period of `uTime` (s): every wave train's angular frequency in `waveSlope` (1.1, 1.5, 2.3, 3.1 rad/s)
+ * times this is a whole number of turns, so wrapping the clock (float32 precision) never jumps the ripples.
+ */
+export const WAVE_TIME_PERIOD_S = 1000 * Math.PI;
+/** Angular frequencies (rad/s) of the four wave trains in `WATER_FRAG` (kept in sync by a test). */
+export const WAVE_OMEGAS = [1.1, 1.5, 2.3, 3.1] as const;
+
 /** Shader sources (exported for tests that check the depth chunks are present). */
 export const TERRAIN_SHADERS = { terrainVertex: TERRAIN_VERT, terrainFragment: TERRAIN_FRAG, waterVertex: WATER_VERT, waterFragment: WATER_FRAG } as const;
 

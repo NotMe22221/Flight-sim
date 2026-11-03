@@ -4,7 +4,8 @@
  * the saved progress and the runner's events/result; the DOM classes only render what these
  * return, so everything here is unit-tested in Node.
  */
-import type { ActivityDef, ActivityResult, ObjectiveState } from '../activities/activityTypes';
+import type { ActivityDef, ActivityResult } from '../activities/activityTypes';
+import type { ObjectiveState } from '../activities/objectives';
 import { gradeFor } from '../activities/activityTypes';
 import { legDistanceNm, legRouteNm, navLog, type BushTrip } from '../activities/bushTrips';
 import type { ActivityProgressView, UnitsSettings } from './UiHost';
@@ -294,7 +295,7 @@ export interface ObjectivesVm {
   rows: ObjectiveRowVm[];
   /** 'Next: Level off' */
   next: string | null;
-  /** objectives done over all steps, for a thin overall bar */
+  /** required objectives done over all steps (for an overall bar) */
   doneCount: number;
   totalCount: number;
 }
@@ -332,8 +333,8 @@ export function objectivesVm(p: ProgressPayload, def?: Pick<ActivityDef, 'steps'
     stepTitle: title,
     rows,
     next: nextTitle ? `Next: ${nextTitle}` : null,
-    doneCount: all.filter((e) => e.status === 'done').length,
-    totalCount: all.filter((e) => e.optional !== true).length + all.filter((e) => e.optional === true && e.status === 'done').length,
+    doneCount: all.filter((e) => e.optional !== true && e.status === 'done').length,
+    totalCount: all.filter((e) => e.optional !== true).length,
   };
 }
 

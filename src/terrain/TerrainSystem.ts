@@ -22,7 +22,7 @@ import { subSquareRanges } from './gridIndex';
 import { GroundQueries } from './groundQueries';
 import { HeightField } from './heightfield';
 import { imageryUvTransform } from './imagery';
-import { DETAIL_PERIOD_M, createTerrainSharedUniforms, textureFromBitmap, textureFromRgba, type TerrainSharedUniforms } from './materials';
+import { DETAIL_PERIOD_M, WAVE_TIME_PERIOD_S, createTerrainSharedUniforms, textureFromBitmap, textureFromRgba, type TerrainSharedUniforms } from './materials';
 import type { SkySharedUniforms } from '../sky/skyUniforms';
 import { DEFAULT_PROCEDURAL_PARAMS, type ProceduralParams } from './procedural';
 import type { ErrorResponse, TileResponse } from './protocol';
@@ -247,7 +247,8 @@ export class TerrainSystem {
     try {
       const now = this.now();
       const t = this.shared.uTime.value + (Number.isFinite(dtS) ? dtS : 0);
-      this.shared.uTime.value = t > 3600 ? t - 3600 : t;
+      // wrap at a whole number of every wave train's periods (wrapping at 3600 s jumped the ripples)
+      this.shared.uTime.value = t > WAVE_TIME_PERIOD_S ? t - WAVE_TIME_PERIOD_S : t;
       const lim = 0.05 * this.range0;
       if (now - this.lastSelectAt >= this.selectIntervalMs || !(cameraPosThree.distanceToSquared(this.selectCam) <= lim * lim)) {
         this.select(cameraPosThree, camera, now);
