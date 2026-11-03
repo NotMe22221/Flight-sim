@@ -21,6 +21,8 @@ export interface SimAutomation {
   flyScriptedTakeoff(seconds: number): Promise<unknown>;
   state(): unknown;
   terrainReady(): number;
+  /** set the cockpit free-look offsets (rad) for screenshots */
+  look(yawRad: number, pitchRad: number): void;
   stats(): unknown;
 }
 
@@ -68,6 +70,7 @@ export function installAutomation(sim: Simulator): SimAutomation {
     },
     state: () => JSON.parse(JSON.stringify(sim.aircraft)),
     terrainReady: () => sim.snapshot.terrainReady,
+    look: (y, p) => { sim.cameras.state.lookYaw = y; sim.cameras.state.lookPitch = p; },
     stats: () => ({ fps: sim.fps, timings: { ...sim.timings }, terrain: sim.terrain?.stats() ?? null, depth: sim.gfx.depthMode, renderer: { ...sim.gfx.renderer.info.render }, memory: { ...sim.gfx.renderer.info.memory } }),
   };
   (window as unknown as { __sim: SimAutomation }).__sim = api;
