@@ -704,6 +704,14 @@ export interface SimEvents {
   'frame:rebased': { frame: LocalFrameInfo; translationNED?: Vec3; rotation?: Quat };
   'autopilot:changed': { state: AutopilotState };
   'landing:scored': { score: number; details: Record<string, number | string> };
+  /** an activity (lesson, bush trip leg) started */
+  'activity:started': { id: string; title: string; kind: 'lesson' | 'bushTrip' };
+  /** instructor / briefing line: shown as subtitle, optionally spoken */
+  'activity:instruction': { text: string; speech?: string; important?: boolean };
+  /** objective list changed: the current step and every objective's status */
+  'activity:progress': { id: string; step: number; objectives: { text: string; status: 'pending' | 'active' | 'done' | 'failed' }[] };
+  /** the activity ended */
+  'activity:finished': { id: string; success: boolean; score?: number; summary: string };
 }
 
 export type SimEventName = keyof SimEvents;

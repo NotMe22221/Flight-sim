@@ -654,6 +654,20 @@ export class Simulator {
     this.applyPanelLightsForDaylight(p.lat, p.lon);
   }
 
+  /**
+   * Air start (lessons, scripted scenarios): trimmed level (or on `gammaRad`) at a geodetic point,
+   * indicated airspeed `iasMs`, true heading `headingDeg`, near the nearest airport's region.
+   */
+  async spawnInAir(lat: number, lon: number, altM: number, headingDeg: number, iasMs: number, opts: { flapsIndex?: number; gammaRad?: number } = {}): Promise<void> {
+    await this.nav.load();
+    const geo = { lat, lon, alt: altM };
+    await this.nav.loadRegion(geo, 30);
+    const airport = this.nav.nearestAirports(geo, 1, 40)[0] ?? null;
+    const a = atmosphere(altM);
+    const tas = iasMs * Math.sqrt(1.225 / a.densityKgM3);
+    await this.beginFlight(airport, null, { geo, headingRad: headingDeg * DEG, speedMs: tas, onGround: false, engineRunning: true, gammaRad: opts.gammaRad ?? 0 }, { flapsIndex: opts.flapsIndex ?? 0 });
+  }
+
   /** Default "Fly now": KSFO 28R. */
   async flyNow(): Promise<void> {
     await this.nav.load();
