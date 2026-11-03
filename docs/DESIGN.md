@@ -75,6 +75,32 @@ function frame(nowMs) {
 }
 ```
 
+## Integration (as built)
+
+- **`src/app/Simulator.ts`** owns every subsystem and both loops. Per display frame:
+  `InputManager.poll` → simulator actions → assists (auto-mixture, auto-rudder, engine
+  auto-start) → `GfcAutopilot.update/apply` → `FixedStepLoop.advance` running
+  `Fdm.step` at 120 Hz (plus touchdown detection and replay recording per step) →
+  pose interpolation → aircraft model, cameras, weather, sky, terrain lighting, world
+  streaming, radios, flight plan → `SimSnapshot` → instruments, HUD, audio, ATC, UI → render.
+- **`src/world/World.ts`** owns the floating origin. It builds the `Environment` the flight
+  model sees: ground height from terrain clamped to the sea surface (tiles carry bathymetry),
+  surface type for tyre friction (runway polygons paved, sea water, elsewhere grass), the spawn
+  elevation as a fallback before tiles arrive, and weather wind. Rebasing past 20 km moves the
+  flight model, terrain, airports, clouds, weather drift, cameras and replay together.
+- **Optional subsystems** (UI, G1000, HUD, audio, ATC) are loaded with `import.meta.glob` and
+  attached in `src/app/plugins.ts` through their public APIs only, so the core flies even if
+  one of them fails to load. The UI talks to the simulator exclusively through
+  `src/ui/UiHost.ts`, implemented by `src/app/uiHost.ts`.
+- **Automation** (`window.__sim`, `src/app/automation.ts`) drives the headless smoke test
+  (`scripts/smoke.mjs`) and one-shot screenshots (`scripts/shot.mjs`): fly now, landing
+  challenges, cameras, time presets, weather, input overrides, fast physics advance and a
+  scripted take-off pilot.
+- **Time presets** (dawn … night) are computed from the real sunrise and sunset for the date and
+  position (`src/geo/solar.ts sunEvents`), as are landing-challenge times.
+- **Runway ends** come from the navigation database's `ends[]`; `src/world/runwayIdents.ts`
+  normalises both runway shapes used in the codebase.
+
 ## Definition of done for v1
 
 Spawn on KSFO 28R in a C172 with real terrain and imagery streaming in; start the engine
