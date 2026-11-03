@@ -100,10 +100,13 @@ export class FlightUi {
     this.pause = new PauseMenu(d.modalLayer, {
       resume: () => this.closePause(true),
       restart: () => {
-        this.closePause(false); this.pausedByMenu = false;
         // an activity restarts from its set-up (weather, time, route); a free flight respawns in place
-        if (this.activityRunning() && d.host.restartActivity && d.ctx.restartActivity) d.ctx.restartActivity();
-        else d.host.dispatch('resetFlight');
+        if (this.activityRunning() && d.host.restartActivity && d.ctx.restartActivity) {
+          // the menu keeps holding the pause: the respawn's 'flight:reset' releases it, a failed one
+          // comes back to this menu (not to a paused flight with nothing on screen to resume from)
+          this.closePause(false);
+          d.ctx.restartActivity();
+        } else { this.closePause(false); this.pausedByMenu = false; d.host.dispatch('resetFlight'); }
       },
       restartStep: () => { try { d.host.restartActivityStep?.(); } catch (e) { console.warn('[ui] restartActivityStep failed', e); } this.closePause(true); },
       abortActivity: () => this.abortActivity(),
@@ -147,6 +150,8 @@ export class FlightUi {
     // frames spent in a menu were not watched: a disconnect from back then must not flash now
     if (on) {
       this.hud.rebase(); this.panels.clampAll();
+      // an activity whose (re)start failed, or that was cancelled while spawning, left nothing running
+      if (this.activity && this.runnerIdle()) this.clearActivity();
       if (this.pausedByMenu && !this.pause.visible) this.showPause();
       else if (this.pendingDebrief) this.scheduleDebrief(400);
     } else {
@@ -330,7 +335,8 @@ export class FlightUi {
     this.abortRequested = false;
     if (how === 'none') return; // another activity is taking over (Retry, Start, Next leg)
     if (how === 'toast') {
-      this.d.ctx.toast(finishToastText(this.activity?.kind, this.activity?.title ?? p.id, reason), 'info', 5000);
+      // aborted from the pause menu: its note says so (a toast would sit behind the backdrop)
+      if (!this.pause.visible) this.d.ctx.toast(finishToastText(this.activity?.kind, this.activity?.title ?? p.id, reason), 'info', 5000);
       this.clearActivity();
       return;
     }
@@ -413,23 +419,50 @@ export class FlightUi {
     const vm = debriefVm(result, def && def.id === result.id ? def : null, BUSH_TRIPS, host.activityProgress);
     const landing = this.activityLanding;
     const crashed = this.crashReason;
+    // the debrief's summary carries the closing line: it must not come back once the card closes
+    this.instructor.clear();
     this.debrief.show(vm, {
-      retry: host.restartActivity && this.d.ctx.restartActivity ? () => this.d.ctx.restartActivity!() : undefined,
-      nextLeg: host.startBushLeg && this.d.ctx.startBushLeg ? (tripId, i) => this.d.ctx.startBushLeg!(tripId, i) : undefined,
+      retry: host.restartActivity && this.d.ctx.restartActivity ? () => { this.holdPauseForRestart(); this.d.ctx.restartActivity!(); } : undefined,
+      nextLeg: host.startBushLeg && this.d.ctx.startBushLeg ? (tripId, i) => { this.holdPauseForRestart(); this.d.ctx.startBushLeg!(tripId, i); } : undefined,
       landingDetails: landing ? () => this.report.show(landing, this.d.units(), () => { this.d.onOverlayChange(); if (!this.debrief.visible && this.active && this.runnerPhase() === 'finished') this.showDebrief(); }) : undefined,
       onClose: (byAction) => {
         // Close / Esc: back to the flight (resumed); Retry / Next leg respawn (which resumes); the
         // landing report keeps the pause and brings the debrief back when it closes
-        if (!byAction && this.debriefPaused) { this.debriefPaused = false; host.setPaused(false); }
         // after a crash the menu (Restart flight, World map …) is the way on
-        if (!byAction && crashed && this.active && this.runnerPhase() === 'finished') this.openPause('Crashed', crashed);
+        const crashMenu = !byAction && !!crashed && this.active && this.runnerPhase() === 'finished';
+        if (!byAction && this.debriefPaused) {
+          this.debriefPaused = false;
+          // the crash menu takes the pause over, so its Resume resumes (the host's snapshot still
+          // reads 'paused' until the next frame: unpausing here and letting the menu re-read it made
+          // Resume restore the pause)
+          if (crashMenu) { this.pausedByMenu = true; this.resumePaused = false; } else host.setPaused(false);
+        }
+        if (crashMenu) this.openPause('Crashed', crashed);
         this.d.onOverlayChange();
       },
     });
     this.d.onOverlayChange();
   }
 
-  private showPause(): void { this.pause.show(); this.d.onOverlayChange(); }
+  /** Back from a menu (or a failed restart) to a flight paused by the menu: its activity items follow the runner now. */
+  private showPause(): void { this.pause.setActivity(this.pauseActivityInfo()); this.pause.show(); this.d.onOverlayChange(); }
+
+  /**
+   * Retry / Next leg from the debrief: the pause the debrief holds passes to the pause menu, so a
+   * respawn that fails comes back to the menu instead of a paused flight with nothing to resume
+   * from (a successful one releases it in onFlightReset: the spawn unpauses the simulator).
+   */
+  private holdPauseForRestart(): void {
+    if (!this.debriefPaused) return;
+    this.debriefPaused = false;
+    this.pausedByMenu = true;
+    this.resumePaused = false;
+  }
+
+  /** The host has a runner and nothing is running or being set up on it. */
+  private runnerIdle(): boolean {
+    try { const r = this.d.host.activityRunner; return !!r && r.phase === 'idle'; } catch { return false; }
+  }
 
   private flushAssistToast(s: SimSnapshot): void {
     const key = this.pendingAssist!;

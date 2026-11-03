@@ -365,6 +365,9 @@
 .fs-ui .toasts { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
 .fs-ui .toast { padding: 8px 16px; border-radius: 999px; font-size: 0.92em; max-width: min(640px, 80vw); display: flex; align-items: center; gap: 8px; opacity: 0; transform: translateY(8px); transition: opacity 180ms ease, transform 180ms ease; pointer-events: auto; }
 .fs-ui .toast.in { opacity: 1; transform: translateY(0); }
+/* a message raised while the pause menu is up (e.g. a restart that failed) reads above its backdrop, without taking clicks */
+.fs-ui .ui-layer-modal:has(> .modal-backdrop.visible > .pause-menu) > .toasts { z-index: 1; }
+.fs-ui .ui-layer-modal:has(> .modal-backdrop.visible > .pause-menu) > .toasts .toast { pointer-events: none; }
 .fs-ui .toast-info .icon { color: var(--accent); }
 .fs-ui .toast-success .icon { color: var(--ok); }
 .fs-ui .toast-warn .icon { color: var(--warn); }

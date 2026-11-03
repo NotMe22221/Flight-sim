@@ -324,6 +324,11 @@ restart, no closing line on Retry / Abort, and an unreadable storage that is nev
 - `landing:scored` only fires on an identified runway, so a landing on grass or a taxiway at the
   destination completes a bush leg (stop at the field) without a landing grade; in the landing
   lesson such a touchdown fails after 5 s stopped ("Stopped without a scored landing").
+- After a go-around from the landing lesson's final step above 100 ft AGL, its speed and glidepath
+  objectives keep coaching (at most one hint per 20 s) and scoring through the circuit until the
+  next approach passes 100 ft AGL.
+- A bush leg has no time limit: after an off-field landing with no way to fly on (out of fuel) the
+  pilot ends it from the pause menu (Restart or Abort).
 - A turn with `toDeg` that starts more than 330° short of the target in the commanded direction
   (i.e. just past it) is treated as a small overshoot to fix, not a full circle.
 - Real-world airspace is not modelled: the routes are not checked against Class B (leg 1 near San

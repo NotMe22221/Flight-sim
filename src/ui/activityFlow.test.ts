@@ -1,0 +1,269 @@
+/**
+ * The activities UI driven end to end in Node: UiManager over a fake DOM, a fake simulator running
+ * the real ActivityRunner and ProgressStore (testing/activityHarness.ts). Each test walks a flow a
+ * player can take (start, pause menu, restart, abort, crash, debrief, next leg) and checks what is
+ * left on screen and whether the simulator is left paused.
+ */
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { buttonByText, type FakeElement } from './testing/fakeDom';
+import { makeHarness, quickLeg, quickLesson, type Harness } from './testing/activityHarness';
+
+let t: Harness;
+beforeEach(async () => { t = await makeHarness(); });
+afterEach(() => t.dispose());
+
+const visible = (el: FakeElement | null) => !!el && el.classList.contains('visible') && el.rendered;
+const pauseMenu = () => t.q('.pause-menu')!.parentElement as FakeElement;
+const debrief = () => t.q('.debrief-backdrop');
+const subtitle = () => t.q('.instructor-subtitle');
+const objectivesPanel = () => t.q('.objectives-panel');
+const objectivesButton = () => t.q('.toolbar-btn[data-item="objectives"]')!.parentElement as FakeElement;
+
+async function openActivities(tab: 'training' | 'bush'): Promise<void> {
+  buttonByText(t.q('.main-menu')!, 'Activities').click();
+  await t.run(50);
+  t.q(`.act-modes .tab[data-tab="${tab}"]`)!.click();
+  await t.run(50);
+}
+
+async function startQuickLesson(holdS = 1, steps = 1): Promise<void> {
+  t.sim.lessons.set('lesson-basic-flight', quickLesson('lesson-basic-flight', holdS, steps));
+  await openActivities('training');
+  t.q('.lesson-card[data-lesson="lesson-basic-flight"]')!.click();
+  await t.run(50);
+  buttonByText(t.q('.activities .act-detail')!, 'Start').click();
+  await t.run(200);
+  expect(t.ui.current).toBe('flight');
+  expect(t.sim.runner.phase).toBe('running');
+}
+
+describe('activities UI flows (fake DOM, real runner)', () => {
+  it('starts a lesson from Flight training: objectives panel, toolbar button and the first instruction', async () => {
+    await startQuickLesson(30);
+    expect(visible(objectivesPanel())).toBe(true);
+    expect(objectivesButton().style.display).toBe('');
+    expect(visible(subtitle())).toBe(true);
+    expect(subtitle()!.textContent).toContain('Instruction 1');
+  });
+});
+
+const esc = async () => { t.ui.handleAction('toggleMenu'); await t.run(50); };
+const toastTexts = () => t.root.querySelectorAll('.toast').map((e) => e.textContent);
+
+describe('review: pause state after a debrief or a failed restart', () => {
+  it('after a crash, Close on the debrief opens the Crashed menu and its Resume really resumes', async () => {
+    await startQuickLesson(60);
+    await t.run(500);
+    t.sim.events.emit('aircraft:crash', { reason: 'impact' });
+    await t.run(2500);
+    expect(visible(debrief())).toBe(true);
+    expect(t.sim.paused).toBe(true);
+    buttonByText(t.q('.debrief')!, 'Close').click();
+    await t.run(50);
+    expect(visible(pauseMenu())).toBe(true);
+    expect(t.q('.pause-title')!.textContent).toBe('Crashed');
+    buttonByText(t.q('.pause-menu')!, 'Resume flight').click();
+    await t.run(100);
+    expect(visible(pauseMenu())).toBe(false);
+    expect(t.sim.paused).toBe(false);
+  });
+
+  it('a debrief Retry whose spawn fails comes back to the pause menu, not to a silently paused flight', async () => {
+    await startQuickLesson(1);
+    await t.run(4000);
+    expect(visible(debrief())).toBe(true);
+    t.sim.spawnError = new Error('offline');
+    buttonByText(t.q('.debrief')!, 'Retry').click();
+    await t.run(300);
+    expect(t.ui.current).toBe('flight');
+    expect(toastTexts().some((x) => x.includes('offline'))).toBe(true);
+    // either flying again or paused with the menu up; never paused with nothing to resume from
+    expect(!t.sim.paused || visible(pauseMenu())).toBe(true);
+    if (visible(pauseMenu())) {
+      buttonByText(t.q('.pause-menu')!, 'Resume flight').click();
+      await t.run(100);
+      expect(t.sim.paused).toBe(false);
+    }
+  });
+
+  it('a pause-menu Restart activity whose spawn fails comes back to the pause menu', async () => {
+    await startQuickLesson(60);
+    await t.run(500);
+    await esc();
+    expect(visible(pauseMenu())).toBe(true);
+    t.sim.spawnError = new Error('offline');
+    buttonByText(t.q('.pause-menu')!, 'Restart activity').click();
+    await t.run(300);
+    expect(t.ui.current).toBe('flight');
+    expect(!t.sim.paused || visible(pauseMenu())).toBe(true);
+  });
+});
+
+describe('review: nothing stale on screen', () => {
+  it('the closing line does not come back after the debrief closes (the debrief carries it)', async () => {
+    await startQuickLesson(1);
+    await t.run(4000);
+    expect(visible(debrief())).toBe(true);
+    buttonByText(t.q('.debrief')!, 'Close').click();
+    await t.run(200);
+    expect(t.sim.paused).toBe(false);
+    expect(visible(subtitle())).toBe(false);
+  });
+
+  it('a start of another lesson that fails leaves no dead activity in the objectives panel or toolbar', async () => {
+    await startQuickLesson(60);
+    await t.run(500);
+    await esc();
+    buttonByText(t.q('.pause-menu')!, 'Main menu').click();
+    await t.run(50);
+    t.sim.lessons.set('lesson-takeoff', quickLesson('lesson-takeoff', 60));
+    await openActivities('training');
+    t.q('.lesson-card[data-lesson="lesson-takeoff"]')!.click();
+    await t.run(50);
+    t.sim.spawnError = new Error('offline');
+    buttonByText(t.q('.activities .act-detail')!, 'Start').click();
+    await t.run(300);
+    expect(t.sim.runner.phase).toBe('idle');
+    // back to the flight from the menus
+    t.ui.show('flight');
+    await t.run(100);
+    expect(objectivesButton().style.display).toBe('none');
+    expect(visible(objectivesPanel())).toBe(false);
+    expect(visible(subtitle())).toBe(false);
+  });
+});
+
+describe('flows a player takes', () => {
+  it('pause menu during a lesson: activity line, Restart step resumes and repeats the step instruction', async () => {
+    await startQuickLesson(60, 2);
+    await t.run(7000); // past the first instruction's display time
+    await esc();
+    expect(t.q('.pause-activity')!.textContent).toBe('Lesson · Basic flight controls · step 1 of 2');
+    expect(byLabel('Restart activity')).toBe(true);
+    buttonByText(t.q('.pause-menu')!, 'Restart step').click();
+    await t.run(100);
+    expect(visible(pauseMenu())).toBe(false);
+    expect(t.sim.paused).toBe(false);
+    expect(visible(subtitle())).toBe(true);
+    expect(subtitle()!.textContent).toContain('Instruction 1');
+  });
+
+  it('Abort activity: free flight with no objectives, toolbar button, subtitle or route left', async () => {
+    t.sim.legs.set(0, quickLeg(0, 600));
+    await openActivities('bush');
+    t.q('.leg-row[data-leg="0"]')!.click();
+    await t.run(50);
+    buttonByText(t.q('.activities .act-detail')!, 'Start').click();
+    await t.run(200);
+    expect(t.sim.route?.map((w) => w.id)).toEqual(['KHAF', 'CRYSTL', 'HOOVER', 'KRHV']);
+    expect(t.q('.obj-kind')!.textContent).toBe('Bush trip');
+    await esc();
+    buttonByText(t.q('.pause-menu')!, 'Abort activity').click();
+    await t.run(50);
+    expect(visible(pauseMenu())).toBe(true);
+    expect(t.q('.pause-note')!.textContent).toContain('Activity aborted');
+    expect(byLabel('Restart flight')).toBe(true);
+    expect(t.q('.pause-activity')!.style.display).toBe('none');
+    buttonByText(t.q('.pause-menu')!, 'Resume flight').click();
+    await t.run(100);
+    expect(t.sim.paused).toBe(false);
+    expect(t.sim.route).toBe(null);
+    expect(objectivesButton().style.display).toBe('none');
+    expect(visible(objectivesPanel())).toBe(false);
+    expect(visible(subtitle())).toBe(false);
+    await t.run(3000);
+    expect(visible(debrief())).toBe(false);
+    // the next pause menu is a plain one
+    await esc();
+    expect(t.q('.pause-note')!.style.display).toBe('none');
+  });
+
+  it('bush trip: locked legs cannot start; a completed leg unlocks Next leg in the debrief and in Activities', async () => {
+    t.sim.legs.set(0, quickLeg(0, 1));
+    t.sim.legs.set(1, quickLeg(1, 600));
+    await openActivities('bush');
+    // leg 2 is locked: Start disabled, Enter on the row does not start it
+    t.q('.leg-row[data-leg="1"]')!.click();
+    await t.run(50);
+    const start = buttonByText(t.q('.activities .act-detail')!, 'Start');
+    expect(start.disabled).toBe(true);
+    start.click();
+    t.q('.leg-row[data-leg="1"]')!.dispatchEvent(new (globalThis as unknown as { KeyboardEvent: new (t: string, i: object) => Event }).KeyboardEvent('keydown', { key: 'Enter' }) as never);
+    await t.run(200);
+    expect(t.sim.spawns).toBe(0);
+    // fly leg 1
+    t.q('.leg-row[data-leg="0"]')!.click();
+    await t.run(50);
+    buttonByText(t.q('.activities .act-detail')!, 'Start').click();
+    await t.run(4000);
+    expect(visible(debrief())).toBe(true);
+    const next = buttonByText(t.q('.debrief')!, 'Next leg');
+    expect(next.textContent).toContain('KRHV → KWVI');
+    next.click();
+    await t.run(300);
+    expect(t.sim.runner.def?.trip).toEqual({ tripId: 'pacific-coast', legIndex: 1 });
+    expect(t.sim.paused).toBe(false);
+    expect(t.q('.obj-title')!.textContent).toContain('KRHV');
+    expect(t.sim.route?.[0].id).toBe('KRHV');
+    // Activities shows the progress
+    await esc();
+    buttonByText(t.q('.pause-menu')!, 'Main menu').click();
+    await t.run(50);
+    await openActivities('bush');
+    expect(t.q('.trip-progress-text')!.textContent).toBe('1 / 8 legs');
+    expect(t.q('.leg-row[data-leg="0"]')!.classList.contains('completed')).toBe(true);
+    expect(t.q('.leg-row[data-leg="1"]')!.classList.contains('next')).toBe(true);
+    expect(t.q('.leg-row[data-leg="2"]')!.classList.contains('locked')).toBe(true);
+  });
+
+  it('a double click on Start spawns once', async () => {
+    t.sim.lessons.set('lesson-basic-flight', quickLesson('lesson-basic-flight', 60));
+    await openActivities('training');
+    const start = buttonByText(t.q('.activities .act-detail')!, 'Start');
+    start.click();
+    start.click();
+    await t.run(300);
+    expect(t.sim.spawns).toBe(1);
+  });
+
+  it('a flight changed under the activity (automation, far away) ends it with a toast and no debrief', async () => {
+    await startQuickLesson(60);
+    await t.run(500);
+    t.sim.events.emit('flight:reset', { spawn: { geo: { lat: 47, lon: 8, alt: 500 }, headingRad: 0, speedMs: 0, onGround: true, engineRunning: true } });
+    await t.run(2500);
+    expect(t.sim.runner.phase).toBe('finished');
+    expect(visible(debrief())).toBe(false);
+    expect(toastTexts().some((x) => x.includes('the flight changed'))).toBe(true);
+    expect(objectivesButton().style.display).toBe('none');
+    expect(visible(subtitle())).toBe(false);
+  });
+
+  it('Esc closes the debrief and resumes; the pause menu then offers a plain Restart flight', async () => {
+    await startQuickLesson(1);
+    await t.run(4000);
+    expect(visible(debrief())).toBe(true);
+    await esc();
+    expect(visible(debrief())).toBe(false);
+    expect(t.sim.paused).toBe(false);
+    await esc();
+    expect(byLabel('Restart flight')).toBe(true);
+    expect(t.q('.pause-activity')!.style.display).toBe('none');
+    buttonByText(t.q('.pause-menu')!, 'Restart flight').click();
+    await t.run(200);
+    expect(t.sim.dispatched).toContain('resetFlight');
+    expect(objectivesButton().style.display).toBe('none');
+  });
+
+  it('dispose leaves no window/document listeners and no timers behind', async () => {
+    await startQuickLesson(1);
+    await t.run(1500); // finished: the debrief timer is pending
+    t.ui.dispose();
+    await t.run(0);
+    expect(t.dom.window.listenerCount()).toBe(0);
+    expect(t.dom.document.listenerCount()).toBe(0);
+  });
+});
+
+function byLabel(label: string): boolean {
+  return t.root.querySelectorAll('.pause-menu .btn-label').some((e) => e.textContent === label && e.rendered);
+}
