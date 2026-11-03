@@ -66,7 +66,8 @@ export function createRenderer(container: HTMLElement, quality: keyof typeof QUA
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.6;
   renderer.shadowMap.enabled = profile.shadows;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // r187 removed PCFSoftShadowMap (it warns on the first shadow render and falls back to PCF)
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.domElement.className = 'sim-canvas';
   renderer.domElement.style.display = 'block';
   renderer.domElement.style.width = '100%';

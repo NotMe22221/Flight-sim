@@ -5,6 +5,9 @@
 import { clamp } from '../core/math';
 import { ASI_DIAL } from './c172';
 
+/** Airspeed dial geometry (`ASI_DIAL` for the C172; `panelSpec.ts` AsiDial for others). */
+type AsiDialGeometry = { readonly minKt: number; readonly kneeKt: number; readonly maxKt: number; readonly kneeDeg: number; readonly sweepDeg: number; readonly zeroDeg: number };
+
 /** Pixels per unit for a tape of `lengthPx` showing `visibleUnits` (450 px / 60 kt = 7.5 px/kt). */
 export function pxPerUnit(lengthPx: number, visibleUnits: number): number {
   return lengthPx / visibleUnits;
@@ -42,16 +45,15 @@ export function linearAngleDeg(value: number, min: number, max: number, startDeg
  * C172 airspeed dial: 0–40 kt compressed into the first 20°, 40–200 kt linear over 320°.
  * Returns degrees of dial travel from the 0-kt position (0 → 0°, 40 → 20°, 120 → 180°, 200 → 340°).
  */
-export function asiDialTravelDeg(kt: number): number {
-  const d = ASI_DIAL;
+export function asiDialTravelDeg(kt: number, d: AsiDialGeometry = ASI_DIAL): number {
   const v = clamp(kt, d.minKt, d.maxKt);
   if (v <= d.kneeKt) return (v / d.kneeKt) * d.kneeDeg;
   return d.kneeDeg + ((v - d.kneeKt) / (d.maxKt - d.kneeKt)) * d.sweepDeg;
 }
 
-/** Needle angle (deg clockwise from 12 o'clock) for an airspeed on the C172 dial. */
-export function asiNeedleDeg(kt: number): number {
-  return ASI_DIAL.zeroDeg + asiDialTravelDeg(kt);
+/** Needle angle (deg clockwise from 12 o'clock) for an airspeed on the C172 dial (or another `dial`). */
+export function asiNeedleDeg(kt: number, dial: AsiDialGeometry = ASI_DIAL): number {
+  return dial.zeroDeg + asiDialTravelDeg(kt, dial);
 }
 
 /** Degrees → radians for canvas arcs, where 0° is 12 o'clock and positive is clockwise. */

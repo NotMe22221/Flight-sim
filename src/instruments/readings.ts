@@ -9,11 +9,11 @@
 import { clamp, deltaDeg, wrap360 } from '../core/math';
 import type { SimSnapshot } from '../core/types';
 import { INHG, M_TO_FT, MS_TO_FPM, MS_TO_KT, RAD } from '../core/units';
-import { FUEL, OIL_PRESS, SUCTION } from './c172';
+import { ELECTRICAL, FUEL, OIL_PRESS, SUCTION } from './c172';
 import { MagneticCompass, defaultCompassConfig } from './compass';
 import { Derivative, HoldTimer, Lag } from './filters';
 import { AttitudeGyro, HeadingGyro, TurnGyro, ballWidths } from './gyros';
-import { ElectricalSystem, FuelGauge, HourMeters, OilFallback, suctionInHg } from './systems';
+import { ElectricalSystem, FuelGauge, HourMeters, OilFallback, suctionInHg, type BusSpec } from './systems';
 
 // ───────────────────────────── Altimetry (pure) ─────────────────────────────
 
@@ -78,6 +78,8 @@ export interface InstrumentReadings {
   flapsDeg: number; flapsIndex: number; gearDown: boolean;
   /** −1 (nose down) .. +1 (nose up) trim wheel position */ trimNorm: number; rudderTrimNorm: number; aileronTrimNorm: number;
   throttle: number; mixture: number; propeller: number;
+  /** cockpit switch positions (as set by the pilot; the Super Cub panel draws them) */
+  switches: { magnetos: 0 | 1 | 2 | 3; starter: boolean; master: boolean; alternator: boolean; avionicsMaster: boolean; carbHeat: boolean };
   hobbsHours: number; tachHours: number;
   annunciators: {
     lowVolts: boolean; lowFuelL: boolean; lowFuelR: boolean; oilPress: boolean; vacuum: boolean; pitotHeatOff: boolean;
@@ -99,6 +101,16 @@ export interface InstrumentConfig {
   lowFuelGal: number; lowFuelHoldS: number;
   /** 0 disables needle quantisation */ altimeterQuantumFt: number;
   trendTauS: number;
+  /** fuel senders: one tank gauge's full scale, unusable fuel per tank (US gal) and the fuel density */
+  fuelTankMaxGal: number; fuelUnusableGalPerTank: number; fuelKgPerGal: number;
+  /** OIL PRESS annunciator below this, psi */
+  oilPressLowPsi: number;
+  /**
+   * Electrical bus the instruments run on when the flight model publishes no `electrical` state
+   * (fallback model), and the voltage above which electric instruments are powered. Scales with the
+   * nominal voltage (14 V or 28 V); the FDM's own bus and LOW VOLTS win when present.
+   */
+  bus: BusSpec & { busLiveV: number };
 }
 
 export const defaultInstrumentConfig = (): InstrumentConfig => ({
@@ -111,6 +123,9 @@ export const defaultInstrumentConfig = (): InstrumentConfig => ({
   lowFuelGal: FUEL.lowGal, lowFuelHoldS: FUEL.lowHoldS,
   altimeterQuantumFt: 0,
   trendTauS: 1.0,
+  fuelTankMaxGal: FUEL.maxGal, fuelUnusableGalPerTank: FUEL.unusableGalPerTank, fuelKgPerGal: FUEL.kgPerGal,
+  oilPressLowPsi: OIL_PRESS.redLo,
+  bus: { busV: ELECTRICAL.busV, batteryV: ELECTRICAL.batteryV, lowVoltsV: ELECTRICAL.lowVoltsV, alternatorMinRpm: ELECTRICAL.alternatorMinRpm, ammeterMaxA: 60, busLiveV: 20 },
 });
 
 /** A zeroed readings object (allocated once; `InstrumentModel.update` writes into it). */
@@ -130,6 +145,7 @@ export function createReadings(): InstrumentReadings {
     suctionInHg: 0, ampsA: 0, batteryAmpsA: 0, voltsV: 0, oatC: 15,
     flapsDeg: 0, flapsIndex: 0, gearDown: true, trimNorm: 0, rudderTrimNorm: 0, aileronTrimNorm: 0,
     throttle: 0, mixture: 1, propeller: 1,
+    switches: { magnetos: 0, starter: false, master: false, alternator: false, avionicsMaster: false, carbHeat: false },
     hobbsHours: 0, tachHours: 0,
     annunciators: { lowVolts: false, lowFuelL: false, lowFuelR: false, oilPress: false, vacuum: false, pitotHeatOff: false, stallWarn: false, overspeed: false, overG: false, flapOverspeed: false, gearOverspeed: false },
     trends: { iasKtPer6s: 0, altFtPer6s: 0, headingDegPer6s: 0 },
@@ -156,9 +172,9 @@ export class InstrumentModel {
   readonly dg: HeadingGyro;
   readonly tc: TurnGyro;
   readonly compass: MagneticCompass;
-  readonly electrical = new ElectricalSystem();
-  readonly fuelL = new FuelGauge();
-  readonly fuelR = new FuelGauge();
+  readonly electrical: ElectricalSystem;
+  readonly fuelL: FuelGauge;
+  readonly fuelR: FuelGauge;
   readonly oilFallback = new OilFallback();
   readonly hours = new HourMeters();
 
@@ -180,6 +196,9 @@ export class InstrumentModel {
     this.dg = new HeadingGyro({ driftDegPerMin: cfg.dgDriftDegPerMin, randomWalkDegPerSqrtMin: cfg.dgRandomWalkDegPerSqrtMin, seed: cfg.dgSeed });
     this.tc = new TurnGyro(cfg.tcTauS);
     this.compass = new MagneticCompass({ ...defaultCompassConfig(), dipDeg: cfg.compassDipDeg });
+    this.electrical = new ElectricalSystem(cfg.bus);
+    this.fuelL = new FuelGauge(cfg.fuelUnusableGalPerTank, cfg.fuelTankMaxGal, cfg.fuelKgPerGal);
+    this.fuelR = new FuelGauge(cfg.fuelUnusableGalPerTank, cfg.fuelTankMaxGal, cfg.fuelKgPerGal);
     this.asi = new Lag(cfg.asiTauS); this.alt = new Lag(cfg.altimeterTauS); this.vsi = new Lag(cfg.vsiTauS); this.adcVs = new Lag(cfg.adcVsTauS); this.ball = new Lag(cfg.ballTauS);
     this.rpm = new Lag(cfg.rpmTauS); this.map = new Lag(cfg.mapTauS, 29.92); this.ff = new Lag(cfg.fuelFlowTauS); this.egt = new Lag(cfg.egtTauS, 60); this.cht = new Lag(cfg.egtTauS, 60);
     this.oilT = new Lag(cfg.oilTauS, 60); this.oilP = new Lag(0.5); this.oat = new Lag(cfg.oatTauS, 15); this.flaps = new Lag(cfg.flapsTauS);
@@ -202,7 +221,7 @@ export class InstrumentModel {
     this.fuelL.reset(ac.fuelKg[0] ?? 0); this.fuelR.reset(ac.fuelKg[1] ?? ac.fuelKg[0] ?? 0);
     this.oilFallback.reset(oatC, running);
     this.rpm.reset(ac.engine.rpm); this.map.reset(sane(ac.engine.manifoldPressureInHg, 0) ? ac.engine.manifoldPressureInHg : 29.92);
-    this.ff.reset(sane(ac.engine.fuelFlowKgS, -1) ? (ac.engine.fuelFlowKgS * 3600) / FUEL.kgPerGal : 0);
+    this.ff.reset(sane(ac.engine.fuelFlowKgS, -1) ? (ac.engine.fuelFlowKgS * 3600) / this.cfg.fuelKgPerGal : 0);
     this.egt.reset(sane(ac.engine.egtK, 200) ? kToF(ac.engine.egtK) : 1.8 * oatC + 32);
     this.cht.reset(sane(ac.engine.chtK, 200) ? kToF(ac.engine.chtK) : 1.8 * oatC + 32);
     this.oilT.reset(sane(ac.engine.oilTempK, 200) ? kToF(ac.engine.oilTempK) : this.oilFallback.tempF.value);
@@ -284,7 +303,7 @@ export class InstrumentModel {
     } else {
       this.electrical.step(inp, running, ac.engine.rpm, flapsMoving, dt);
       r.voltsV = this.electrical.voltsV; r.ampsA = this.electrical.ampsA; r.batteryAmpsA = this.electrical.batteryAmpsA;
-      busLive = r.voltsV > 20; avionicsLive = busLive && this.electrical.avionicsSwitch; lowVolts = this.electrical.lowVolts;
+      busLive = r.voltsV > cfg.bus.busLiveV; avionicsLive = busLive && this.electrical.avionicsSwitch; lowVolts = this.electrical.lowVolts;
     }
     r.avionicsOn = avionicsLive;
     r.essentialOn = busLive;
@@ -319,7 +338,7 @@ export class InstrumentModel {
     e.running = running;
     e.rpm = Math.max(0, this.rpm.step(fe.rpm, dt));
     e.mapInHg = this.map.step(sane(fe.manifoldPressureInHg, 0) ? fe.manifoldPressureInHg : ps / INHG, dt);
-    e.fuelFlowGph = Math.max(0, this.ff.step(sane(fe.fuelFlowKgS, -1) ? (fe.fuelFlowKgS * 3600) / FUEL.kgPerGal : 0, dt));
+    e.fuelFlowGph = Math.max(0, this.ff.step(sane(fe.fuelFlowKgS, -1) ? (fe.fuelFlowKgS * 3600) / cfg.fuelKgPerGal : 0, dt));
     e.pctPower = clamp(fe.pctPower, 0, 1.2);
     const oatC = this.oat.step(sane(ac.atmosphere.temperatureK, 1) ? ac.atmosphere.temperatureK - 273.15 : 15, dt);
     r.oatC = oatC;
@@ -343,6 +362,9 @@ export class InstrumentModel {
     r.gearDown = inp.gearDown;
     r.trimNorm = clamp(inp.pitchTrim, -1, 1); r.rudderTrimNorm = clamp(inp.rudderTrim, -1, 1); r.aileronTrimNorm = clamp(inp.aileronTrim, -1, 1);
     r.throttle = clamp(inp.throttle, 0, 1); r.mixture = clamp(inp.mixture, 0, 1); r.propeller = clamp(inp.propeller, 0, 1);
+    const sw = r.switches;
+    sw.magnetos = inp.magnetos; sw.starter = inp.starter; sw.carbHeat = inp.carbHeat;
+    sw.master = inp.masterBattery !== false; sw.alternator = inp.masterAlternator !== false; sw.avionicsMaster = inp.avionicsMaster !== false;
     r.onGround = ac.onGround;
 
     // ── annunciators
@@ -350,7 +372,7 @@ export class InstrumentModel {
     an.lowVolts = lowVolts;
     an.lowFuelL = this.lowFuelL.step(busLive && r.fuelGal[0] < cfg.lowFuelGal, simDt);
     an.lowFuelR = this.lowFuelR.step(busLive && r.fuelGal[1] < cfg.lowFuelGal, simDt);
-    an.oilPress = busLive && e.oilPressPsi < OIL_PRESS.redLo;
+    an.oilPress = busLive && e.oilPressPsi < cfg.oilPressLowPsi;
     an.vacuum = busLive && r.suctionInHg < SUCTION.lowWarn;
     an.pitotHeatOff = busLive && !inp.pitotHeat;
     an.stallWarn = busLive && (w.stall || ac.aero.stallWarning);

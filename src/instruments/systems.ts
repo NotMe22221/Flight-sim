@@ -7,6 +7,10 @@ import type { ControlInputs } from '../core/types';
 import { ELECTRICAL, FUEL } from './c172';
 import { AsymmetricLag, Lag } from './filters';
 
+/** What the fallback bus model needs from `ElectricalMarkings` (panelSpec.ts); default: the C172S 28 V bus. */
+export interface BusSpec { busV: number; batteryV: number; lowVoltsV: number; alternatorMinRpm: number; ammeterMaxA: number }
+const C172_BUS: BusSpec = { busV: ELECTRICAL.busV, batteryV: ELECTRICAL.batteryV, lowVoltsV: ELECTRICAL.lowVoltsV, alternatorMinRpm: ELECTRICAL.alternatorMinRpm, ammeterMaxA: 60 };
+
 /** Engine-driven vacuum pump: ~5 inHg above 1 200 RPM, regulator limit 5.2 inHg. */
 export function suctionInHg(engineRunning: boolean, rpm: number): number {
   if (!engineRunning || !(rpm > 0)) return 0;
@@ -29,11 +33,12 @@ export function electricalLoadA(inputs: ControlInputs, flapsMoving: boolean, avi
 }
 
 /**
- * 28 V bus with a 60 A alternator; without the alternator the battery carries the load. Only used
- * when the flight model provides no `AircraftState.electrical` (the C172S FDM does).
+ * 28 V bus with a 60 A alternator (or the bus in `spec`, e.g. 14 V); without the alternator the
+ * battery carries the load. Only used when the flight model provides no `AircraftState.electrical`
+ * (the C172S and Super Cub FDMs do).
  */
 export class ElectricalSystem {
-  voltsV: number = ELECTRICAL.batteryV;
+  voltsV: number;
   /** steam ammeter (docs/research/05 §1.3): alternator output while online, battery discharge (−) otherwise */
   ampsA = 0;
   /** battery current, + charging / − discharging (G1000 "M BATT") */
@@ -41,38 +46,48 @@ export class ElectricalSystem {
   alternatorOnline = false;
   /** avionics master on (the avionics bus is live when this is set and the bus has voltage) */
   avionicsSwitch = true;
-  private readonly voltLag = new Lag(0.4, ELECTRICAL.batteryV);
+  private readonly voltLag: Lag;
   private readonly chargeLag = new Lag(120, 0);
-  private batteryV: number = ELECTRICAL.batteryV;
+  private batteryV: number;
+  /** loads scale with the system voltage (a 14 V bus draws twice the current for the same power) */
+  private readonly ampScale: number;
+
+  constructor(readonly spec: Readonly<BusSpec> = C172_BUS) {
+    this.voltsV = spec.batteryV;
+    this.batteryV = spec.batteryV;
+    this.voltLag = new Lag(0.4, spec.batteryV);
+    this.ampScale = ELECTRICAL.busV / spec.busV;
+  }
 
   step(inputs: ControlInputs, engineRunning: boolean, rpm: number, flapsMoving: boolean, dt: number): void {
     // BAT half of the master switch; models that leave it undefined get the old proxy (mags off ≈ cold & dark)
     const masterOn = inputs.masterBattery ?? (inputs.magnetos !== 0 || engineRunning);
     this.avionicsSwitch = inputs.avionicsMaster !== false;
-    const load = masterOn ? electricalLoadA(inputs, flapsMoving, this.avionicsSwitch) : 0;
-    this.alternatorOnline = masterOn && inputs.masterAlternator !== false && engineRunning && rpm > ELECTRICAL.alternatorMinRpm;
+    const sp = this.spec, k = sp.busV / ELECTRICAL.busV;
+    const load = masterOn ? electricalLoadA(inputs, flapsMoving, this.avionicsSwitch) * this.ampScale : 0;
+    this.alternatorOnline = masterOn && inputs.masterAlternator !== false && engineRunning && rpm > sp.alternatorMinRpm;
     if (this.alternatorOnline) {
       // recharge current decays from ~12 A toward 2 A as the battery tops up
       if (this.chargeLag.value < 1) this.chargeLag.reset(12);
       const charge = 2 + this.chargeLag.step(0, dt);
-      this.ampsA = Math.min(60, load + charge);
+      this.ampsA = Math.min(sp.ammeterMaxA, load + charge);
       this.batteryAmpsA = charge;
-      this.voltsV = this.voltLag.step(ELECTRICAL.busV, dt);
-      this.batteryV = Math.min(ELECTRICAL.batteryV, this.batteryV + 0.002 * dt);
+      this.voltsV = this.voltLag.step(sp.busV, dt);
+      this.batteryV = Math.min(sp.batteryV, this.batteryV + 0.002 * k * dt);
     } else {
       this.ampsA = -load;
       this.batteryAmpsA = -load;
-      this.batteryV = Math.max(20, this.batteryV - (load / 60) * 0.004 * dt);
-      this.voltsV = this.voltLag.step(masterOn ? this.batteryV - 0.02 * load : 0, dt);
+      this.batteryV = Math.max(20 * k, this.batteryV - (load / sp.ammeterMaxA) * 0.004 * k * dt);
+      this.voltsV = this.voltLag.step(masterOn ? this.batteryV - 0.02 * k * load : 0, dt);
       if (!masterOn) this.chargeLag.reset(0);
     }
   }
 
-  get lowVolts(): boolean { return this.voltsV > 1 && this.voltsV < ELECTRICAL.lowVoltsV; }
+  get lowVolts(): boolean { return this.voltsV > 1 && this.voltsV < this.spec.lowVoltsV; }
 
   reset(engineRunning: boolean): void {
-    this.batteryV = ELECTRICAL.batteryV;
-    this.voltLag.reset(engineRunning ? ELECTRICAL.busV : ELECTRICAL.batteryV);
+    this.batteryV = this.spec.batteryV;
+    this.voltLag.reset(engineRunning ? this.spec.busV : this.spec.batteryV);
     this.voltsV = this.voltLag.value; this.ampsA = 0; this.batteryAmpsA = 0; this.chargeLag.reset(0);
   }
 }
@@ -81,16 +96,16 @@ export class ElectricalSystem {
 export class FuelGauge {
   private readonly lag = new Lag(2, 0);
   gal = 0;
-  constructor(private readonly unusableGal = FUEL.unusableGalPerTank, private readonly maxGal = FUEL.maxGal) {}
+  constructor(private readonly unusableGal = FUEL.unusableGalPerTank, private readonly maxGal = FUEL.maxGal, private readonly kgPerGal = FUEL.kgPerGal) {}
   step(kg: number, rollRad: number, pitchRad: number, dt: number): number {
-    const usable = Math.max(0, kg / FUEL.kgPerGal - this.unusableGal);
+    const usable = Math.max(0, kg / this.kgPerGal - this.unusableGal);
     const fill = clamp(usable / this.maxGal, 0, 1);
     const slosh = 0.6 * Math.sin(rollRad) * (1 - fill) + 0.4 * Math.sin(pitchRad);
     const bias = fill > 0.5 ? 0.5 * (fill - 0.5) * 2 : 0; // floats read a little high when fuller
     this.gal = clamp(this.lag.step(usable + slosh + bias, dt), 0, this.maxGal);
     return this.gal;
   }
-  reset(kg: number): void { this.lag.reset(Math.max(0, kg / FUEL.kgPerGal - this.unusableGal)); this.gal = this.lag.value; }
+  reset(kg: number): void { this.lag.reset(Math.max(0, kg / this.kgPerGal - this.unusableGal)); this.gal = this.lag.value; }
 }
 
 /** Oil temperature/pressure estimate used when the FDM reports no sane values. */

@@ -1,13 +1,15 @@
 /**
- * C172S engine and system gauges built on `ArcGauge`: tachometer (with tach-hour drum), fuel flow,
+ * Engine and system gauges built on `ArcGauge`: tachometer (with tach-hour drum), fuel flow,
  * manifold pressure + fuel flow dual (182-class), fuel quantity L/R, oil temperature/pressure,
- * EGT, suction and ammeter. Markings per docs/research/05 §1.3.
+ * EGT, suction, ammeter and voltmeter. Default markings are the C172S's (docs/research/05 §1.3);
+ * other aircraft pass theirs from their `PanelSpec` (panelSpec.ts).
  */
 import type { CanvasFactory, Ctx2D } from '../canvas';
 import { AMMETER, EGT, FUEL, FUEL_FLOW, MAP, OIL_PRESS, OIL_TEMP, SUCTION, TACH } from '../c172';
 import { formatHours } from '../format';
 import { LabelCache } from '../labelCache';
 import type { InstrumentReadings } from '../readings';
+import type { ElectricalMarkings, OilPressMarkings, OilTempMarkings, TachMarkings } from '../panelSpec';
 import { linearAngleDeg } from '../scales';
 import { ArcGauge } from './ArcGauge';
 import { Gauge } from './Gauge';
@@ -17,10 +19,10 @@ const SMALL = { startDeg: -60, sweepDeg: 120 } as const;
 const hourLabels = new LabelCache(formatHours, 0.1);
 
 export class Tachometer extends ArcGauge {
-  constructor(factory?: CanvasFactory) {
+  constructor(factory?: CanvasFactory, tach: Readonly<TachMarkings> = TACH) {
     super({
-      min: TACH.min, max: TACH.max, startDeg: -TACH.sweepDeg / 2, sweepDeg: TACH.sweepDeg,
-      bands: [{ from: TACH.greenLo, to: TACH.greenHi, color: GAUGE_COLORS.green }], redlines: [TACH.redline],
+      min: tach.min, max: tach.max, startDeg: -tach.sweepDeg / 2, sweepDeg: tach.sweepDeg,
+      bands: [{ from: tach.greenLo, to: tach.greenHi, color: GAUGE_COLORS.green }], redlines: [tach.redline],
       majorStep: 500, minorStep: 100, labelStep: 500, labelDivisor: 100, title: 'RPM', unit: 'HUNDREDS',
     }, (r) => r.engine.rpm, factory);
   }
@@ -42,29 +44,31 @@ export class FuelFlowGauge extends ArcGauge {
 }
 
 export class FuelQuantityGauge extends ArcGauge {
-  constructor(side: 'left' | 'right', factory?: CanvasFactory) {
+  constructor(side: 'left' | 'right', factory?: CanvasFactory, maxGal: number = FUEL.maxGal) {
     super({
-      min: 0, max: FUEL.maxGal, ...SMALL, redlines: [0],
-      majorStep: FUEL.maxGal / 2, minorStep: FUEL.maxGal / 4, labelStep: FUEL.maxGal / 2,
-      labelFormat: (v) => (v <= 0 ? 'E' : v >= FUEL.maxGal - 1e-6 ? 'F' : '½'),
+      min: 0, max: maxGal, ...SMALL, redlines: [0],
+      majorStep: maxGal / 2, minorStep: maxGal / 4, labelStep: maxGal / 2,
+      labelFormat: (v) => (v <= 0 ? 'E' : v >= maxGal - 1e-6 ? 'F' : '½'),
       title: side === 'left' ? 'LEFT' : 'RIGHT', subtitle: 'FUEL QTY', unit: 'GAL',
     }, side === 'left' ? (r) => r.fuelGal[0] : (r) => r.fuelGal[1], factory);
   }
 }
 
 export class OilTemperatureGauge extends ArcGauge {
-  constructor(factory?: CanvasFactory) {
+  constructor(factory?: CanvasFactory, t: Readonly<OilTempMarkings> = OIL_TEMP) {
     super({
-      min: OIL_TEMP.min, max: OIL_TEMP.max, ...SMALL, bands: [{ from: OIL_TEMP.greenLo, to: OIL_TEMP.greenHi, color: GAUGE_COLORS.green }], redlines: [OIL_TEMP.redline],
+      min: t.min, max: t.max, ...SMALL, bands: [{ from: t.greenLo, to: t.greenHi, color: GAUGE_COLORS.green }], redlines: [t.redline],
       majorStep: 25, minorStep: 25, labelStep: 50, tickMin: 75, labelMin: 100, title: 'OIL TEMP', unit: '°F',
     }, (r) => r.engine.oilTempF, factory);
   }
 }
 
 export class OilPressureGauge extends ArcGauge {
-  constructor(factory?: CanvasFactory) {
+  constructor(factory?: CanvasFactory, p: Readonly<OilPressMarkings> = OIL_PRESS) {
     super({
-      min: OIL_PRESS.min, max: OIL_PRESS.max, ...SMALL, bands: [{ from: OIL_PRESS.greenLo, to: OIL_PRESS.greenHi, color: GAUGE_COLORS.green }], redlines: [OIL_PRESS.redLo, OIL_PRESS.redHi],
+      min: p.min, max: p.max, ...SMALL,
+      bands: [{ from: p.greenLo, to: p.greenHi, color: GAUGE_COLORS.green }, ...(p.yellow ?? []).map(([from, to]) => ({ from, to, color: GAUGE_COLORS.yellow }))],
+      redlines: [p.redLo, p.redHi],
       majorStep: 25, minorStep: 5, labelStep: 25, title: 'OIL PRESS', unit: 'PSI',
     }, (r) => r.engine.oilPressPsi, factory);
   }
@@ -89,11 +93,23 @@ export class SuctionGauge extends ArcGauge {
 }
 
 export class Ammeter extends ArcGauge {
-  constructor(factory?: CanvasFactory) {
+  constructor(factory?: CanvasFactory, maxA: number = AMMETER.max) {
     super({
-      min: AMMETER.min, max: AMMETER.max, ...SMALL, majorStep: 30, minorStep: 10, labelStep: 30,
+      min: -maxA, max: maxA, ...SMALL, majorStep: maxA / 2, minorStep: maxA / 6, labelStep: maxA / 2,
       labelFormat: (v) => String(Math.abs(v)), title: 'AMPS', unit: 'D          C',
     }, (r) => r.ampsA, factory);
+  }
+}
+
+/** Bus voltmeter: red below the LOW VOLTS threshold, green over the charging range (14 V or 28 V scale). */
+export class Voltmeter extends ArcGauge {
+  constructor(factory?: CanvasFactory, e: Pick<ElectricalMarkings, 'voltmeter' | 'lowVoltsV' | 'nominalV'> = { voltmeter: { min: 16, max: 32, greenLo: 26, greenHi: 29.6 }, lowVoltsV: 24.5, nominalV: 28 }) {
+    const v = e.voltmeter, k = e.nominalV / 14;
+    super({
+      min: v.min, max: v.max, ...SMALL,
+      bands: [{ from: v.min, to: Math.min(e.lowVoltsV, v.max), color: GAUGE_COLORS.red }, { from: v.greenLo, to: v.greenHi, color: GAUGE_COLORS.green }],
+      majorStep: 2 * k, minorStep: k, labelStep: 4 * k, title: 'VOLTS',
+    }, (r) => r.voltsV, factory);
   }
 }
 
