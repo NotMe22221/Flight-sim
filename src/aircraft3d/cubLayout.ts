@@ -364,13 +364,13 @@ export function resolveCubLayout(cfg: AircraftModelConfig): CubLayout {
   const ez = Math.max(-0.5, Math.min(0.3, eye.z)), ey = Math.max(0.3, Math.min(0.85, eye.y));
   const cockpit: CubLayout['cockpit'] = {
     frontStick: { pivot: v(0, floorY + 0.03, ez - 0.36), length: 0.62 },
-    rearStick: { pivot: v(0, floorY + 0.06, ez + 0.47), length: 0.55 },
+    rearStick: { pivot: v(0, floorY + 0.06, ez + 0.42), length: 0.55 },
     pedal: v(0.12, floorY + 0.13, -0.86),
     throttle: { pivot: v(-0.335, 0.06, ez - 0.25), length: 0.2, travelRad: 0.7 },
     trimCrank: { center: v(-0.345, 0.02, ez + 0.06), radius: 0.055 },
     flapHandle: { pivot: v(-0.29, -0.14, ez + 0.14), length: 0.3, fullRad: 0.9 },
     fuelGauge: { center: v(0.31, roofY - 0.05, 0.06), radius: 0.035 },
-    seats: { front: { y: ey - 0.8, z: ez + 0.08 }, rear: { y: floorY + 0.24, z: 0.6 } },
+    seats: { front: { y: ey - 0.8, z: ez + 0.08 }, rear: { y: floorY + 0.24, z: Math.max(0.64, ez + 0.69) } },
     tubes: [
       ...[1, -1].flatMap((s): TubeLayout[] => [
         [v(s * 0.338, aY0 + 0.01, zA(aY0) + 0.03), v(s * 0.348, aY1 + 0.02, zA(aY1) + 0.03)], // windshield side (A-pillar) tube

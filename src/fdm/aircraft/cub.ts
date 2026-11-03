@@ -86,8 +86,8 @@ export const CUB_MASS: AircraftConfig['mass'] = {
 export const CUB_GEAR: GearSpec[] = [
   // heel brakes (single-puck discs): torque-limited well below tyre grip, so standing on them in the
   // three-point attitude does not stand the aircraft on its nose (that needs μ ≈ 0.7 here)
-  { ...wheel('Left main', [G.mainGear[0], -G.mainGear[1], G.mainGear[2]], 40_000, 1_500, 4_500, G.mainTyreRadiusM, 'left'), brakeMu: 0.4 },
-  { ...wheel('Right main', [G.mainGear[0], G.mainGear[1], G.mainGear[2]], 40_000, 1_500, 4_500, G.mainTyreRadiusM, 'right'), brakeMu: 0.4 },
+  { ...wheel('Left main', [G.mainGear[0], -G.mainGear[1], G.mainGear[2]], 40_000, 1_500, 3_000, G.mainTyreRadiusM, 'left'), brakeMu: 0.4 },
+  { ...wheel('Right main', [G.mainGear[0], G.mainGear[1], G.mainGear[2]], 40_000, 1_500, 3_000, G.mainTyreRadiusM, 'right'), brakeMu: 0.4 },
   // Scott 3200-style tail wheel: steered by the rudder springs through ±25°, unlocks into full swivel
   // when the tyre is dragged sideways (brake-assisted pivots, ground loops), relocks near centre
   { ...wheel('Tail', [...G.tailWheel] as Vec3, 25_000, 900, 1_400, G.tailTyreRadiusM, 'none'), maxSteerDeg: 25, casters: true, swivel: { breakoutN: 400, relockDeg: 4 } },
