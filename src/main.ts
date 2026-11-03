@@ -14,7 +14,7 @@ async function boot(): Promise<void> {
   await sim.nav.load();
   sim.start();
   // Optional modules are loaded lazily so a missing or failing one never blocks flight.
-  const opt = import.meta.glob(['./ui/index.ts', './instruments/g1000/G1000.ts', './instruments/Hud.ts', './audio/AudioSystem.ts', './atc/AtcController.ts']);
+  const opt = import.meta.glob(['./ui/index.ts', './instruments/g1000/G1000.ts', './instruments/Hud.ts', './audio/AudioSystem.ts', './atc/AtcController.ts', './scenery/index.ts']);
   await Promise.all(Object.entries(opt).map(async ([path, load]) => {
     try {
       const mod = (await load()) as Record<string, unknown>;

@@ -4,7 +4,9 @@
  * adapters use only each module's documented public API (checked at runtime).
  */
 import type { AircraftState, Airport, SimAction, SimSnapshot } from '../core/types';
-import type { Simulator } from './Simulator';
+import * as THREE from 'three';
+import type { LocalFrame } from '../geo/wgs84';
+import type { SceneryLike, Simulator } from './Simulator';
 import { SimUiHost } from './uiHost';
 
 type Ctor<T> = new (...args: never[]) => T;
@@ -15,6 +17,23 @@ interface AudioLike { resume(): Promise<void>; update(dt: number, ac: AircraftSt
 interface HudLike { readonly canvas: HTMLCanvasElement; resize(w: number, h: number, dpr: number): void; update(s: SimSnapshot, dt: number): void }
 interface G1000Like { readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; update(s: SimSnapshot, dt: number): boolean; setNearestAirports?(l: { icao: string; lat: number; lon: number; type: string }[]): void }
 interface AtcLike { update(dt: number, ac: AircraftState, w: SimSnapshot['weather'], utcMs?: number): void; select(i: number): void; reset(a: Airport | null): void }
+
+/** What `createScenery` (src/scenery/index.ts) receives from the simulator. */
+export interface SceneryHostOptions {
+  /** add all scenery objects under this group (part of the scene graph) */
+  parent: THREE.Group;
+  /** current local frame (also passed again through setFrame on a new flight / rebase) */
+  frame: LocalFrame;
+  /** ground up-coordinate (−D, includes runway flattening and earth curvature) under a NED point, or null before terrain data exists there */
+  groundUp(north: number, east: number): number | null;
+  /** terrain height above MSL at a geodetic point from the finest loaded tile, or null */
+  heightAt(lat: number, lon: number): number | null;
+  /** depth buffer mode of the renderer: custom shaders must support it (log depth needs the logdepthbuf chunks) */
+  depthMode: string;
+  quality: 'low' | 'medium' | 'high' | 'ultra';
+  /** vector tile URL template override from the page's `?osm=` query parameter (e.g. a local fixture server) */
+  tileUrl?: string;
+}
 
 let host: SimUiHost | null = null;
 let audio: AudioLike | null = null;
@@ -28,6 +47,24 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
     sim.plugins.ui = { update: (s, dt) => ui.update(s, dt), handleAction: ui.handleAction ? (a) => ui.handleAction!(a) : undefined };
     ui.onStart?.(() => { void audio?.resume(); });
     ui.show('loading');
+    return;
+  }
+  if (path.endsWith('/scenery/index.ts')) {
+    const create = mod.createScenery as ((o: SceneryHostOptions) => SceneryLike) | undefined;
+    if (typeof create !== 'function') return;
+    const parent = new THREE.Group();
+    parent.name = 'scenery';
+    sim.scene.add(parent);
+    const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
+    sim.plugins.scenery = create({
+      parent,
+      frame: sim.world.frame,
+      groundUp: (n, e) => sim.world.groundHeight(n, e),
+      heightAt: (lat, lon) => sim.terrain?.heightAt(lat, lon) ?? null,
+      depthMode: String(sim.gfx.depthMode),
+      quality: sim.opts.quality ?? 'high',
+      tileUrl: q?.get('osm') ?? undefined,
+    });
     return;
   }
   if (path.endsWith('/AudioSystem.ts')) {

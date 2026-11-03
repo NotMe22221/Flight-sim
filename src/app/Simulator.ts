@@ -47,8 +47,27 @@ export interface SimulatorOptions {
   imagery?: 'satellite' | 'procedural';
 }
 
-/** Optional subsystems attached after construction (UI, glass cockpit, HUD, audio, ATC). */
+/**
+ * OSM scenery plugin contract (src/scenery/index.ts exports `createScenery(options)` returning this):
+ * buildings, airport surfaces, vegetation and night lighting streamed around the camera.
+ */
+export interface SceneryLike {
+  /** per display frame, after the terrain update; camera position in the render frame */
+  update(dt: number, cameraPosThree: THREE.Vector3, camera: THREE.PerspectiveCamera, sunElevationRad: number): void;
+  /** a new flight origin or a floating-origin rebase: re-express everything in `frame` */
+  setFrame(frame: LocalFrame): void;
+  setQuality?(q: 'low' | 'medium' | 'high' | 'ultra'): void;
+  setVisible?(on: boolean): void;
+  /** stands / gates / apron positions near a point, best first (for parking spawns) */
+  parkingSpots?(lat: number, lon: number, radiusM: number): Promise<{ lat: number; lon: number; headingDeg: number; name: string }[]>;
+  attribution?(): string[];
+  stats?(): Record<string, number>;
+  dispose?(): void;
+}
+
+/** Optional subsystems attached after construction (UI, glass cockpit, HUD, audio, ATC, scenery). */
 export interface SimPlugins {
+  scenery?: SceneryLike;
   ui?: { update(s: SimSnapshot, dt: number): void; handleAction?(a: SimAction): boolean };
   g1000?: { update(s: SimSnapshot, dt: number): boolean; readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas };
   hud?: { update(s: SimSnapshot, dt: number): void; resize(w: number, h: number, dpr: number): void; readonly canvas: HTMLCanvasElement | OffscreenCanvas };
@@ -307,6 +326,7 @@ export class Simulator {
     this.cameras.shiftOrigin(this.tmpV.clone().negate());
     this.replay.clear();
     copyPose(this.fdm.state, this.prev);
+    this.plugins.scenery?.setFrame(this.world.frame);
     this.events.emit('frame:rebased', { frame: this.world.frame.info, translationNED: t.translationNED, rotation: t.rotation });
   }
 
@@ -402,6 +422,7 @@ export class Simulator {
     this.terrain?.setFog(L.fogColor, L.fogDensity, L.fogHeightFalloff);
     let tn = performance.now(); this.mark('sky', tn - tm); tm = tn;
     this.world.update(dt, camPos, this.cameras.camera, s.geo, this.v3, this.sky.sun.elevationRad);
+    this.plugins.scenery?.update(dt, camPos, this.cameras.camera, this.sky.sun.elevationRad);
     tn = performance.now(); this.mark('world', tn - tm); tm = tn;
 
     // navigation (radios every frame, nearby airports and magnetic variation slowly)
@@ -593,6 +614,7 @@ export class Simulator {
     if (airport) await this.nav.loadRegion(airport.position, 40);
     this.currentAirport = airport;
     this.world.setOrigin(g.lat, g.lon, spawn.onGround ? g.alt : airport?.elevationM ?? 0);
+    this.plugins.scenery?.setFrame(this.world.frame);
     if (airport) { this.world.airports.ensureAirport(airport); this.world.syncRunways(); }
     this.weather.setAirportElevation(airport?.elevationM ?? 0);
     this.weather.setFrame(this.world.frame.info);
