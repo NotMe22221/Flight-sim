@@ -43,20 +43,22 @@ export class AtisLetterTracker {
   /**
    * Re-evaluate at `utcMs` with the current content key. Returns true when a new letter was
    * issued (hour boundary crossed, or content changed and the last change is old enough).
+   * One letter per hourly broadcast missed, so a long gap between evaluations (or a clock jump
+   * forward) lands on the same letter as hourly evaluation would; a clock set back issues one.
    * The first call only records the key.
    */
   update(utcMs: number, contentKey: string): boolean {
     const hour = Math.floor(utcMs / HOUR_MS);
-    let advance = false;
-    if (hour !== this.hour) { this.hour = hour; advance = true; }
+    let steps = 0;
+    if (hour !== this.hour) { steps = hour > this.hour ? hour - this.hour : 1; this.hour = hour; }
     if (this.key === '') this.key = contentKey;
     else if (contentKey !== this.key && (utcMs - this.lastChangeUtcMs) / 1000 >= ATIS_MIN_CHANGE_INTERVAL_S) {
       this.key = contentKey;
-      advance = true;
+      steps = Math.max(steps, 1);
     }
-    if (!advance) return false;
+    if (steps === 0) return false;
     this.key = contentKey;
-    this.index = (this.index + 1) % 26;
+    this.index = (this.index + steps) % 26;
     this.issuedUtcMs = utcMs;
     this.lastChangeUtcMs = utcMs;
     return true;

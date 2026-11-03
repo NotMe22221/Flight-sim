@@ -8,9 +8,10 @@ import { destinationPoint } from '../geo/wgs84';
 import type { NavDb } from '../nav';
 import { findRunwayEnd, magneticDeclinationDeg } from '../nav';
 import { buildAtis } from './atis';
+import { AtisLetterTracker } from './atisTracker';
 import { makeCallsign } from './callsign';
 import { allRunwayRefs, runwaysInUse } from './field';
-import { makeRunwayFrame, relativeTo } from './geometry';
+import { choosePatternEntry, classifyPatternLeg, isEstablishedOnFinal, makeRunwayFrame, relativeTo } from './geometry';
 import { readback } from './messages';
 import { frequency, wind } from './phraseology';
 import { Harness, type Frame, type Point } from './__tests__/harness';
@@ -493,5 +494,78 @@ describe('arrival at an untowered field on flight following', () => {
     h.select(/^Acknowledge: squawk VFR/);
     expect(h.atc.frequencyMHz).toBe(122.9);
     expect(h.atc.options.some((o) => o.startsWith('Announce inbound, full stop (CTAF 122.9)'))).toBe(true);
+  });
+});
+
+describe('coverage the original tests lacked', () => {
+  it('pattern legs and final at a runway heading next to north (left and right traffic)', () => {
+    const THR = { lat: 47.0, lon: 8.0, alt: 100 };
+    const HDG = 358;
+    const ap: Airport = {
+      icao: 'TST2', name: 'North Field', position: THR, elevationM: 100, type: 'small', country: 'XX',
+      runways: [{ ident: '36', threshold: THR, end: destinationPoint(THR, HDG, 2000, 100), headingDeg: HDG, lengthM: 2000, widthM: 30, surface: 'asphalt', lighted: true, displacedThresholdM: 0 }],
+    };
+    const ref = allRunwayRefs(ap).find((r) => r.ident === '36');
+    if (!ref) throw new Error('36 missing');
+    const f = makeRunwayFrame(ap, ref);
+    const at = (along: number, cross: number) => destinationPoint(destinationPoint(THR, HDG, along, 100), HDG + 90, cross, 100);
+    const leg = (along: number, cross: number, track: number, side: 'left' | 'right') => classifyPatternLeg(relativeTo(f, at(along, cross), 400, track), 2000, side);
+    expect(leg(-1500, 10, 2, 'left')).toBe('final'); // track 002 vs heading 358
+    expect(leg(1000, 0, 355, 'left')).toBe('upwind');
+    expect(leg(2600, -600, 268, 'left')).toBe('crosswind');
+    expect(leg(1000, -1200, 178, 'left')).toBe('downwind');
+    expect(leg(-1200, -1100, 88, 'left')).toBe('base');
+    expect(leg(2600, 600, 88, 'right')).toBe('crosswind');
+    expect(leg(1000, 1200, 178, 'right')).toBe('downwind');
+    expect(leg(-1200, 1100, 268, 'right')).toBe('base');
+    expect(leg(-1200, 1100, 268, 'left')).not.toBe('base');
+    expect(isEstablishedOnFinal(relativeTo(f, at(-3000, 50), 100 + 250, 3), 3 * 1852)).toBe(true);
+    expect(choosePatternEntry(relativeTo(f, at(-9000, 400), 700, 1), 'left')).toBe('straight-in');
+  });
+
+  it('the pilot uses the full callsign on the first call to each controller, the short form only after that controller did', () => {
+    const ksfo = airport('KSFO');
+    const h = new Harness(db, ksfoWeather(), frameOf(ksfo, '28R'), { along: 40, cross: 0, h: 0 }, UTC);
+    h.setEngine(true);
+    h.atc.reset(ksfo);
+    h.tick();
+    const tower1 = h.select(/^Ready for departure/);
+    expect(h.messages[tower1].text).toMatch(/^San Francisco Tower, N172FS, /);
+    h.wait(3);
+    h.select(/^Read back/);
+    expect(h.messages[h.messages.length - 1].text).toMatch(/, Cessna 2FS\.$/);
+    takeOffStraightOut(h, { along: 9000, cross: 0, h: 700 });
+    expect(h.find(/contact San Francisco Departure/)?.text).toBe('Cessna 2FS, contact San Francisco Departure 120.9.');
+    h.select(/^Read back: contact/);
+    const dep1 = h.select(/^Request VFR flight following/);
+    expect(h.messages[dep1].text).toMatch(/^San Francisco Departure, N172FS, /);
+    h.wait(3);
+    h.select(/^Read back squawk/);
+    expect(h.messages[h.messages.length - 1].text).toMatch(/, Cessna 2FS\.$/);
+  });
+
+  it('a reset drops a pending controller reply: it is never transmitted', () => {
+    const ksfo = airport('KSFO');
+    const h = new Harness(db, ksfoWeather(), frameOf(ksfo, '28R'), { along: 800, cross: -700, h: 0 }, UTC);
+    h.atc.reset(ksfo);
+    h.wait(1);
+    h.select(/^Request taxi for VFR departure/);
+    expect(h.atc.awaitingReply).toBe(true);
+    const n = h.messages.length;
+    h.atc.reset(ksfo);
+    h.wait(5);
+    expect(h.messages.length).toBe(n);
+    expect(h.atc.phase).toBe('PARKED');
+  });
+
+  it('the ATIS letter advances once per hour boundary crossed, also across a clock jump', () => {
+    const t = new AtisLetterTracker('KSFO', UTC); // 18:56Z
+    const key = 'k';
+    expect(t.update(UTC + 1000, key)).toBe(false);
+    const first = t.letter.charCodeAt(0) - 65;
+    expect(t.update(UTC + 4 * 3_600_000 + 14 * 60_000, key)).toBe(true); // 23:10Z: 19, 20, 21, 22, 23
+    expect(t.letter).toBe(String.fromCharCode(65 + ((first + 5) % 26)));
+    expect(t.update(UTC - 2 * 3_600_000, key)).toBe(true); // clock set back: a new broadcast all the same
+    expect(t.letter).toBe(String.fromCharCode(65 + ((first + 6) % 26)));
   });
 });

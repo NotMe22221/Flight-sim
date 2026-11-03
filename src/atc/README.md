@@ -43,7 +43,7 @@ research 05 §9.3).
 | `compose.ts` | `say` template tag (builds text and speech together), `joinSpoken`, `sentence` |
 | `surfaceObs.ts` | `WeatherState` → METAR-rounded observation (wind, vis, FEW/SCT/BKN/OVC in ft AGL, T/Td via Magnus, altimeter), flight category |
 | `atis.ts` | `buildAtis` (ATIS or AWOS), `metarLine`, sky/visibility/weather phrases |
-| `atisTracker.ts` | ATIS letter: deterministic start per airport, +1 every hour and on content change (≥ 60 s apart) |
+| `atisTracker.ts` | ATIS letter: deterministic start per airport, +1 per hour boundary crossed (also across clock jumps) and on content change (≥ 60 s apart) |
 | `field.ts` | Facilities from `airport.frequencies` (ATIS/AWOS, CLD, GND, TWR, DEP/APP, CTAF → 122.9 fallback), facility names, pattern altitude, `runwaysInUse` (nav `runwayInUse` + parallels, calm → longest), `patternSideFor` |
 | `geometry.ts` | Runway frame (reuses `activities/runwayFrame.relativeToRunway`), `classifyPatternLeg`, `isEstablishedOnFinal`, `choosePatternEntry`, hold-short box |
 | `radio.ts` | `RadioQueue`: immediate and delayed transmissions in sim time |
@@ -198,7 +198,9 @@ the reciprocal), `FINAL_LIMITS` (±20° track, lateral max(75 m, 6°), height be
   the pattern, glidepath correction ≠ go-around, label designators, parallel CTAF runway,
   start beside the runway, magnetic wind rounding, readbacks (straight-in, closed-traffic
   takeoff, stale ones dropped), flight following on arrival (no termination when passing a
-  field, "request landing", advisory frequency), hold-short re-targeting, 5 kt calm runway.
+  field, "request landing", advisory frequency), hold-short re-targeting, 5 kt calm runway,
+  ATIS letter per elapsed hour; plus coverage the first tests lacked (legs at a runway heading
+  of 358°, callsign form per controller, a reset never transmits a pending reply).
 
 ## Known limitations / proposed contract changes
 
