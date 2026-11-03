@@ -156,6 +156,7 @@ The container this was built in cannot reach OpenFreeMap, so everything is testa
 # 1. write synthetic z14 tiles around KSFO (aprons, terminal + piers + gates, hangars, parallel
 #    taxiways with connectors, a city grid with houses / apartments / towers / warehouses,
 #    roads of every class, a motorway, parks, residential landuse, woods on the hills, a lake)
+#    to the given directory (default: $OSM_FIXTURES, else <os tmpdir>/osm-fixtures)
 node --experimental-transform-types --import ./src/scenery/dev/register.mjs \
      src/scenery/dev/generateFixtures.ts /tmp/osm-fixtures
 # 2. serve them with CORS (also /planet as a TileJSON and 204 for /empty/...)
@@ -163,6 +164,12 @@ node src/scenery/dev/serve.mjs /tmp/osm-fixtures 8790
 # 3. run the app against them
 npm run dev  # then open http://localhost:5173/?osm=http://127.0.0.1:8790/{z}/{x}/{y}.pbf
 ```
+
+For screenshots, `window.__scenery.debugView({ lat, lon, alt, headingDeg, pitchDeg, fovDeg })`
+pins the camera to a geodetic pose, and `window.__scenery.setStreamOverrides({
+groundSamplesPerFrame: 40000, frameBudgetMs: 400 })` makes the scenery settle quickly in a
+slow software renderer; wait until `stats()` reports `tilesPending === 0` and
+`buildingsWaiting === 0`.
 
 Runway coordinates come from `public/data/airports.json`. Tests build the same world in memory
 (`testUtil.ts`).

@@ -35,8 +35,10 @@ export interface BushLeg {
   to: string;
   /** departure runway (landing-direction designator, must exist at `from`) */
   departureRunway: string;
-  /** suggested cruise altitude, ft MSL */
+  /** suggested cruise altitude, ft MSL: at least 1,000 ft above `terrain` */
   cruiseFt: number;
+  /** highest charted terrain within about 3 nm of the route (rounded up), ft MSL, for the briefing */
+  terrain: { name: string; ft: number };
   waypoints: TripWaypoint[];
   briefing: Line;
   weather?: WeatherPresetId;
@@ -62,7 +64,7 @@ export const PACIFIC_COAST: BushTrip = {
   id: 'pacific-coast',
   title: 'Pacific Coast: Half Moon Bay to Santa Barbara',
   region: 'California, USA',
-  description: 'Eight short legs down the California coast in the 172: redwoods, Monterey Bay, the cliffs of Big Sur, the Salinas Valley missions, Morro Rock, the Guadalupe dunes and Point Conception.',
+  description: 'Eight legs from Half Moon Bay to Santa Barbara in the 172: the San Andreas Fault lakes, the Santa Cruz Mountains, Monterey Bay, the Salinas Valley missions, Lake Nacimiento, Morro Rock, the Guadalupe dunes and Point Conception.',
   aircraft: 'c172',
   airports: {
     KHAF: ap('KHAF', 'Half Moon Bay', 37.513401, -122.500999, 20.1),
@@ -77,73 +79,72 @@ export const PACIFIC_COAST: BushTrip = {
   },
   legs: [
     {
-      from: 'KHAF', to: 'KRHV', departureRunway: '30', cruiseFt: 3500, weather: 'few', time: 'morning',
+      from: 'KHAF', to: 'KRHV', departureRunway: '30', cruiseFt: 3500, terrain: { name: 'the Skyline ridge near Kings Mountain', ft: 2400 }, weather: 'few', time: 'morning',
       waypoints: [
-        { id: 'PIGEON', name: 'Pigeon Point Lighthouse', lat: 37.1817, lon: -122.3944 },
-        { id: 'BIGBSN', name: 'Big Basin Redwoods', lat: 37.1724, lon: -122.2224 },
+        { id: 'CRYSTL', name: 'Crystal Springs Dam', lat: 37.5306, lon: -122.3631 },
+        { id: 'HOOVER', name: 'Hoover Tower', lat: 37.4275, lon: -122.1667 },
       ],
       briefing: {
-        text: 'Leg 1: Half Moon Bay to Reid-Hillview. Follow the coast south to Pigeon Point Lighthouse, turn inland over the redwoods of Big Basin and cross the Santa Cruz Mountains into the Santa Clara Valley.',
-        speech: 'Leg one. Half Moon Bay to Reid Hillview, in San Jose. Follow the coast south to Pigeon Point Lighthouse, then turn inland over the redwoods of Big Basin, and cross the Santa Cruz Mountains into the Santa Clara Valley.',
+        text: 'Leg 1: Half Moon Bay to Reid-Hillview. Climb over the coastal ridge to Crystal Springs Reservoir, the lake that fills the rift of the San Andreas Fault, then cross the Peninsula to Hoover Tower at Stanford and fly down the Santa Clara Valley to Reid-Hillview in east San Jose.',
+        speech: 'Leg one. Half Moon Bay to Reid Hillview, in San Jose. Climb over the coastal ridge to Crystal Springs Reservoir, the lake that fills the rift of the San Andreas Fault. Then cross the peninsula to Hoover Tower at Stanford, and fly down the Santa Clara Valley to Reid Hillview.',
       },
     },
     {
-      from: 'KRHV', to: 'KWVI', departureRunway: '31R', cruiseFt: 4500, weather: 'scattered', time: 'morning',
+      from: 'KRHV', to: 'KWVI', departureRunway: '31R', cruiseFt: 5500, terrain: { name: 'Loma Prieta', ft: 3786 }, weather: 'scattered', time: 'morning',
       waypoints: [
         { id: 'LOMAP', name: 'Loma Prieta', lat: 37.1111, lon: -121.8428 },
         { id: 'BRDWLK', name: 'Santa Cruz Beach Boardwalk', lat: 36.9642, lon: -122.0181 },
       ],
       briefing: {
-        text: 'Leg 2: Reid-Hillview to Watsonville. Cross the Santa Cruz Mountains over Loma Prieta, the 3,786 ft peak that named the 1989 earthquake, descend to the Santa Cruz Beach Boardwalk and follow the bay shore to Watsonville.',
-        speech: 'Leg two. Reid Hillview to Watsonville. Cross the Santa Cruz Mountains over Loma Prieta, the peak that named the nineteen eighty nine earthquake. Then descend to the Santa Cruz Beach Boardwalk, and follow the bay shore to Watsonville.',
+        text: 'Leg 2: Reid-Hillview to Watsonville. Climb to 5,500 ft and cross the Santa Cruz Mountains over Loma Prieta, the 3,786 ft peak that named the 1989 earthquake, then descend to the Santa Cruz Beach Boardwalk and follow the bay shore to Watsonville.',
+        speech: 'Leg two. Reid Hillview to Watsonville. Climb to five thousand five hundred feet, and cross the Santa Cruz Mountains over Loma Prieta, the peak that named the nineteen eighty nine earthquake. Then descend to the Santa Cruz Beach Boardwalk, and follow the bay shore to Watsonville.',
       },
     },
     {
-      from: 'KWVI', to: 'KMRY', departureRunway: '20', cruiseFt: 2500, weather: 'few', time: 'noon',
+      from: 'KWVI', to: 'KMRY', departureRunway: '27', cruiseFt: 2500, terrain: { name: 'Jacks Peak', ft: 1068 }, weather: 'few', time: 'noon',
       waypoints: [
         { id: 'MOSSLD', name: 'Moss Landing stacks', lat: 36.8053, lon: -121.7822 },
         { id: 'PINOS', name: 'Point Pinos Lighthouse', lat: 36.6336, lon: -121.9336 },
       ],
       briefing: {
-        text: 'Leg 3: Watsonville to Monterey. Trace the curve of Monterey Bay past the twin stacks at Moss Landing, round Point Pinos, the oldest working lighthouse on the West Coast, and land at Monterey Regional.',
+        text: 'Leg 3: Watsonville to Monterey. Trace the curve of Monterey Bay past the twin 500 ft stacks at Moss Landing, round Point Pinos, the oldest working lighthouse on the West Coast, and land at Monterey Regional.',
         speech: 'Leg three. Watsonville to Monterey. Trace the curve of Monterey Bay past the twin stacks at Moss Landing, round Point Pinos, the oldest working lighthouse on the West Coast, and land at Monterey.',
       },
     },
     {
-      from: 'KMRY', to: 'KKIC', departureRunway: '28L', cruiseFt: 6500, weather: 'clear', time: 'morning',
+      from: 'KMRY', to: 'KKIC', departureRunway: '28L', cruiseFt: 5500, terrain: { name: 'the Sierra de Salinas', ft: 4500 }, weather: 'clear', time: 'morning',
       waypoints: [
-        { id: 'BIXBY', name: 'Bixby Creek Bridge', lat: 36.3714, lon: -121.9019 },
-        { id: 'PTSUR', name: 'Point Sur Lighthouse', lat: 36.3064, lon: -121.9014 },
+        { id: 'LGUNA', name: 'Laguna Seca Raceway', lat: 36.5842, lon: -121.7536 },
+        { id: 'SOLEDD', name: 'Mission Soledad', lat: 36.4047, lon: -121.3561 },
       ],
       briefing: {
-        text: 'Leg 4: Monterey to King City. The Big Sur coast: south to Bixby Creek Bridge and the lighthouse on Point Sur, then east across the Ventana Wilderness and the Santa Lucia Range to the Salinas Valley. High ridges: stay at 6,500 ft until you are clear of them.',
-        speech: 'Leg four. Monterey to King City. This is the Big Sur coast. Fly south to Bixby Creek Bridge and the lighthouse on Point Sur, then east across the Ventana Wilderness and the Santa Lucia Range, to the Salinas Valley. The ridges are high, so stay at six thousand five hundred feet until you are clear of them.',
+        text: 'Leg 4: Monterey to King City. East past the Corkscrew at Laguna Seca Raceway, over the Sierra de Salinas into the Salinas Valley, the Salad Bowl of the World, to Mission Soledad, then down the valley to King City. Hold 5,500 ft until you are clear of the ridges.',
+        speech: 'Leg four. Monterey to King City. Fly east past the Corkscrew at Laguna Seca Raceway, then over the Sierra de Salinas into the Salinas Valley, the salad bowl of the world, to Mission Soledad. Then follow the valley down to King City. Hold five thousand five hundred feet until you are clear of the ridges.',
       },
     },
     {
-      from: 'KKIC', to: 'KPRB', departureRunway: '29', cruiseFt: 4500, weather: 'few', time: 'afternoon',
+      from: 'KKIC', to: 'KPRB', departureRunway: '29', cruiseFt: 3500, terrain: { name: 'the Santa Lucia foothills', ft: 2500 }, weather: 'few', time: 'afternoon',
       waypoints: [
-        { id: 'MSNSA', name: 'Mission San Antonio de Padua', lat: 36.0153, lon: -121.2508 },
         { id: 'NACDAM', name: 'Nacimiento Dam', lat: 35.7586, lon: -120.8855 },
       ],
       briefing: {
-        text: 'Leg 5: King City to Paso Robles. Over the hills to Mission San Antonio de Padua, founded in 1771 in a quiet oak valley, then south-east to Nacimiento Dam and on to the vineyards of Paso Robles.',
-        speech: 'Leg five. King City to Paso Robles. Over the hills to Mission San Antonio de Padua, founded in seventeen seventy one in a quiet oak valley. Then south east to Nacimiento Dam, and on to the vineyards of Paso Robles.',
+        text: 'Leg 5: King City to Paso Robles. South-east down the Salinas Valley, then over the oak hills to Nacimiento Dam at the head of the winding Dragon Lake, and east to the vineyards of Paso Robles with Mission San Miguel off your left wing.',
+        speech: 'Leg five. King City to Paso Robles. South east down the Salinas Valley, then over the oak hills to Nacimiento Dam, at the head of the winding dragon lake. Then east to the vineyards of Paso Robles, with Mission San Miguel off your left wing.',
       },
     },
     {
-      from: 'KPRB', to: 'KSBP', departureRunway: '31', cruiseFt: 3500, weather: 'scattered', time: 'afternoon',
+      from: 'KPRB', to: 'KSBP', departureRunway: '31', cruiseFt: 4500, terrain: { name: 'the Santa Lucia Range', ft: 3000 }, weather: 'scattered', time: 'afternoon',
       waypoints: [
         { id: 'MORRO', name: 'Morro Rock', lat: 35.3694, lon: -120.8669 },
         { id: 'BISHOP', name: 'Bishop Peak', lat: 35.3025, lon: -120.6969 },
       ],
       briefing: {
-        text: 'Leg 6: Paso Robles to San Luis Obispo. South-west over the Santa Lucia foothills to the coast at Morro Rock, the volcanic plug guarding Morro Bay, then follow the chain of old volcanoes inland past Bishop Peak to San Luis Obispo.',
-        speech: 'Leg six. Paso Robles to San Luis Obispo. South west over the foothills to the coast at Morro Rock, the volcanic plug guarding Morro Bay. Then follow the chain of old volcanoes inland, past Bishop Peak, to San Luis Obispo.',
+        text: 'Leg 6: Paso Robles to San Luis Obispo. South-west over the Santa Lucia Range to the coast at Morro Rock, the volcanic plug guarding Morro Bay, then follow the chain of old volcanoes inland past Bishop Peak to San Luis Obispo.',
+        speech: 'Leg six. Paso Robles to San Luis Obispo. South west over the Santa Lucia Range to the coast at Morro Rock, the volcanic plug guarding Morro Bay. Then follow the chain of old volcanoes inland, past Bishop Peak, to San Luis Obispo.',
       },
     },
     {
-      from: 'KSBP', to: 'KLPC', departureRunway: '29', cruiseFt: 2500, weather: 'few', time: 'noon',
+      from: 'KSBP', to: 'KLPC', departureRunway: '29', cruiseFt: 3500, terrain: { name: 'the Casmalia Hills', ft: 2000 }, weather: 'few', time: 'noon',
       waypoints: [
         { id: 'PISMO', name: 'Pismo Beach Pier', lat: 35.1383, lon: -120.6431 },
         { id: 'PTSAL', name: 'Point Sal', lat: 34.9036, lon: -120.6703 },
@@ -154,7 +155,7 @@ export const PACIFIC_COAST: BushTrip = {
       },
     },
     {
-      from: 'KLPC', to: 'KSBA', departureRunway: '25', cruiseFt: 3500, weather: 'clear', time: 'dusk',
+      from: 'KLPC', to: 'KSBA', departureRunway: '25', cruiseFt: 3500, terrain: { name: 'Gaviota Peak', ft: 2458 }, weather: 'clear', time: 'dusk',
       waypoints: [
         { id: 'PTCONC', name: 'Point Conception Lighthouse', lat: 34.4486, lon: -120.4708 },
         { id: 'GAVIOT', name: 'Gaviota State Park', lat: 34.4714, lon: -120.2289 },
