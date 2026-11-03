@@ -96,7 +96,8 @@ export function findParking(input: ParkingInput, opts: ParkingOptions = {}): Par
         const t = headingToTaxiway(x, z, input.taxiways, 800);
         if (t && t.d < taxiClear) continue;
         if (nearBuilding(x, z, input.buildings, buildingClear)) continue;
-        if (out.some((o) => (o.x - x) ** 2 + (o.z - z) ** 2 < (spacing * 0.6) ** 2)) continue;
+        // keep clear of gates and earlier stands
+        if (out.some((o) => (o.x - x) ** 2 + (o.z - z) ** 2 < (o.kind === 'gate' ? 40 * 40 : (spacing * 0.6) ** 2))) continue;
         const id = hash2(opts.seed ?? 0, hash2(i, j)) % 900 + 100;
         out.push({ x, z, headingDeg: t ? t.h : 0, name: `Apron stand ${id}`, kind: 'stand' });
         stands++;

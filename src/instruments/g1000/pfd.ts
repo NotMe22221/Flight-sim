@@ -21,7 +21,7 @@ import { drawComBox, drawNavBox } from './radioBoxes';
 import { drawVsi } from './vsi';
 import { box, num, softkeys, text } from './widgets';
 import type { FmsWindow, Rect, WindowDrawData } from './fmsCore';
-import type { MapAirport, MapViewport, MovingMap } from './map';
+import type { MapAirport, MapDrawOptions, MapViewport, MovingMap } from './map';
 import { LabelCache } from '../labelCache';
 import { tapeOffsetPx } from '../scales';
 
@@ -105,7 +105,8 @@ export function drawPfd(ctx: Ctx2D, s: SimSnapshot, r: InstrumentReadings, st: P
   drawHsi(ctx, r, st.cdi, st.brg1, st.brg2, hsiGeo);
   if (st.dmeSource !== 'OFF') drawDmeWindow(ctx, st.dmeSource, st.dmeSource === 'NAV2' ? s.nav2 : s.nav1);
   drawBearingInfo(ctx, 1, st.brg1);
-  drawBearingInfo(ctx, 2, st.brg2);
+  // a PFD window covers the BRG2 info window
+  if (!ov || ov.windows.length === 0) drawBearingInfo(ctx, 2, st.brg2);
   // top bar and AFCS box
   drawNavBox(ctx, s.nav1, s.nav2, st.cdiSource, st.navFocus);
   drawNavStatus(ctx, s.plan, mv);
@@ -113,7 +114,7 @@ export function drawPfd(ctx: Ctx2D, s: SimSnapshot, r: InstrumentReadings, st: P
   drawAfcsBox(ctx, ap, st.afcs, st.cdi);
   // bottom data windows (the inset map takes the lower left)
   const inset = st.insetOn && ov?.insetMap;
-  if (inset) ov.insetMap!.draw(ctx, s, r, st.insetRangeNm, 'heading-up', ov.airports, { viewport: PFD_INSET, declutter: st.insetDeclutter });
+  if (inset) { INSET_OPTS.declutter = st.insetDeclutter; ov.insetMap!.draw(ctx, s, r, st.insetRangeNm, 'heading-up', ov.airports, INSET_OPTS); }
   else {
     drawGroundSpeed(ctx, r);
     if (st.windOn) drawWind(ctx, r, st.windOption);
@@ -139,6 +140,7 @@ function drawMinimums(ctx: Ctx2D, r: InstrumentReadings, minFt: number): void {
   }
 }
 const minLabels = new LabelCache((v) => String(v));
+const INSET_OPTS: MapDrawOptions = { viewport: PFD_INSET, declutter: 0 };
 
 /** Softkey bar (labels and highlighted keys from the menu state) with ALERTS recoloured for active warnings / cautions. */
 export function drawPfdSoftkeys(ctx: Ctx2D, r: InstrumentReadings, labels: readonly string[] = PFD_SOFTKEYS, mask = 0): void {

@@ -6,7 +6,7 @@ import type { Vec3, WeatherState } from '../core/types';
 import { builtinHeightFogValues, installBuiltinHeightFog } from './builtinFog';
 import { luminance } from './lighting';
 import { weatherFromPreset } from './presets';
-import { createSkySharedUniforms } from './skyUniforms';
+import { cloudShadowAt, createSkySharedUniforms } from './skyUniforms';
 import { type SkySnapshot, SkySystem, patchSkyDome, patchSkyDepth } from './SkySystem';
 
 function stubRenderer(): THREE.WebGLRenderer {
@@ -49,6 +49,28 @@ describe('sky → other renderers', () => {
     // no shadows at night
     sky.update(snapshot(MIDNIGHT, w), new THREE.Vector3(0, 2, 0), 1 / 60);
     expect(shared.uCloudShadowStrength.value).toBe(0);
+    sky.dispose();
+  });
+
+  it('cloud shadows: gaps get the full sun, shadows the floor, the ground average ≈ the dimmed sun', () => {
+    const shared = createSkySharedUniforms();
+    const sky = new SkySystem(new THREE.Scene(), stubRenderer(), { environmentMap: false, stars: 50, sharedUniforms: shared });
+    expect(cloudShadowAt(shared, 0, 0, 0, 0, 1, 0)).toBe(1); // nothing published yet
+    sky.update(snapshot(NOON, weatherFromPreset('scattered', 4)), new THREE.Vector3(0, 2, 0), 1 / 60);
+    const s = sky.lighting.sunDirThree;
+    let sum = 0, lo = Infinity, hi = -Infinity;
+    const n = 1600;
+    for (let i = 0; i < n; i++) {
+      const f = cloudShadowAt(shared, (i % 40) * 397 - 8000, 0, Math.floor(i / 40) * 401 - 8000, s.x, s.y, s.z);
+      sum += f; lo = Math.min(lo, f); hi = Math.max(hi, f);
+    }
+    expect(hi).toBeCloseTo(shared.uCloudShadowNorm.value, 6);
+    expect(lo).toBeLessThan(0.5);
+    expect(sum / n).toBeGreaterThan(0.7);
+    expect(sum / n).toBeLessThan(1.3);
+    // the built-in sun light carries the shadow at the aircraft
+    const atAircraft = cloudShadowAt(shared, 0, 2, 0, s.x, s.y, s.z);
+    expect(sky.sunLight.intensity).toBeCloseTo(sky.lighting.sunIntensity * atAircraft, 9);
     sky.dispose();
   });
 

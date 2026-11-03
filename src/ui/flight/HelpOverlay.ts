@@ -13,11 +13,14 @@ export class HelpOverlay {
 
   constructor(layer: HTMLElement) {
     this.search = h('input', { class: 'input', type: 'search', placeholder: 'Search actions or keys…', autocomplete: 'off', spellcheck: false, onInput: () => this.render() });
-    this.list = h('div', { class: 'help-groups scroll', style: 'flex:1;min-height:0;overflow:auto' });
+    // the columns live in an auto-height element inside the scroller: a multi-column box with a fixed
+    // height overflows sideways into extra (clipped) columns instead of scrolling down
+    this.list = h('div', { class: 'help-groups' });
+    const scroller = h('div', { class: 'help-scroll scroll' }, this.list);
     const card = this.card = h('div', { class: 'panel help-overlay', role: 'dialog', tabIndex: -1, aria: { label: 'Keyboard help' } },
       h('div', { class: 'row' }, icon('keyboard'), h('h2', { class: 'screen-title', style: 'font-size:1.1em;flex:1', text: 'Controls' }),
         button('', () => this.hide(), { icon: 'close', cls: 'btn-ghost btn-icon', title: 'Close (Esc)' })),
-      this.search, this.list,
+      this.search, scroller,
       h('div', { class: 'muted', style: 'font-size:.8em', text: 'Rebind keys in Settings › Controls. Laptop profile puts pitch/roll on the arrow keys and rudder on Q/E.' }));
     this.el = h('div', { class: 'modal-backdrop', onClick: (e) => { if (e.target === this.el) this.hide(); } }, card);
     layer.appendChild(this.el);

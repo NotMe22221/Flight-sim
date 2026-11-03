@@ -35,11 +35,13 @@ export class FplWindow extends FmsWindow {
   private readonly legDtkTrue: number[] = [];
   private readonly legNm: number[] = [];
   private header = '';
+  private offRouteLabel = '';
   private totalNm = 0;
 
   get count(): number { return this.fms.planner ? this.fms.planner.waypoints.length : 0; }
 
-  override editing(): boolean { return this.entry !== null; }
+  /** With the cursor on, typing spells a waypoint to insert. */
+  override editing(): boolean { return this.entry !== null || this.cursor; }
 
   override selection(): FmsTarget | null {
     const p = this.fms.planner;
@@ -136,6 +138,8 @@ export class FplWindow extends FmsWindow {
     }
     this.totalNm = total;
     this.header = wps.length ? `${wps[0].id} / ${wps[wps.length - 1].id}` : 'NO FLIGHT PLAN';
+    const off = p ? p.offRouteTarget : null;
+    this.offRouteLabel = off ? `D→ ${off.id}` : '';
   }
 
   draw(ctx: Ctx2D, rc: Rect, d: WindowDrawData): void {
@@ -147,7 +151,7 @@ export class FplWindow extends FmsWindow {
     const plan = this.fms.plan as FlightPlanEx | null;
     const offRoute = p ? p.offRouteTarget : null;
     text(ctx, this.header, x, y + 1, st.bold, G.white, 'left');
-    if (offRoute) text(ctx, `D→ ${offRoute.id}`, x + w, y + 1, st.bold, G.magenta, 'right');
+    if (offRoute) text(ctx, this.offRouteLabel, x + w, y + 1, st.bold, G.magenta, 'right');
     y += h;
     // column headers
     const cDtk = x + w * 0.52, cDis = x + w * 0.77, cEte = x + w;
@@ -157,7 +161,8 @@ export class FplWindow extends FmsWindow {
     y += h;
     const wps = p ? p.waypoints : NO_WAYPOINTS;
     const n = wps.length;
-    const rows = Math.max(1, Math.floor((rc.y + rc.h - y - h * 1.2) / h));
+    const footer = 1.2 + (this.cursor ? 0 : 1) + (this.message ? 1 : 0);
+    const rows = Math.max(1, Math.floor((rc.y + rc.h - y - h * footer) / h));
     const total = n + 1 + (this.entry ? 1 : 0);
     if (this.sel < this.top) this.top = this.sel;
     if (this.sel >= this.top + rows - (this.entry ? 1 : 0)) this.top = this.sel - rows + 1 + (this.entry ? 1 : 0);

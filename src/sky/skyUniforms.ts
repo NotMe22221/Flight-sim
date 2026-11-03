@@ -21,7 +21,7 @@
  * unobstructed sun and the average over the ground matches the dimmed sun the built-in materials receive.
  */
 import { Color, Vector4 } from 'three';
-import { CLOUD_NOISE_GLSL } from './cloudMath';
+import { CLOUD_NOISE_GLSL, coverageMask, fbm2 } from './cloudMath';
 
 export const MAX_SHADOW_LAYERS = 4;
 
@@ -103,3 +103,25 @@ float skyCloudShadow( vec3 worldPos, vec3 sunDir ) {
   return mix( 1.0, f, uCloudShadowStrength );
 }
 `;
+
+/**
+ * CPU twin of `skyCloudShadow` (same layers, noise, floor and normalisation): the factor on the direct sun
+ * at a render-frame point. `SkySystem` applies it at the aircraft to the sun light of the built-in
+ * materials (aircraft, runways, buildings), so they darken with the ground when a cloud shadow passes.
+ */
+export function cloudShadowAt(u: SkySharedUniforms, x: number, y: number, z: number, sunX: number, sunY: number, sunZ: number): number {
+  const strength = u.uCloudShadowStrength.value;
+  const n = Math.min(u.uCloudShadowCount.value, MAX_SHADOW_LAYERS);
+  if (!(strength > 0) || n < 1) return 1;
+  const sy = Math.max(sunY, 0.12);
+  let tr = 1;
+  for (let i = 0; i < n; i++) {
+    const a = u.uCloudShadowA.value[i], b = u.uCloudShadowB.value[i];
+    const t = (b.x - y) / sy;
+    const qx = x + sunX * t, qz = z + sunZ * t;
+    const dens = coverageMask(fbm2((qx - b.y) * a.y, (qz - b.z) * a.y, 3), a.x);
+    tr *= Math.exp((-a.w * dens) / sy);
+  }
+  const f = Math.max(tr, u.uCloudShadowFloor.value) * u.uCloudShadowNorm.value;
+  return 1 + (f - 1) * strength;
+}

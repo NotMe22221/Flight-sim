@@ -11,7 +11,7 @@ import { LabelCache } from '../labelCache';
 import type { ComState } from '../radioStack';
 import type { InstrumentReadings } from '../readings';
 import { drawEis } from './eis';
-import { type MapAirport, type MapOrientation, type MapViewport, MovingMap } from './map';
+import { type MapAirport, type MapDrawOptions, type MapOrientation, type MapViewport, MovingMap } from './map';
 import type { FmsWindow, Rect, WindowDrawData } from './fmsCore';
 import { type CdiSource, G, MFD, cond, condBold } from './palette';
 import { drawComBox, drawNavBox } from './radioBoxes';
@@ -50,6 +50,8 @@ export const MFD_MAP_NARROW: MapViewport = Object.freeze({ x: MFD.mapX, y: MFD.m
 /** Page window (FPL / NRST) and popups (D→, PROC, menus) on the right. */
 export const MFD_PANEL: Rect = Object.freeze({ x: 724, y: MFD.mapY, w: 300, h: 634 });
 export const MFD_POPUP: Rect = Object.freeze({ x: 724, y: MFD.mapY, w: 300, h: 430 });
+const MAP_OPTS: MapDrawOptions = { viewport: undefined, declutter: 0 };
+
 /** Page-group indicator strip above the softkeys. */
 export const PAGE_GROUPS_Y = 700;
 
@@ -73,17 +75,16 @@ export function drawMfd(ctx: Ctx2D, s: SimSnapshot, r: InstrumentReadings, st: M
   box(ctx, MFD.mapX, MFD.topBarH, MFD.width - MFD.mapX, MFD.dataFieldH, G.barBg);
   text(ctx, st.title, MFD.mapX + (MFD.width - MFD.mapX) / 2, MFD.topBarH + MFD.dataFieldH / 2, condBold.get(16), G.white, 'center');
   drawEis(ctx, r);
-  const vp = ov ? (ov.page ? MFD_MAP_NARROW : MFD_MAP_FULL) : undefined;
-  map.draw(ctx, s, r, st.rangeNm, st.orientation, st.airports, { viewport: vp, declutter: st.declutter });
+  MAP_OPTS.viewport = ov ? (ov.page ? MFD_MAP_NARROW : MFD_MAP_FULL) : undefined;
+  MAP_OPTS.declutter = st.declutter;
+  map.draw(ctx, s, r, st.rangeNm, st.orientation, st.airports, MAP_OPTS);
   if (ov) {
     if (ov.page) ov.page.draw(ctx, MFD_PANEL, ov.data);
-    for (const w of ov.popups) w.draw(ctx, w.kind === 'menu' || w.kind === 'confirm' ? MFD_POPUP : popupRect(w), ov.data);
+    for (const w of ov.popups) w.draw(ctx, w.kind === 'menu' || w.kind === 'confirm' ? MFD_POPUP : MFD_PANEL, ov.data);
     drawPageGroups(ctx, ov);
   }
   softkeys(ctx, MFD.softkeyY, MFD.softkeyH, MFD.width, st.softkeys, -1, st.softkeyMask);
 }
-
-const popupRect = (w: FmsWindow): Rect => (w.kind === 'proc' || w.kind === 'direct' ? MFD_POPUP : MFD_PANEL);
 
 /** Page groups (outer FMS knob) along the bottom right, the active one cyan with its page dots. */
 function drawPageGroups(ctx: Ctx2D, ov: MfdOverlays): void {

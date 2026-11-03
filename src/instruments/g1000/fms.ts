@@ -66,8 +66,10 @@ export class G1000Fms implements FmsContext {
   mfdPageIndex = 0;
   readonly fplPage: FplWindow;
   readonly nrstPage: NearestWindow;
-  /** approach loaded with LOAD (arms the GPS → LOC switch) */
-  armedApproach: { info: ApproachInfo; fafId: string; rwId: string } | null = null;
+  /** the loaded approach (its fixes are replaced by the next one) */
+  loadedApproach: { info: ApproachInfo; fafId: string; rwId: string } | null = null;
+  /** LOAD-ed but not yet on the localizer: switch the CDI GPS → LOC on the final */
+  approachArmed = false;
   readonly wheel = new WheelAccumulator();
   private readonly navStandby = [0, 0];
   private readonly navObs = [0, 0];
@@ -126,7 +128,7 @@ export class G1000Fms implements FmsContext {
     const fixes = approachWaypoints(a);
     if (p) {
       // a newly loaded approach replaces the previous one's fixes
-      for (const id of this.armedApproach ? [this.armedApproach.fafId, this.armedApproach.rwId] : []) {
+      for (const id of this.loadedApproach ? [this.loadedApproach.fafId, this.loadedApproach.rwId] : []) {
         const i = p.indexOfId(id);
         if (i >= 0) p.remove(i);
       }
@@ -136,7 +138,8 @@ export class G1000Fms implements FmsContext {
     }
     this.emit({ kind: 'navActive', radio: 1, kHz: a.frequencyKHz });
     this.emit({ kind: 'navCourse', radio: 1, courseDeg: Math.round(wrap360(a.courseTrueDeg - this.magVarDeg)) });
-    this.armedApproach = { info: a, fafId: fixes[0].id, rwId: fixes[1].id };
+    this.loadedApproach = { info: a, fafId: fixes[0].id, rwId: fixes[1].id };
+    this.approachArmed = !activate;
     if (activate) this.setCdiSource('NAV1');
     this.touch();
   }
@@ -155,6 +158,14 @@ export class G1000Fms implements FmsContext {
     return nav.nearestAirports(this.pos, 1, 100)[0] ?? null;
   }
 
+  /** Fill in a target's name from the database (plan waypoints carry only an ident). */
+  named(t: FmsTarget): FmsTarget {
+    if (t.name || !this.nav) return t;
+    if (t.kind === 'airport') { const a = this.nav.getAirport(t.ident); if (a) return { ...t, name: a.name }; }
+    else for (const m of this.search(t.ident, 4)) if (m.ident === t.ident && m.exact) return { ...t, name: m.name, frequencyKHz: m.frequencyKHz };
+    return t;
+  }
+
   // ───────────────────────────── display state ─────────────────────────────
 
   /** Top PFD window (drawn lower right), or null. */
@@ -166,8 +177,16 @@ export class G1000Fms implements FmsContext {
   /** The MFD page window (FPL / NRST) or null on the map page. */
   mfdPage(): FmsWindow | null { return this.mfdGroup === 1 ? this.fplPage : this.mfdGroup === 2 ? this.nrstPage : null; }
 
-  /** True when typed characters would be used (route keyboard input to the G1000). */
-  get wantsKeyboard(): boolean { return this.editingDisplay() !== null; }
+  /** True while a window or a page cursor is active: route Enter / Escape (and typing) to the G1000. */
+  get wantsKeyboard(): boolean { return this.keyDisplay() !== null; }
+
+  /** The display whose window (or page cursor) takes ENT / CLR from the keyboard, or null. */
+  keyDisplay(): G1000Display | null {
+    if (this.mfdStack.length) return 'mfd';
+    if (this.pfdStack.length) return 'pfd';
+    const pg = this.mfdPage();
+    return pg && (pg as { cursor?: boolean }).cursor ? 'mfd' : null;
+  }
 
   /** True when a window showing position-dependent values is open on `display`. */
   liveOn(display: G1000Display): boolean {
@@ -227,13 +246,13 @@ export class G1000Fms implements FmsContext {
 
   /** LOAD-ed ILS: switch GPS → NAV1 once the localizer is alive on the final course. */
   private autoSwitchToLoc(s: SimSnapshot): void {
-    const a = this.armedApproach, p = this.planner;
-    if (!a || !p || this.pfd.cdiSource !== 'GPS') return;
+    const a = this.loadedApproach, p = this.planner;
+    if (!a || !this.approachArmed || !p || this.pfd.cdiSource !== 'GPS') return;
     const n = s.nav1;
     if (!n.valid || !n.isLocalizer || n.activeKHz !== a.info.frequencyKHz || Math.abs(n.cdi) >= 0.9) return;
     const act = p.activeWaypoint, plan = s.plan;
     const onFinal = !!act && (act.id === a.rwId || (act.id === a.fafId && !!plan && plan.distanceToActiveM < LOC_SWITCH_NM * 1852));
-    if (onFinal) { this.setCdiSource('NAV1'); this.armedApproach = null; }
+    if (onFinal) { this.setCdiSource('NAV1'); this.approachArmed = false; }
   }
 
   // ───────────────────────────── input ─────────────────────────────
@@ -268,12 +287,13 @@ export class G1000Fms implements FmsContext {
     if (d === 'pfd') return false;
     const pg = this.mfdPage();
     if (pg && pg.input(ev)) return true;
-    if (ev.key === 'outer' && ev.steps) { this.setMfdPage(this.mfdGroup + Math.sign(ev.steps)); return true; }
-    if (ev.key === 'inner' && ev.steps) { this.setMfdPage(this.mfdGroup, this.mfdPageIndex + Math.sign(ev.steps)); return true; }
+    if (ev.key === 'outer' && ev.steps) { this.setMfdPage(this.mfdGroup + Math.round(ev.steps)); return true; }
+    if (ev.key === 'inner' && ev.steps) { this.setMfdPage(this.mfdGroup, this.mfdPageIndex + Math.round(ev.steps)); return true; }
     return ev.key === 'push' || ev.key === 'ENT' || ev.key === 'CLR' || ev.key === 'MENU';
   }
 
-  private editingDisplay(): G1000Display | null {
+  /** The display whose top window accepts typed characters now, or null. */
+  editingDisplay(): G1000Display | null {
     const m = this.mfdStack[this.mfdStack.length - 1] ?? this.mfdPage();
     if (m && m.editing()) return 'mfd';
     const p = this.pfdWindow();
@@ -366,7 +386,7 @@ export class G1000Fms implements FmsContext {
         const st = this.stack(d), top = st[st.length - 1];
         if (top && top.kind === 'direct') { this.close(top); return true; }
         const pre = (top ?? (d === 'mfd' ? this.mfdPage() : null))?.selection() ?? null;
-        this.open(d, new DirectToWindow(this, pre));
+        this.open(d, new DirectToWindow(this, pre ? this.named(pre) : null));
         return true;
       }
       case 'FPL':

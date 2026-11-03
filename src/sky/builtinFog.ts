@@ -12,8 +12,9 @@
  * colours given here are display (tone-mapped, sRGB) values, like `scene.fog.color`.
  *
  * Robustness: a program whose uniforms lack the new values (a ShaderMaterial built before the install or
- * without `UniformsLib.fog`) reads zeros and keeps three's exact FogExp2 / linear `Fog` maths; with
- * `enabled = 0` every material does. Only `mvPosition`, `viewMatrix` and `cameraPosition` are used,
+ * without `UniformsLib.fog`) reads zeros and keeps three's exact FogExp2 maths; with `enabled = 0` every
+ * material does, and a linear `THREE.Fog` (some other scene) always does — only FogExp2 scenes get the
+ * height fog. Only `mvPosition`, `viewMatrix` and `cameraPosition` are used,
  * which every built-in and ShaderMaterial program declares (RawShaderMaterial does not use these chunks).
  */
 import * as THREE from 'three';
@@ -64,18 +65,19 @@ const FRAGMENT = /* glsl */ `
 	vec3 fogMixColor = fogColor;
 	#ifdef FOG_EXP2
 		float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+		// the sky's height fog (scene.fog is the sky's FogExp2; a linear Fog elsewhere stays three's)
+		if ( skyFogA.w > 0.5 ) {
+			float skyFogDist = length( vFogWorldOffset );
+			vec3 skyFogDir = vFogWorldOffset / max( skyFogDist, 1e-3 );
+			float skyFogK = skyFogDist * skyFogDir.y * skyFogA.y;
+			float skyFogE0 = exp( - min( max( cameraPosition.y - skyFogA.z, 0.0 ) * skyFogA.y, 80.0 ) );
+			float skyFogG = abs( skyFogK ) < 1e-3 ? 1.0 - skyFogK * ( 0.5 - skyFogK / 6.0 ) : ( 1.0 - exp( - clamp( skyFogK, -80.0, 80.0 ) ) ) / skyFogK;
+			fogFactor = 1.0 - exp( - max( skyFogA.x * skyFogE0 * skyFogDist * skyFogG, 0.0 ) );
+			fogMixColor = mix( fogColor, skyFogC.rgb, skyFogSunLobe( dot( skyFogDir, skyFogB.xyz ) ) );
+		}
 	#else
 		float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
 	#endif
-	if ( skyFogA.w > 0.5 ) {
-		float skyFogDist = length( vFogWorldOffset );
-		vec3 skyFogDir = vFogWorldOffset / max( skyFogDist, 1e-3 );
-		float skyFogK = skyFogDist * skyFogDir.y * skyFogA.y;
-		float skyFogE0 = exp( - min( max( cameraPosition.y - skyFogA.z, 0.0 ) * skyFogA.y, 80.0 ) );
-		float skyFogG = abs( skyFogK ) < 1e-3 ? 1.0 - skyFogK * ( 0.5 - skyFogK / 6.0 ) : ( 1.0 - exp( - clamp( skyFogK, -80.0, 80.0 ) ) ) / skyFogK;
-		fogFactor = 1.0 - exp( - max( skyFogA.x * skyFogE0 * skyFogDist * skyFogG, 0.0 ) );
-		fogMixColor = mix( fogColor, skyFogC.rgb, skyFogSunLobe( dot( skyFogDir, skyFogB.xyz ) ) );
-	}
 	gl_FragColor.rgb = mix( gl_FragColor.rgb, fogMixColor, fogFactor );
 #endif
 `;

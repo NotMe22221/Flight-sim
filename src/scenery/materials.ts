@@ -10,10 +10,10 @@ import { makeFacadeImages, makePavementImage, makePlainImage, makePoolImage, mak
 
 /**
  * Image-based lighting share. The sky's PMREM environment is several times brighter than its
- * sun DirectionalLight, so at full strength every surface turns sky-blue; a small share keeps
- * a hint of sky reflection while the sun and hemisphere light do the shading (as for terrain).
+ * sun DirectionalLight, so even a small share turns every roof and apron sky-blue; diffuse
+ * scenery is shaded by the sun and the (desaturated) hemisphere light, like the terrain shader.
  */
-export const ENV_INTENSITY = 0.06;
+export const ENV_INTENSITY = 0;
 /** Relative depth bias of draped surfaces (fraction of the view distance) so they win over the terrain mesh. */
 export const DRAPE_DEPTH_BIAS = 0.0025;
 
@@ -69,7 +69,7 @@ export class SceneryMaterials {
   readonly pools: THREE.MeshBasicMaterial;
   readonly textures: THREE.Texture[] = [];
   /** minimum light point size in pixels (shared uniform) */
-  readonly minPointPx = { value: 2.5 };
+  readonly minPointPx = { value: 3 };
   /** relative depth bias of draped surfaces (shared uniform) */
   readonly depthBias = { value: DRAPE_DEPTH_BIAS };
   /** saturation kept in the sky ambient light (shared uniform) */
@@ -90,7 +90,7 @@ export class SceneryMaterials {
 
     this.walls = new THREE.MeshStandardMaterial({
       name: 'scenery-walls', map: facadeMap, roughnessMap: facadeRough, emissiveMap: facadeEmissive, emissive: 0xffffff, emissiveIntensity: 0,
-      vertexColors: true, roughness: 1, metalness: 0.05, envMapIntensity: ENV_INTENSITY * 1.5,
+      vertexColors: true, roughness: 1, metalness: 0.05, envMapIntensity: 0.03,
     });
     this.plain = new THREE.MeshStandardMaterial({ name: 'scenery-plain', map: plainMap, vertexColors: true, roughness: 0.85, metalness: 0.1, envMapIntensity: ENV_INTENSITY });
     this.roofs = new THREE.MeshStandardMaterial({ name: 'scenery-roofs', map: roofMap, vertexColors: true, roughness: 0.95, metalness: 0, envMapIntensity: ENV_INTENSITY });
@@ -109,8 +109,8 @@ export class SceneryMaterials {
     patchMaterial(this.markings, { depthBias: this.depthBias, ambientSat: this.ambientSat }, 'scenery-markings-1');
     this.trees = new THREE.MeshLambertMaterial({ name: 'scenery-trees', vertexColors: true });
     patchMaterial(this.trees, { ambientSat: this.ambientSat }, 'scenery-trees-1');
-    this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 12);
-    this.airportLights = this.pointsMaterial('scenery-airport-lights', sprite, 5.5);
+    this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 16);
+    this.airportLights = this.pointsMaterial('scenery-airport-lights', sprite, 9);
     this.pools = new THREE.MeshBasicMaterial({
       name: 'scenery-light-pools', map: pool, color: 0xffe2b8, transparent: true, opacity: 0, depthWrite: false,
       blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, toneMapped: true,
@@ -122,6 +122,8 @@ export class SceneryMaterials {
     const m = new THREE.PointsMaterial({
       name, size, map: sprite, vertexColors: true, transparent: true, opacity: 0, depthWrite: false,
       blending: THREE.AdditiveBlending, sizeAttenuation: true, alphaTest: 0.002,
+      // emissive sprites keep their hue (tone mapping would wash blue taxiway lights out to white)
+      toneMapped: false,
     });
     const minPx = this.minPointPx;
     m.onBeforeCompile = (shader) => {

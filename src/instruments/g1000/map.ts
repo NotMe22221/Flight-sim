@@ -40,7 +40,7 @@ export const MAP = Object.freeze({
 export interface MapViewport { readonly x: number; readonly y: number; readonly w: number; readonly h: number; readonly compact?: boolean }
 
 /** Optional drawing settings: viewport, declutter level 0–3 (1: no airport labels, 2: no airports, 3: no plan labels). */
-export interface MapDrawOptions { viewport?: MapViewport; declutter?: number }
+export interface MapDrawOptions { viewport?: MapViewport | undefined; declutter?: number }
 
 /** Per-frame view transform: screen = centre + k·R(θ)·(east, north). */
 export interface MapView { cx: number; cy: number; pxPerNm: number; ringPx: number; upDeg: number; cos: number; sin: number }

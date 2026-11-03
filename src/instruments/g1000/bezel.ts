@@ -43,13 +43,13 @@ interface KeyDef { id: G1000Button; x: number; y: number; w: number; h: number; 
 const L = BEZEL.leftCx, R = BEZEL.rightCx;
 const KNOBS: readonly KnobDef[] = [
   { id: 'NAV_VOL', cx: L, cy: 112, r: 22, rInner: 0, label: 'NAV', sub: 'VOL/ID' },
-  { id: 'NAV', cx: L, cy: 246, r: 46, rInner: 27, label: '', sub: 'PUSH 1-2' },
-  { id: 'HDG', cx: L, cy: 362, r: 36, rInner: 0, label: 'HDG', sub: 'PUSH SYNC' },
+  { id: 'NAV', cx: L, cy: 240, r: 44, rInner: 26, label: '', sub: 'PUSH 1-2' },
+  { id: 'HDG', cx: L, cy: 362, r: 34, rInner: 0, label: 'HDG', sub: 'PUSH SYNC' },
   { id: 'ALT', cx: L, cy: 806, r: 46, rInner: 27, label: 'ALT SEL', sub: '' },
   { id: 'COM_VOL', cx: R, cy: 112, r: 22, rInner: 0, label: 'COM', sub: 'VOL/SQ' },
-  { id: 'COM', cx: R, cy: 246, r: 46, rInner: 27, label: '', sub: 'PUSH 1-2' },
+  { id: 'COM', cx: R, cy: 240, r: 44, rInner: 26, label: '', sub: 'PUSH 1-2' },
   { id: 'CRS_BARO', cx: R, cy: 376, r: 44, rInner: 26, label: 'CRS/BARO', sub: 'PUSH CTR' },
-  { id: 'RANGE', cx: R, cy: 488, r: 34, rInner: 0, label: 'RANGE', sub: '' },
+  { id: 'RANGE', cx: R, cy: 496, r: 32, rInner: 0, label: 'RANGE', sub: '' },
   { id: 'FMS', cx: R, cy: 806, r: 50, rInner: 29, label: 'FMS', sub: 'PUSH CRSR' },
 ];
 
@@ -180,8 +180,8 @@ function keyCap(ctx: Ctx2D, x: number, y: number, w: number, h: number, hot: boo
 
 function knob(ctx: Ctx2D, k: KnobDef, hot: boolean): void {
   const { cx, cy, r, rInner } = k;
-  if (k.label) text(ctx, k.label, cx, cy - r - 12, condBold.get(13), G.white, 'center');
-  if (k.sub) text(ctx, k.sub, cx, cy + r + 13, cond.get(11), G.white, 'center');
+  if (k.label) text(ctx, k.label, cx, cy - r - 10, condBold.get(13), G.white, 'center');
+  if (k.sub) text(ctx, k.sub, cx, cy + r + 9, cond.get(10), '#c8ccd0', 'center');
   ctx.fillStyle = '#070809';
   ctx.beginPath(); ctx.arc(cx, cy + 2, r + 2, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#2a2d31';

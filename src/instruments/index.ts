@@ -3,12 +3,21 @@
  * overlays in the DOM). No Three.js imports anywhere in this module. See README.md.
  *
  *  - `SteamPanel`  C172S six-pack + engine cluster + radio stack on one 1024×512 canvas
- *  - `G1000`       PFD + MFD canvases (1024×768 each) with moving map and engine strip
+ *  - `G1000`       PFD + MFD canvases (GDU bezel around 1024×768 screens), interactive like the
+ *                  G1000 NXi (softkeys, knobs, D→, FPL, NRST, PROC); `G1000Panel` composites both
  *  - `Hud`         translucent DOM-overlay HUD for the external views
  *  - `InstrumentModel` the instrument dynamics shared by all of them
  */
 export { SteamPanel, C172_STEAM_LAYOUT, type GaugeId, type PanelItem, type PanelLayout, type SteamPanelOptions } from './SteamPanel';
 export { G1000, type G1000Options, type NearestAirportInput } from './g1000/G1000';
+export { G1000Panel, type G1000PanelOptions, type PanelPoint } from './g1000/panel';
+export { BEZEL, bezelRegions, hitTest, controlInfo, controlKey, type BezelControl, type BezelHit, type HitRegion } from './g1000/bezel';
+export {
+  WheelAccumulator, DUAL_KNOBS, navSourceFor,
+  type G1000Button, type G1000Command, type G1000Display, type G1000Input, type G1000Knob, type KnobRing,
+} from './g1000/input';
+export type { G1000NavDb, G1000Planner, FmsTarget } from './g1000/fmsCore';
+export { G1000Fms, MFD_GROUPS } from './g1000/fms';
 export { Hud, type HudOptions } from './Hud';
 export type { HudValues } from './hud/values';
 export {

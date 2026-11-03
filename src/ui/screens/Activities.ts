@@ -3,7 +3,7 @@
  * best scores (localStorage), a briefing card, and Start → host.startChallenge(id).
  */
 import { Screen, screenHeader, type ScreenContext } from './Screen';
-import { Txt, button, clear, h, icon } from '../dom';
+import { Txt, button, clear, h, icon, isNarrowScreen } from '../dom';
 import {
   CHALLENGE_FILTERS, categoryCounts, challengeConditions, challengesIn, landingChallenges, loadBestScores,
   type BestScores, type CategoryFilter, type LandingChallenge,
@@ -49,7 +49,8 @@ export class Activities extends Screen {
     this.renderDetail();
   }
 
-  override focus(): void { (this.startBtn ?? this.tabs.get(this.filter))?.focus(); }
+  // no scroll: on a phone the briefing (and its Start button) sits below the list
+  override focus(): void { (this.startBtn ?? this.tabs.get(this.filter))?.focus({ preventScroll: true }); }
 
   private setFilter(f: CategoryFilter): void {
     this.filter = f;
@@ -97,6 +98,8 @@ export class Activities extends Screen {
     this.selectedId = id;
     for (const [k, el] of this.cards) { el.classList.toggle('selected', k === id); el.setAttribute('aria-selected', String(k === id)); }
     this.renderDetail();
+    // single-column phone layout: the briefing is below the list, bring it (and Start) into view
+    if (isNarrowScreen()) this.detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   private renderDetail(): void {

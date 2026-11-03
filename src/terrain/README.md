@@ -36,6 +36,11 @@ terrain.setFrame(newFrame);
 `ambientIrradiance` is the colour × intensity you would give three's `AmbientLight` /
 `HemisphereLight` sky colour. Lighting follows three's physically based scale (radiance =
 albedo/π · irradiance), so terrain matches `MeshStandardMaterial` objects under the same lights.
+Every tile material also references the sky's shared uniforms (`src/sky/skyUniforms.ts`, default the
+process-wide `SKY_UNIFORMS` that `SkySystem` publishes into; option `skyUniforms` to isolate): once a sky
+has published (`uSkyLinked`), its `uSkyIrradiance` (exactly the built-in materials' hemisphere + ambient
+floor) replaces `setSun`'s `ambient`, the ocean reflects its zenith/horizon colours, and terrain and ocean
+receive its cloud shadows. Nothing to wire.
 
 ## Public API (`TerrainSystem`)
 
@@ -114,14 +119,26 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   and dropped the moment real data covers them. A cached response that fails to decode is evicted from
   the Cache API. A module worker that fails to start switches the loader to in-thread; a worker reply
   that cannot be posted becomes an `error`, so no request waits forever.
-* **Materials** (`materials.ts`): ShaderMaterial, sRGB imagery, sun + hemisphere-ish ambient with low
-  slope contrast (`uSlopeContrast` 0.4, imagery has baked shading), local vertical from the earth
-  centre, the sky module's exponential height fog (`β(y) = β0·exp(−(y − groundY)·falloff)`, closed-form
-  optical depth, sun-glow lobe), tone mapping and colour-space chunks. Includes `<logdepthbuf_*>`
-  chunks, so it is correct with a logarithmic depth buffer; with a reversed depth buffer three
-  supplies projection and depth function. Ocean: same grid at h = 0 on the ellipsoid for tiles with
-  sea cells, depth-tinted, four animated wave trains (faded with distance), Fresnel sky reflection,
-  normalized Blinn-Phong sun glint.
+* **Materials** (`materials.ts`): ShaderMaterial, sRGB imagery, sun + the sky's ambient irradiance with
+  low slope contrast (`uSlopeContrast` 0.4, imagery has baked shading), local vertical from the earth
+  centre, cloud shadows along the sun ray (`skyCloudShadow`, same noise field as the cloud planes), the
+  sky module's exponential height fog (`β(y) = β0·exp(−(y − groundY)·falloff)`, closed-form optical
+  depth) toward its haze colour with the Henyey–Greenstein sun-ward lobe (`hazeSunLobe`), tone mapping and
+  colour-space chunks. Real imagery is sampled unmodified (only lit, shadowed and fogged); procedural
+  fallback tiles (`uProcedural`) add a ground-fixed detail texture (value noise at 4 / 32 / 128 / 512 m,
+  brightness ± and lush/dry tint, fine octaves faded with distance; `uDetailOffset` follows rebases mod
+  8192 m so it never jumps). Includes `<logdepthbuf_*>` chunks, so it is correct with a logarithmic depth
+  buffer; with a reversed depth buffer three supplies projection and depth function. Ocean: same grid at
+  h = 0 on the ellipsoid for tiles with sea cells; dark blue-green body (greener over < 4 m of water),
+  four animated wave trains faded by the pixel footprint (distance / grazing incidence, no moiré),
+  Schlick Fresnel capped at 0.6 (rough water) reflecting the sky from the horizon (no brighter than the
+  haze over it) to the zenith colour, normalized Blinn-Phong sun glint whose lobe widens with distance
+  (glitter path), cloud shadows on sun terms.
+* **Procedural fallback colours** (`procedural.ts`, offline only): land cover from the tile's heights and
+  ground-fixed noise — dark blue-green water by depth, wet sand and beaches in the 0–1.8 m band, lowland
+  field patchwork (warped ≈ 260 × 190 m parcels, crop/pasture/fallow tones, faded to the average where a
+  pixel is coarser than a field), grass drifting lush ↔ dry by region, forest by humidity (conifers above
+  ≈ 1 km), scrub on dry slopes, alpine meadow, rock by slope and altitude, snow above a noisy ≈ 2 550 m line.
 
 ## Files
 
@@ -159,7 +176,10 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   fallback, abort, timeout of a hanging server, 404 vs transient classification,
   `proceduralOnTransient: false` → transient error, a poisoned Cache API entry is evicted and refetched.
 * `drawPlan.test.ts`, `groundQueries.test.ts`, `materials.test.ts` (shader includes resolve against
-  three's `ShaderChunk`, log-depth chunks present, declared uniforms exist), `sampling.test.ts`, plus
+  three's `ShaderChunk`, log-depth chunks present, declared uniforms exist incl. arrays, sky uniforms shared
+  by reference, detail only behind the procedural flag), `procedural.test.ts` (land-cover classes: beach,
+  vegetation, rock, snow, dark water; variation; determinism), `TerrainSystem.test.ts` (detail offset
+  follows a rebase), `sampling.test.ts`, plus
   the earlier pure-module tests (quadtree, tileMesh, gridIndex, heightfield, terrarium, procedural,
   providers, imagery, tilePipeline).
 * Manually verified in headless Chrome (SwiftShader) with a throwaway Vite build: the module worker

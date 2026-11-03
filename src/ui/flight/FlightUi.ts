@@ -83,8 +83,12 @@ export class FlightUi {
     // hidden until the 'flight' route shows; no onOverlayChange here (the owner is still constructing)
     d.hudLayer.style.display = 'none';
     d.flightLayer.style.display = 'none';
-    // a slider, dropdown or button used with the pointer must not keep the keyboard from the flight
+    // a slider, dropdown or button used with the pointer must not keep the keyboard from the flight;
+    // pointerup too, because a click can be swallowed before it reaches the UI (the cockpit's
+    // capture-phase knob handler stops clicks over the instrument panel) while mousedown already
+    // focused the control
     d.flightLayer.addEventListener('click', (e) => { if (e.detail > 0) this.releaseFocus(e.target, 'click'); });
+    d.flightLayer.addEventListener('pointerup', (e) => this.releaseFocus(e.target, 'click'));
     d.flightLayer.addEventListener('change', (e) => this.releaseFocus(e.target, 'change'));
   }
 

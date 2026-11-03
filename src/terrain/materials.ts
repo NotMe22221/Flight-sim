@@ -112,14 +112,14 @@ float detailNoise(vec2 p, float period) {
   float a = detailHash(i0), b = detailHash(vec2(i1.x, i0.y)), c = detailHash(vec2(i0.x, i1.y)), d = detailHash(i1);
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
-// albedo × (brightness and dry/green variation): 4 octaves (4 … 600 m), fine ones faded with the
-// pixel footprint so they never alias
+// albedo × (brightness and dry/green variation): 4 octaves (4, 32, 128, 512 m — each divides the
+// period, so the lattice wraps seamlessly), fine ones faded with the pixel footprint so they never alias
 vec3 proceduralDetail(vec3 albedo, vec3 worldPos, float dist) {
   vec2 p = worldPos.xz + uDetailOffset;
   float fade1 = 1.0 - smoothstep(150.0, 900.0, dist);
   float fade2 = 1.0 - smoothstep(600.0, 4000.0, dist);
   float n1 = detailNoise(p / 4.0, ${DETAIL_PERIOD_M / 4}.0) - 0.5;
-  float n2 = detailNoise(p / 23.0 + 17.0, ${(DETAIL_PERIOD_M / 23).toFixed(0)}.0) - 0.5;
+  float n2 = detailNoise(p / 32.0 + 17.0, ${DETAIL_PERIOD_M / 32}.0) - 0.5;
   float n3 = detailNoise(p / 128.0 + 5.0, ${DETAIL_PERIOD_M / 128}.0) - 0.5;
   float n4 = detailNoise(p / 512.0 + 9.0, ${DETAIL_PERIOD_M / 512}.0) - 0.5;
   float bright = 1.0 + 0.3 * n1 * fade1 + 0.26 * n2 * fade2 + 0.16 * n3 + 0.1 * n4;

@@ -276,19 +276,24 @@ export class G1000 {
     return { ...controlInfo(c, label), control: c };
   }
 
-  /** True while an ident field is being edited: route typed keys through `keyboard()`. */
+  /** True while a window or page cursor is active: route keys through `keyboard()` (it returns false for keys it does not use). */
   get wantsKeyboard(): boolean { return this.fms.wantsKeyboard; }
 
   /**
-   * A `KeyboardEvent.key` for ident entry: letters and digits type, Backspace deletes, Enter is
-   * ENT, Escape is CLR. Returns false for other keys (let them through).
+   * A `KeyboardEvent.key` for the open window: Enter = ENT, Escape = CLR; letters, digits and
+   * Backspace spell an ident where a field accepts typing. Returns false for keys it did not use
+   * (let them through to the simulator's bindings).
    */
   keyboard(key: string, display?: G1000Display): boolean {
-    if (key === 'Enter') return this.handleInput({ type: 'button', display, id: 'ENT' });
-    if (key === 'Escape') return this.handleInput({ type: 'button', display, id: 'CLR' });
-    if (key === 'Backspace') return this.handleInput({ type: 'char', display, char: '\b' });
-    if (key.length === 1 && /[a-z0-9]/i.test(key)) return this.handleInput({ type: 'char', display, char: key });
-    return false;
+    const d = display ?? this.fms.keyDisplay();
+    if (!d) return false;
+    if (key === 'Enter') return this.handleInput({ type: 'button', display: d, id: 'ENT' });
+    if (key === 'Escape') return this.handleInput({ type: 'button', display: d, id: 'CLR' });
+    const typing = key === 'Backspace' || (key.length === 1 && /[a-z0-9]/i.test(key));
+    if (!typing) return false;
+    const ed = display ?? this.fms.editingDisplay();
+    if (!ed) return false;
+    return this.handleInput({ type: 'char', display: ed, char: key === 'Backspace' ? '\b' : key });
   }
 
   /** Requests queued while no `onCommand` callback is set (returned and cleared). */
@@ -403,3 +408,6 @@ export class G1000 {
     ctx.beginPath(); ctx.rect(0, 0, MFD.width, MFD.height); ctx.clip();
   }
 }
+
+// The simulator's plugin loader only sees this module's exports.
+export { G1000Panel } from './panel';

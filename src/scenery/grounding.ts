@@ -15,6 +15,33 @@ import type { LocalFrame } from '../geo/wgs84';
 
 export type GroundUpFn = (north: number, east: number) => number | null;
 
+export interface UpdateRange { start: number; count: number }
+
+/**
+ * Mark [start, start + count) of an attribute for upload without allocating: one persistent
+ * range object per attribute, widened while an earlier range is still waiting for upload
+ * (three clears `updateRanges` after each upload).
+ */
+export function markRange(a: { updateRanges: UpdateRange[]; needsUpdate: boolean }, r: UpdateRange, start: number, count: number): void {
+  const ur = a.updateRanges;
+  if (ur.length === 1 && ur[0] === r) {
+    const end = Math.max(r.start + r.count, start + count);
+    r.start = Math.min(r.start, start);
+    r.count = end - r.start;
+  } else {
+    if (ur.length > 0) {
+      // ranges from elsewhere: fold them in so nothing pending is lost
+      let lo = start, hi = start + count;
+      for (let i = 0; i < ur.length; i++) { lo = Math.min(lo, ur[i].start); hi = Math.max(hi, ur[i].start + ur[i].count); }
+      start = lo; count = hi - lo;
+    }
+    r.start = start; r.count = count;
+    ur.length = 0;
+    ur.push(r);
+  }
+  a.needsUpdate = true;
+}
+
 export class TilePlacement {
   tx = 0; ty = 0; tz = 0;
   /** row-major 3×3 rotation tile-local (E, U, S) → frame (E, U, S) */

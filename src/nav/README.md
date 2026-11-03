@@ -16,7 +16,8 @@ data under `public/data`). Magnetic variation lives next door in `src/geo/magvar
 | `spatialGrid.ts` | 1° grid index with nearest-N queries (`SpatialGrid`), `capLonHalfWidthDeg` |
 | `NavDatabase.ts` | `NavDb implements NavDatabase`: loading, shards, nearest/search/frequency lookups, `runwayInUse`, `ilsGeometry`, `shardCellsAround` |
 | `radio.ts` | Pure geometry: VOR radial/CDI/TO-FROM, cone of confusion, DME slant range and availability, line-of-sight range, localizer / glideslope / markers, GPS leg maths, `computeNavRadio` → `NavRadioState` |
-| `flightPlan.ts` | `FlightPlanner`: waypoints, direct-to, fly-by sequencing, `FlightPlan` per update |
+| `flightPlan.ts` | `FlightPlanner`: waypoints, direct-to (in-plan / off-route), activate leg, GPS OBS, fly-by sequencing, `version`, `FlightPlan` per update |
+| `approaches.ts` | `ilsApproaches(airport)` ("ILS 28R" per ILS-equipped runway end) and `approachWaypoints()` (FFxx at 5 nm on the glideslope, RWxx) for the G1000 PROC page |
 | `frequencies.ts` | NAV/COM band rules, 25 / 8.33 kHz stepping with wrap, formatting, swap |
 | `index.ts` | Barrel (also re-exports `MagVarCache`, `magneticDeclinationDeg`, `magneticField`, `decimalYear`) |
 
@@ -49,6 +50,14 @@ nav1.toFrom;     // 'to' | 'from' | 'off'          nav1.dmeNm + nav1.dmeValid (p
 const fp = new FlightPlanner([wp1, wp2, wp3]);
 fp.directTo(2, ac.geo);
 const plan = fp.update(ac.geo, ac.groundSpeedMs);     // FlightPlanEx (same object each call); crossTrackM + = right of course
+fp.insert(i, wp); fp.remove(i); fp.activateLeg(i);    // G1000 FPL editing; the active waypoint stays the same object
+fp.directToWaypoint(wp, ac.geo);  // 'in-plan' (same id+position) | 'new-plan' (empty plan) | 'off-route' (plan kept, inactive)
+fp.cancelDirectTo(); fp.setObs(courseTrueDeg | null); fp.indexOfId('KOAK');
+fp.version; plan.version;         // bumps on every edit / activation / D→ / OBS / sequencing
+plan.directTo; plan.offRoute; plan.legFrom; plan.obsCourseDeg;   // what the HSI / map need for D→ and OBS
+
+db.searchIdents('OAK', ac.geo, 8);  // IdentMatch[]: airports (ICAO/IATA) + navaids, exact within 300 nm first, then nearest
+ilsApproaches(db.getAirport('KOAK')!); approachWaypoints(app);   // PROC: ILS list and its FFxx / RWxx fixes
 
 // Frequencies (integers in kHz)
 stepNav(117_950, +1);   // 108_000 (wraps); stepNav(k, +1, true) turns the MHz knob
@@ -144,6 +153,25 @@ active waypoint activates the next one and cancels a direct-to; removing any oth
 keeps the direct-to origin. `eteS` is to the active waypoint; `eteTotalS`, `totalDistanceM`,
 `remainingDistanceM` cover the route.
 
+G1000 semantics: `directToWaypoint` goes direct to the plan's own waypoint when one has the same
+id within 2 km; otherwise, with a non-empty plan, it is an *off-route* direct-to — the stored plan
+stays in `waypoints` (editable, inactive) and the published `state.waypoints` is `[target]` with
+`offRoute: true`, so every consumer that only knows the core `FlightPlan` sees a plain direct-to.
+Emptying the stored plan during an off-route D→ adopts the target as the plan (the simulator only
+updates a non-empty planner). `cancelDirectTo` resumes the stored plan's active leg (or flies the
+leg into the in-plan D→ waypoint from its predecessor). `activateLeg(i)` flies the leg into
+waypoint i from waypoint i−1 and cancels any D→. GPS OBS (`setObs`) replaces the leg by the
+selected course through the active waypoint (a synthetic FROM point 50 km back on the reciprocal)
+and suspends sequencing; `desiredTrackDeg` is the OBS course. `version` increments on every
+change (including automatic sequencing) for cheap change detection.
+
+`searchIdents` scans the loaded airports (ICAO and IATA codes) and navaids (VOR, VOR-DME,
+VORTAC, DME, TACAN as `vor`, NDB as `ndb`) for an ident prefix: exact matches within 300 nm rank
+first (NDB idents repeat worldwide — a far-away exact "KS" must not hide KSFO), then the nearest.
+`ilsApproaches` lists one "ILS xx" per runway end with an ILS (synthetic data, see above);
+`approachWaypoints` adds the final approach fix `FFxx` at 5 nm on the localizer course with the
+glideslope altitude as its constraint and the runway fix `RWxx` at the landing threshold.
+
 ## Tuning knobs
 
 | Constant (file) | Default | Meaning |
@@ -186,7 +214,13 @@ keeps the direct-to origin. `eteS` is to the active waypoint; `eteTotalS`, `tota
   `runwayInUse` for winds 290 / 100 / 20 / 200, shard loading with loader-call counting.
 * `flightPlan.test.ts` — distances and ETE, cross-track sign, sequencing by anticipation and by
   passing abeam, no early sequencing far off-track, last waypoint, direct-to, add/insert/remove,
-  direct-to origin kept when an earlier waypoint is removed, zero-length legs stay finite.
+  direct-to origin kept when an earlier waypoint is removed, zero-length legs stay finite;
+  `version` on every edit, `activateLeg`, insert/remove on a 12-waypoint plan, `directToWaypoint`
+  in-plan / new-plan / off-route (stored plan kept, no sequencing, cancel resumes), emptying the
+  plan during an off-route D→, GPS OBS course and suspended sequencing.
+* `approaches.test.ts` — `searchIdents` exact-first then nearest (OAK VORTAC + KOAK IATA, KS*),
+  NDBs; ILS list per runway end matches `findIlsByFrequency`; FF28R at 5 nm on the course at the
+  3° glideslope height (≈ 1 592 ft), RW28R at the threshold.
 * `frequencies.test.ts` — band classification, NAV/COM stepping with wrap for both spacings and
   both knobs, formatting (`'118.005'`), snapping, parsing, swap.
 

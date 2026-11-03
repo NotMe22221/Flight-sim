@@ -86,3 +86,14 @@ export function aimPointM(lengthM: number): number {
   if (lengthM >= 1200) return 150;
   return Math.max(60, lengthM * 0.12);
 }
+
+/**
+ * Aim point of a runway end measured from its pavement threshold (the `alongM` origin of
+ * `relativeToRunway`), honouring a displaced landing threshold: the aiming-point markings start
+ * `aimPointM(landing distance available)` past the displaced threshold. Equals
+ * `aimPointM(end.lengthM)` when there is no displacement.
+ */
+export function aimAlongM(end: Pick<RunwayEndRef, 'lengthM' | 'displacedM'>): number {
+  const d = Math.max(0, Math.min(end.displacedM || 0, end.lengthM * 0.5));
+  return d + aimPointM(end.lengthM - d);
+}

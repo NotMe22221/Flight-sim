@@ -3,7 +3,7 @@
  * grounded), draped surfaces (per vertex), light points (per point) and tree instances.
  */
 import * as THREE from 'three';
-import { GroundLayer, type GroundSampler, type TilePlacement } from './grounding';
+import { GroundLayer, markRange, type GroundSampler, type TilePlacement, type UpdateRange } from './grounding';
 import { BUILDING_SAMPLES, type BuildingsData, type DrapedData, type PointsData } from './protocol';
 
 /** Re-ground a building only when its base moved by more than this (m). */
@@ -104,13 +104,12 @@ export class BuildingLayer extends GroundLayer {
     if (start + count > this.hi[m]) this.hi[m] = start + count;
   }
 
+  private readonly upd: UpdateRange[] = [{ start: 0, count: 0 }, { start: 0, count: 0 }, { start: 0, count: 0 }];
+
   flush(): void {
     for (let m = 0; m < 3; m++) {
       if (this.hi[m] <= this.lo[m]) continue;
-      const a = this.attrs[m];
-      a.clearUpdateRanges();
-      a.addUpdateRange(this.lo[m] * 3, (this.hi[m] - this.lo[m]) * 3);
-      a.needsUpdate = true;
+      markRange(this.attrs[m], this.upd[m], this.lo[m] * 3, (this.hi[m] - this.lo[m]) * 3);
       this.lo[m] = Infinity; this.hi[m] = -Infinity;
     }
   }
@@ -161,11 +160,11 @@ export class DrapeLayer extends GroundLayer {
     this.touch(0, this.n);
   }
 
+  private readonly upd: UpdateRange = { start: 0, count: 0 };
+
   flush(): void {
     if (this.dirtyHi <= this.dirtyLo) return;
-    this.attr.clearUpdateRanges();
-    this.attr.addUpdateRange(this.dirtyLo * 3, (this.dirtyHi - this.dirtyLo) * 3);
-    this.attr.needsUpdate = true;
+    markRange(this.attr, this.upd, this.dirtyLo * 3, (this.dirtyHi - this.dirtyLo) * 3);
     this.resetDirty();
   }
 }
@@ -207,11 +206,11 @@ export class PointLayer extends GroundLayer {
     this.touch(0, this.n);
   }
 
+  private readonly upd: UpdateRange = { start: 0, count: 0 };
+
   flush(): void {
     if (this.dirtyHi <= this.dirtyLo) return;
-    this.attr.clearUpdateRanges();
-    this.attr.addUpdateRange(this.dirtyLo * 3, (this.dirtyHi - this.dirtyLo) * 3);
-    this.attr.needsUpdate = true;
+    markRange(this.attr, this.upd, this.dirtyLo * 3, (this.dirtyHi - this.dirtyLo) * 3);
     this.resetDirty();
   }
 }
@@ -259,12 +258,11 @@ export class TreeLayer extends GroundLayer {
     return true;
   }
 
+  private readonly upd: UpdateRange = { start: 0, count: 0 };
+
   flush(): void {
     if (this.dirtyHi <= this.dirtyLo) return;
-    const a = this.mesh.instanceMatrix;
-    a.clearUpdateRanges();
-    a.addUpdateRange(this.dirtyLo * 16, (this.dirtyHi - this.dirtyLo) * 16);
-    a.needsUpdate = true;
+    markRange(this.mesh.instanceMatrix, this.upd, this.dirtyLo * 16, (this.dirtyHi - this.dirtyLo) * 16);
     this.resetDirty();
   }
 }

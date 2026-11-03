@@ -35,7 +35,8 @@ export class ProcWindow extends FmsWindow {
   get loadIndex(): number { return this.approaches.length + 1; }
   get activateIndex(): number { return this.approaches.length + 2; }
 
-  override editing(): boolean { return this.focus === 0; }
+  /** Typing re-spells the airport. */
+  override editing(): boolean { return true; }
 
   setAirport(a: Airport | null): void {
     this.airport = a;

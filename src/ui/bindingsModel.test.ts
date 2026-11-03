@@ -68,3 +68,19 @@ describe('profiles', () => {
     expect(BINDING_PROFILES.map((p) => p.id)).toEqual(['msfs', 'laptop', 'gamepad-xbox', 'joystick-generic']);
   });
 });
+
+describe('humanizeAction (titles in the help sheet and Settings › Controls)', () => {
+  it('keeps acronyms upper case, including in the first word', async () => {
+    const { humanizeAction } = await import('./dom');
+    expect(humanizeAction('apToggle')).toBe('AP toggle');
+    expect(humanizeAction('fdToggle')).toBe('FD toggle');
+    expect(humanizeAction('apHdg')).toBe('AP HDG');
+    expect(humanizeAction('apAltInc')).toBe('AP ALT inc');
+    expect(humanizeAction('nav1Swap')).toBe('NAV 1 swap');
+    expect(humanizeAction('com1Swap')).toBe('COM 1 swap');
+    expect(humanizeAction('atcOption1')).toBe('ATC option 1');
+    expect(humanizeAction('altimeterStd')).toBe('Altimeter STD');
+    expect(humanizeAction('engineAutoStart')).toBe('Engine auto start');
+    expect(humanizeAction('toggleHud')).toBe('Toggle HUD');
+  });
+});

@@ -9,8 +9,12 @@ import type { CanvasSurface } from './canvas';
 export const PANEL_TEXTURE_SIZE = Object.freeze({
   /** C172 steam panel (`SteamPanel`, 2:1) */
   steam: Object.freeze({ width: 1024, height: 512 }),
-  /** one G1000 display unit (GDU 1040 native resolution, 4:3) */
+  /** one G1000 screen (GDU 1040 native resolution, 4:3) — the canvas with `bezel: false` */
   g1000: Object.freeze({ width: 1024, height: 768 }),
+  /** one G1000 canvas with its bezel (the default), screen at (160, 64) */
+  g1000Bezel: Object.freeze({ width: 1344, height: 1008 }),
+  /** `G1000Panel`: PFD + 81 px gap + MFD, the 0.96 × 0.35 m cockpit mesh's aspect */
+  g1000Panel: Object.freeze({ width: 2769, height: 1008 }),
 });
 
 /**

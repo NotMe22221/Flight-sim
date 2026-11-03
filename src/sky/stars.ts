@@ -108,7 +108,7 @@ void main() {
   #else
     gl_Position.z = gl_Position.w;
   #endif
-  gl_PointSize = clamp( 3.0 - 0.4 * aMag, 1.0, 4.0 ) * uPixelRatio;
+  gl_PointSize = clamp( 3.2 - 0.4 * aMag, 1.3, 4.0 ) * uPixelRatio;
   float flux = pow( 10.0, - 0.4 * aMag ) * uGain;
   vColor = aColor * flux;
   vec3 dir = normalize( wp.xyz - cameraPosition );
@@ -144,7 +144,7 @@ export class StarField {
     this.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG,
-      uniforms: { uPixelRatio: { value: 1 }, uGain: { value: 2.0 }, uVisibility: { value: 0 } },
+      uniforms: { uPixelRatio: { value: 1 }, uGain: { value: 3.5 }, uVisibility: { value: 0 } },
       transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending,
     });
     this.points = new THREE.Points(this.geometry, this.material);

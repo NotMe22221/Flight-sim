@@ -3,8 +3,9 @@
  * nearest-match list from the nav database, the selected waypoint's name, bearing and
  * distance, and "ACTIVATE?". Flow (G1000): D→ · inner knob/keyboard to spell the ident · ENT
  * (accept) · ENT (activate). The outer knob moves the character cursor while spelling and moves
- * between the ident, the match list and ACTIVATE otherwise. CLR clears the entry or closes the
- * window; MENU offers "CANCEL DIRECT-TO NAV".
+ * between the ident, the match list and ACTIVATE otherwise; an ident that matches several
+ * waypoints exactly (OAK: VORTAC and Oakland's IATA code) sends the cursor into the list on ENT.
+ * CLR clears the entry or closes the window; MENU offers "CANCEL DIRECT-TO NAV".
  */
 import type { IdentMatch } from '../../nav';
 import type { Ctx2D } from '../canvas';
@@ -36,7 +37,8 @@ export class DirectToWindow extends FmsWindow {
 
   get activateIndex(): number { return this.matches.length + 1; }
 
-  override editing(): boolean { return this.focus === 0; }
+  /** Typing always re-spells the ident (also from the list or ACTIVATE?). */
+  override editing(): boolean { return true; }
   override selection(): FmsTarget | null { return this.target; }
 
   input(e: FmsEvent): boolean {
@@ -58,10 +60,17 @@ export class DirectToWindow extends FmsWindow {
       case 'ENT':
         if (this.focus === 0) {
           if (!this.target) { this.message = this.field.text ? 'NO MATCH' : 'ENTER IDENT'; return true; }
-          this.setTarget(this.target);
+          if (this.field.active && exactCount(this.matches) > 1) {
+            // duplicate idents (e.g. a VOR and an airport's IATA code): pick one from the list
+            this.field.active = false;
+            this.focus = 1;
+            this.message = 'DUPLICATE IDENT - SELECT';
+            return true;
+          }
+          this.setTarget(this.target, true);
           this.focus = this.activateIndex;
         } else if (this.focus <= n) {
-          this.setTarget(targetFromMatch(this.matches[this.focus - 1]));
+          this.setTarget(targetFromMatch(this.matches[this.focus - 1]), true);
           this.focus = this.activateIndex;
         } else if (this.target) {
           if (this.fms.directTo(this.target)) this.fms.close(this);
@@ -93,10 +102,10 @@ export class DirectToWindow extends FmsWindow {
     this.nameLine = this.target ? describe(this.target) : '';
   }
 
-  private setTarget(t: FmsTarget): void {
+  private setTarget(t: FmsTarget, keepMatches = false): void {
     this.target = t;
     this.field.reset(t.ident);
-    this.matches = [];
+    if (!keepMatches) this.matches = [];
     this.nameLine = describe(t);
   }
 
@@ -133,4 +142,6 @@ export class DirectToWindow extends FmsWindow {
 }
 
 const describe = (t: FmsTarget): string => clip(t.name || t.ident, 34);
+/** Exact matches ranked first (the database ranks nearby exact idents before everything else). */
+const exactCount = (ms: readonly IdentMatch[]): number => { let n = 0; while (n < ms.length && ms[n].exact) n++; return n; };
 const clampInt = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, Math.round(v)));

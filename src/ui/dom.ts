@@ -181,13 +181,14 @@ export function deviceIcon(device: 'keyboard' | 'gamepad' | 'mouse' | 'none'): H
   return el;
 }
 
-/** 'engineAutoStart' → 'Engine auto start' */
+const ACRONYMS = ['ap', 'fd', 'hdg', 'nav', 'apr', 'alt', 'vs', 'flc', 'lvl', 'ias', 'obs', 'atc', 'com', 'hud', 'std'];
+const ACRONYM_RE = new RegExp(`\\b(${ACRONYMS.join('|')})\\b`, 'g');
+
+/** 'engineAutoStart' → 'Engine auto start', 'apToggle' → 'AP toggle', 'nav1Swap' → 'NAV 1 swap' */
 export function humanizeAction(action: string): string {
-  const s = action.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Za-z])(\d)/g, '$1 $2').toLowerCase();
-  return s.charAt(0).toUpperCase() + s.slice(1)
-    .replace(/\bap\b/g, 'AP').replace(/\bfd\b/g, 'FD').replace(/\bhdg\b/g, 'HDG').replace(/\bnav\b/g, 'NAV').replace(/\bapr\b/g, 'APR')
-    .replace(/\balt\b/g, 'ALT').replace(/\bvs\b/g, 'VS').replace(/\bflc\b/g, 'FLC').replace(/\blvl\b/g, 'LVL').replace(/\bias\b/g, 'IAS')
-    .replace(/\bobs\b/g, 'OBS').replace(/\batc\b/g, 'ATC').replace(/\bcom\b/g, 'COM').replace(/\bhud\b/g, 'HUD').replace(/\bstd\b/g, 'STD');
+  const s = action.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Za-z])(\d)/g, '$1 $2').toLowerCase()
+    .replace(ACRONYM_RE, (m) => m.toUpperCase());
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 /**
@@ -196,4 +197,9 @@ export function humanizeAction(action: string): string {
  */
 export function isCoarsePointer(): boolean {
   try { return typeof matchMedia === 'function' && matchMedia('(hover: none) and (pointer: coarse)').matches; } catch { return false; }
+}
+
+/** True on phone-width layouts (the single-column CSS breakpoint in ui.css). */
+export function isNarrowScreen(): boolean {
+  try { return typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches; } catch { return false; }
 }

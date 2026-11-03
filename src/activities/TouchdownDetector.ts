@@ -8,7 +8,7 @@ import type { EventBus } from '../core/events';
 import type { AircraftState, Airport } from '../core/types';
 import { RAD } from '../core/units';
 import { scoreLanding, type LandingScore, type TouchdownRecord } from './landingScore';
-import { aimPointM, matchRunwayEnd, onRunway, relativeToRunway, type RunwayEndRef, type RunwayRelative } from './runwayFrame';
+import { aimAlongM, matchRunwayEnd, onRunway, relativeToRunway, type RunwayEndRef, type RunwayRelative } from './runwayFrame';
 
 type Phase = 'ground' | 'airborne' | 'rollout';
 
@@ -140,7 +140,7 @@ export class TouchdownDetector {
     }
     const end = this.tdEnd;
     if (end) {
-      const result = scoreLanding(this.td, { stopDistanceM, stopped }, { widthM: end.widthM, lengthM: end.lengthM, aimPointM: aimPointM(end.lengthM) });
+      const result = scoreLanding(this.td, { stopDistanceM, stopped }, { widthM: end.widthM, lengthM: end.lengthM, aimPointM: aimAlongM(end) });
       this.lastScore = result;
       this.events.emit('landing:scored', {
         score: result.score,

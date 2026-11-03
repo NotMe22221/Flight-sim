@@ -66,3 +66,40 @@ describe('procedural terrain', () => {
     expect(p.imageryTile(h, w, 12, 655, 1585)).toEqual(rgba);
   });
 });
+
+describe('procedural land cover', () => {
+  const p = new ProceduralTerrain({ seed: 7 });
+  const tile = (fill: (i: number, j: number) => number, w = 32, z = 13, x = 1310, y = 3170): Uint8ClampedArray => {
+    const h = new Float32Array(w * w);
+    for (let j = 0; j < w; j++) for (let i = 0; i < w; i++) h[j * w + i] = fill(i, j);
+    return p.imageryTile(h, w, z, x, y);
+  };
+  const px = (rgba: Uint8ClampedArray, k: number): number[] => [rgba[k * 4], rgba[k * 4 + 1], rgba[k * 4 + 2]];
+
+  it('beaches at the shore, vegetation inland, rock on cliffs, snow on peaks, dark blue-green water', () => {
+    const beach = px(tile(() => 0.7), 300);
+    expect(beach[0]).toBeGreaterThan(120); // sand: bright and warm
+    expect(beach[0]).toBeGreaterThan(beach[2]);
+    const veg = px(tile(() => 120), 300);
+    expect(veg[1]).toBeGreaterThanOrEqual(veg[2]); // greens / browns, never blue
+    expect(veg[1]).toBeLessThan(170);
+    const snow = px(tile(() => 3200), 300);
+    expect(Math.min(...snow)).toBeGreaterThan(200);
+    // a 50° slope around 900 m: rock grey (channels within a small spread)
+    const cliff = px(tile((i) => 900 + i * 30, 32, 15, 5240, 12680), 300);
+    expect(Math.max(...cliff) - Math.min(...cliff)).toBeLessThan(40);
+    const water = px(tile(() => -30), 300);
+    expect(water[2]).toBeGreaterThan(water[0]);
+    expect(water[2]).toBeLessThan(90); // dark, not pale
+  });
+
+  it('varies across the landscape (not one flat colour) and stays deterministic', () => {
+    const w = 64;
+    const a = tile((i, j) => 60 + 40 * Math.sin(i / 9) * Math.cos(j / 11), w, 12, 655, 1585);
+    const lum = (k: number): number => 0.2126 * a[k * 4] + 0.7152 * a[k * 4 + 1] + 0.0722 * a[k * 4 + 2];
+    let lo = Infinity, hi = -Infinity;
+    for (let k = 0; k < w * w; k++) { const l = lum(k); lo = Math.min(lo, l); hi = Math.max(hi, l); }
+    expect(hi - lo).toBeGreaterThan(25);
+    expect(tile((i, j) => 60 + 40 * Math.sin(i / 9) * Math.cos(j / 11), w, 12, 655, 1585)).toEqual(a);
+  });
+});

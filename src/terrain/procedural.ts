@@ -169,12 +169,13 @@ export class ProceduralTerrain {
         }
         const humidity = this.humidity(lon, lat);
         const patch = nc.fbm(east / 1800 + 3.1, north / 1800 - 7.7, 3); // −1…1, km-scale patches
-        const dry = clamp(0.36 + 0.6 * nc.fbm(east / 7000 - 13.3, north / 7000 + 2.9, 2) - 0.6 * (humidity - 0.5), 0, 1);
+        const dry = clamp(0.3 + 0.6 * nc.fbm(east / 7000 - 13.3, north / 7000 + 2.9, 2) - 0.6 * (humidity - 0.5), 0, 1);
         const snowLine = 2550 + 220 * nc.noise(east / 4000 + 1.7, north / 4000 - 4.2);
         // weights (normalised below)
         const wSnow = smoothstep(snowLine - 120, snowLine + 120, h) * (1 - smoothstep(40, 55, slopeDeg));
         const wRock = clamp(smoothstep(28, 42, slopeDeg) + 0.7 * smoothstep(2100, 2600, h), 0, 1) * (1 - wSnow);
-        const shore = (1 - smoothstep(1.2, 4, h)) * (1 - smoothstep(6, 12, slopeDeg));
+        // beaches: the narrow band just above the waterline (a DEM pixel or two), not every low flat
+        const shore = (1 - smoothstep(0.6, 1.8, h)) * (1 - smoothstep(6, 12, slopeDeg));
         const wSand = shore * (1 - wRock);
         const forestBand = (1 - smoothstep(1800, 2200, h)) * smoothstep(0.42, 0.6, humidity + 0.22 * patch + 0.1 * smoothstep(6, 20, slopeDeg));
         const wForest = forestBand * (1 - wRock - wSnow) * (1 - wSand);
@@ -188,7 +189,7 @@ export class ProceduralTerrain {
         const wx = east + 90 * nc.noise(east / 700, north / 700), wy = north + 90 * nc.noise(east / 700 + 9.3, north / 700 - 4.1);
         const fieldTone = FIELD_TONES[Math.floor(cellHash(Math.floor(wx / 260), Math.floor(wy / 190), this.params.seed) * FIELD_TONES.length) % FIELD_TONES.length];
         const conifer = smoothstep(700, 1300, h);
-        const wet = 1 - smoothstep(0.4, 1.8, h);
+        const wet = 1 - smoothstep(0.2, 1.0, h);
         const rockTone = 0.5 + 0.5 * nc.noise(east / 300 - 2.2, north / 300 + 6.1);
         for (let c = 0; c < 3; c++) {
           const grass = COL_LUSH[c] + (COL_DRY[c] - COL_LUSH[c]) * dry + (COL_GRASS[c] - COL_LUSH[c]) * (1 - Math.abs(dry - 0.5) * 2) * 0.5;

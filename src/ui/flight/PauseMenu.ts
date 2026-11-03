@@ -1,5 +1,5 @@
 /** Esc in flight: Resume, Restart flight (same spawn: runway, parking or challenge final), World map, Settings, Main menu. */
-import { arrowNavigation, button, h } from '../dom';
+import { arrowNavigation, button, h, isCoarsePointer } from '../dom';
 
 export interface PauseMenuActions { resume: () => void; restart: () => void; worldMap: () => void; settings: () => void; mainMenu: () => void }
 
@@ -21,7 +21,7 @@ export class PauseMenu {
         button('World map', a.worldMap, { icon: 'globe', cls: 'menu-btn' }),
         button('Settings', a.settings, { icon: 'settings', cls: 'menu-btn' }),
         button('Main menu', a.mainMenu, { icon: 'home', cls: 'menu-btn' })),
-      h('div', { class: 'muted', style: 'text-align:center;font-size:.8em;margin-top:10px', text: 'Esc resumes · Pause/Break toggles active pause' }));
+      h('div', { class: 'muted', style: 'text-align:center;font-size:.8em;margin-top:10px', text: isCoarsePointer() ? 'Tap outside the menu to resume' : 'Esc resumes · Pause/Break toggles active pause' }));
     arrowNavigation(card);
     this.el = h('div', { class: 'modal-backdrop', onClick: (e) => { if (e.target === this.el) a.resume(); } }, card);
     layer.appendChild(this.el);

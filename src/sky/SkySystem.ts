@@ -26,7 +26,7 @@ import { MoonDisc } from './moon';
 import { Precipitation, type PrecipitationOptions } from './precipitation';
 import { DEFAULT_PREETHAM, INSCATTER_KNEE, NIGHT_GLOW_GLSL, type PreethamParams, PreethamSky, SKY_RADIANCE_SCALE } from './preetham';
 import { defaultWeather } from './presets';
-import { SKY_UNIFORMS, type SkySharedUniforms } from './skyUniforms';
+import { SKY_UNIFORMS, type SkySharedUniforms, cloudShadowAt, createSkySharedUniforms } from './skyUniforms';
 import { StarField } from './stars';
 import { type SkyLighting, createSkyLighting } from './types';
 import { windAt } from './wind';
@@ -80,8 +80,8 @@ const MOON_LIGHT_COLOR = 0xb8c4ff;
 const SKYLIGHT_HORIZON_SHARE = 0.5;
 const WHITE: Vec3 = [1, 1, 1];
 /** night-sky radiance at the horizon (warm light-pollution glow) and at the zenith (airglow), linear dome scale */
-const NIGHT_GLOW_HORIZON: Vec3 = [0.028, 0.022, 0.018];
-const NIGHT_GLOW_ZENITH: Vec3 = [0.004, 0.0055, 0.011];
+const NIGHT_GLOW_HORIZON: Vec3 = [0.024, 0.021, 0.02];
+const NIGHT_GLOW_ZENITH: Vec3 = [0.0015, 0.0025, 0.0065];
 
 export class SkySystem {
   readonly scene: THREE.Scene;
@@ -116,6 +116,8 @@ export class SkySystem {
   private envTarget: THREE.WebGLRenderTarget | null = null;
   private readonly envScene = new THREE.Scene();
   private readonly envSky: THREE.Mesh;
+  /** grey shell over the baked sky as cover closes (reflections/IBL under an overcast are grey, not blue) */
+  private readonly envOvercast: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly lastBakeSunDir = new THREE.Vector3(0, -1, 0);
   private lastBakeTurbidity = -1;
   private lastBakeMie = -1;
@@ -145,6 +147,8 @@ export class SkySystem {
   private readonly horizon90: Vec3 = [0, 0, 0];
   private readonly hazeSun: Vec3 = [0, 0, 0];
   private readonly glowEncoded = new THREE.Color();
+  /** cloud-shadow layers when `sharedUniforms` is null (the sun light still needs them) */
+  private readonly localShadow: SkySharedUniforms = createSkySharedUniforms();
   private readonly windNED: Vec3 = [0, 0, 0];
   private readonly windThree = new THREE.Vector3();
   private readonly aircraftPos = new THREE.Vector3();
@@ -192,6 +196,12 @@ export class SkySystem {
     this.envSky = new THREE.Mesh(this.sky.geometry, this.sky.material);
     this.envSky.scale.setScalar(100);
     this.envScene.add(this.envSky);
+    this.envOvercast = new THREE.Mesh(
+      new THREE.SphereGeometry(50, 16, 8),
+      new THREE.MeshBasicMaterial({ side: THREE.BackSide, transparent: true, opacity: 0, depthWrite: false, depthTest: false, fog: false, toneMapped: false }),
+    );
+    this.envOvercast.renderOrder = 2;
+    this.envScene.add(this.envOvercast);
 
     // ── lights ──
     this.sunLight = new THREE.DirectionalLight(0xffffff, 0);
@@ -361,13 +371,20 @@ export class SkySystem {
     this.clouds.update(camPos, simDt, L, w.clouds, w.winds, this.cloudDrifts ?? undefined, alt0);
     const inCloud = this.clouds.densityAtCamera;
     L.inCloud = inCloud;
+    // cloud-shadow layers (published below; also held locally when nothing is published)
+    const shadowU = this.sharedUniforms ?? this.localShadow;
+    this.clouds.writeShadowUniforms(shadowU, alt0);
+    shadowU.uCloudShadowStrength.value = smoothstep(0, 4, el) * (1 - inCloud);
+    shadowU.uCloudShadowNorm.value = 1 / Math.max(1 - 0.85 * clamp(cloudCover, 0, 1), 0.15);
 
     // ── lights (before the haze, which they light) ──
     normalizeColor(this.transmittance, this.tmpC);
     L.sunColor.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
     L.sunIntensity = sunLightIntensity(el, this.transmittance, cloudCover, this.opts.sunIntensity) * (1 - 0.9 * inCloud);
     this.sunLight.color.copy(L.sunColor);
-    this.sunLight.intensity = L.sunIntensity;
+    // built-in materials share one sun light: shadow it by the clouds over the aircraft (the terrain
+    // shadows itself per pixel from the same layers)
+    this.sunLight.intensity = L.sunIntensity * cloudShadowAt(shadowU, this.aircraftPos.x, this.aircraftPos.y, this.aircraftPos.z, this.sunDir[0], this.sunDir[1], this.sunDir[2]);
     this.sunLight.visible = L.sunIntensity > 1e-4;
     this.sunLight.position.copy(this.aircraftPos).addScaledVector(L.sunDirThree, SUN_DISTANCE_M);
     this.sunLight.target.position.copy(this.aircraftPos);
@@ -382,7 +399,9 @@ export class SkySystem {
     // turning neutral grey under a cloud deck
     normalizeColor(this.zenith, this.tmpA);
     normalizeColor(this.horizon, this.tmpB);
-    mixVec3(this.tmpA, this.tmpB, SKYLIGHT_HORIZON_SHARE, this.tmpC);
+    // (a low sun's horizon average is mostly its own glow, which lights the ground directionally: keep
+    // twilight skylight closer to the zenith blue — cool shadows, warm light)
+    mixVec3(this.tmpA, this.tmpB, SKYLIGHT_HORIZON_SHARE * lerp(0.4, 1, smoothstep(2, 20, el)), this.tmpC);
     mixVec3(this.tmpC, WHITE, 0.8 * cloudCover, this.tmpC);
     normalizeColor(this.tmpC, this.tmpC);
     this.hemiLight.color.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
@@ -468,9 +487,6 @@ export class SkySystem {
       su.uSkyZenith.value.copy(L.skyColorZenith);
       su.uSkyHorizon.value.copy(L.skyColorHorizon);
       su.uSkyExposure.value = this.exposure;
-      this.clouds.writeShadowUniforms(su, alt0);
-      su.uCloudShadowStrength.value = smoothstep(0, 4, el) * (1 - inCloud);
-      su.uCloudShadowNorm.value = 1 / Math.max(1 - 0.85 * clamp(cloudCover, 0, 1), 0.15);
     }
 
     // ── stars & moon ──
@@ -487,7 +503,11 @@ export class SkySystem {
     this.windThree.set(this.windNED[1], 0, -this.windNED[0]);
     this.precipitation.update(dt, camPos, this.camVel, this.windThree, w, L);
 
-    // ── environment map ──
+    // ── environment map (the overcast shell follows the cloud planes' skylight grey) ──
+    const envGrey = 0.9 * (0.2126 * (this.zenith[0] + this.horizon[0]) + 0.7152 * (this.zenith[1] + this.horizon[1]) + 0.0722 * (this.zenith[2] + this.horizon[2])) * 0.5;
+    this.envOvercast.material.color.setRGB(envGrey, envGrey, envGrey);
+    this.envOvercast.material.opacity = 0.9 * smoothstep(0.3, 1, cloudCover);
+    this.envOvercast.visible = this.envOvercast.material.opacity > 0.01;
     this.sinceBakeS += dt;
     if (this.opts.environmentMap) this.maybeBakeEnvironment(turbidity, mie, cloudCover, time.timeScale);
   }
@@ -533,6 +553,9 @@ export class SkySystem {
     this.sky.material.dispose();
     this.sky.removeFromParent();
     this.envSky.removeFromParent();
+    this.envOvercast.geometry.dispose();
+    this.envOvercast.material.dispose();
+    this.envOvercast.removeFromParent();
     this.sunLight.target.removeFromParent();
     this.sunLight.dispose();
     this.sunLight.removeFromParent();

@@ -99,6 +99,7 @@ export class SceneryManager implements SceneryLike {
   /** automation / debugging: geodetic camera pose forced every frame (see debugView) */
   private debugPose: { lat: number; lon: number; alt: number; headingDeg: number; pitchDeg: number; fovDeg?: number } | null = null;
   private readonly debugPos = new THREE.Vector3();
+  private readonly debugArr: [number, number, number] = [0, 0, 0];
 
   constructor(opts: SceneryManagerOptions) {
     this.host = opts;
@@ -244,7 +245,7 @@ export class SceneryManager implements SceneryLike {
 
   private applyDebugPose(camera: THREE.PerspectiveCamera): THREE.Vector3 {
     const v = this.debugPose!;
-    const p = this.frame.geodeticToThree(v.lat, v.lon, v.alt);
+    const p = this.frame.geodeticToThree(v.lat, v.lon, v.alt, this.debugArr);
     this.debugPos.set(p[0], p[1], p[2]);
     if (camera && camera.isPerspectiveCamera) {
       camera.position.copy(this.debugPos);

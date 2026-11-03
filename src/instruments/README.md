@@ -8,7 +8,8 @@ pop-out displays). Everything runs in Node against `testing/mockCanvas.ts`. Spec
 | Export | What it draws | Canvas |
 |---|---|---|
 | `SteamPanel` | C172S six-pack, engine/system gauges, radio stack, annunciators | 1024×512 opaque |
-| `G1000` | G1000-style PFD and MFD (moving map + engine strip) | 2 × 1024×768 opaque |
+| `G1000` | G1000 NXi-style PFD and MFD in GDU bezels, interactive (softkeys, knobs, D→, FPL, NRST, PROC) | 2 × 1344×1008 opaque (1024×768 screens; `bezel: false` → 2 × 1024×768) |
+| `G1000Panel` | both GDUs side by side on one texture + UV → control mapping | 2769×1008 opaque |
 | `Hud` | translucent MSFS-like overlay for the external views | viewport × dpr, transparent |
 | `InstrumentModel` | instrument dynamics shared by all of the above | — |
 
@@ -19,8 +20,10 @@ import { G1000, Hud, SteamPanel, CANVAS_TEXTURE_SETTINGS, PANEL_TEXTURE_SIZE, cr
 
 // G1000 ───────────────────────────────────────────────────────────────────────────
 const g1000 = new G1000({ width?, height?, createCanvas?, model?, vspeeds?, pfdHz = 30, mfdHz = 15,
-                          skipUnchanged = true, maxIdleS = 1, rangeNm = 10 });
-g1000.pfdCanvas; g1000.mfdCanvas;                 // HTMLCanvasElement | OffscreenCanvas
+                          skipUnchanged = true, maxIdleS = 1, rangeNm = 10,
+                          bezel = true, nav?, planner?, onCommand? });   // see "G1000 interaction"
+g1000.pfdCanvas; g1000.mfdCanvas;                 // HTMLCanvasElement | OffscreenCanvas (1344×1008 with the bezel)
+g1000.screenRect;                                 // { x: 160, y: 64, w: 1024, h: 768 } inside each canvas
 if (g1000.update(snapshot, dt)) {                 // true when a canvas changed
   if (g1000.changed.pfd) pfdTex.needsUpdate = true;
   if (g1000.changed.mfd) mfdTex.needsUpdate = true;
@@ -50,7 +53,7 @@ const panel = new SteamPanel({ layout?, factory?, pixelRatio?, hz?, model?, vspe
 if (panel.update(snapshot, dt)) steamTex.needsUpdate = true;
 
 // Texture helpers (no Three.js types) ────────────────────────────────────────────
-PANEL_TEXTURE_SIZE.g1000;  // { width: 1024, height: 768 };  .steam = 1024×512
+PANEL_TEXTURE_SIZE.g1000;  // { width: 1024, height: 768 } (screen); .g1000Bezel 1344×1008; .g1000Panel 2769×1008; .steam 1024×512
 CANVAS_TEXTURE_SETTINGS;   // colorSpace srgb, generateMipmaps false, linear filters, anisotropy 8, toneMapped false
 createCanvas(w, h);        // <canvas> in a browser, OffscreenCanvas in a worker, throws otherwise
 ```
@@ -64,6 +67,67 @@ tex.minFilter = tex.magFilter = THREE.LinearFilter;
 tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
 ```
+
+## G1000 interaction (G1000 NXi, docs/research/05 §2–4, §6)
+
+```ts
+const g = new G1000({ nav: sim.nav, planner: sim.planner, onCommand: (c) => apply(c) });   // bezel: true
+g.handleInput({ type: 'softkey', display: 'pfd', index: 4 });            // CDI
+g.handleInput({ type: 'button', display: 'mfd', id: 'DIRECT' });         // D→, FPL, PROC, CLR, ENT, MENU, NRST, AFCS keys
+g.handleInput({ type: 'knob', display: 'mfd', id: 'FMS', ring: 'outer', steps: +1 });
+g.handleInput({ type: 'push', display: 'pfd', id: 'HDG' });              // knob push (sync, 1-2, CRSR, centre)
+g.handleInput({ type: 'wheel', display: 'pfd', id: 'ALT', ring: 'inner', deltaY: -100, deltaMode: 0 });
+g.handleInput({ type: 'char', char: 'K' });                              // typed ident entry ('\b' = backspace)
+g.bezelHitRegions.pfd;            // HitRegion[] in canvas px: rects (softkeys, keys) and circles (knobs, rInner for dual rings)
+g.hitTest('pfd', x, y);           // → { control, ring } | null      (canvas px of that display)
+g.click('mfd', x, y); g.wheel('pfd', x, y, deltaY, { deltaMode, outer: e.shiftKey }); g.hover('pfd', x, y);  // tooltip + highlight
+g.wantsKeyboard; g.keyboard(e.key);   // while an ident field is open: letters/digits, Backspace, Enter = ENT, Escape = CLR
+g.takeCommands();                 // requests queued when no onCommand callback is set
+const panel = new G1000Panel(g);  // one 2769×1008 texture: panel.compose() after g.update(); panel.click(uv.x, uv.y) …
+```
+
+**Bezel** (`bezel.ts`, drawn into each canvas around the screen at (160, 64)): left — NAV VOL,
+NAV transfer key, dual NAV knob (outer MHz, inner 50 kHz, push NAV1/NAV2), HDG (push sync), AFCS
+keys AP/FD, HDG/ALT, NAV/VNV, APR/BC, VS/FLC, NOSE UP/DN, dual ALT SEL (outer 1 000 ft, inner
+100 ft); right — COM VOL, COM transfer key, dual COM knob (outer MHz, inner 25 kHz, push
+COM1/COM2), dual CRS/BARO (inner course, outer altimeter, push centre), RANGE, D→/MENU, FPL/PROC,
+CLR/ENT, dual FMS (outer page group / field, inner page / character, push cursor); 12 softkeys
+under the screen (each region covers the on-screen label and the key). The unit is 4:3, so the
+side-by-side panel keeps the cockpit mesh's 0.96 × 0.35 m aspect.
+
+**Pages and windows** (`fms.ts` routes, one class per window):
+
+| Where | What | Keys |
+|---|---|---|
+| MFD page groups | MAP (navigation map) · FPL (active flight plan) · NRST (airports, VOR, NDB) | FMS outer = group, inner = page (cursor off); indicator bottom right |
+| D→ window (MFD popup / PFD window) | ident field with spell'n'find completion, nearest-match list (airports, VOR, NDB from `NavDb.searchIdents`), name, BRG/DIS, ACTIVATE? | inner = character, outer = cursor (or field), typing; ENT accept / ENT activate; duplicate idents → pick from the list; MENU → CANCEL DIRECT-TO NAV; prefilled from the FPL/NRST cursor |
+| FPL page / PFD FPL window | waypoints with DTK (mag), DIS, ETE; active leg magenta with leg arrow, past grey; total | push = cursor; outer = row; inner/typing = insert before the row (last row appends); CLR → REMOVE?; MENU → ACTIVATE LEG / DELETE FLIGHT PLAN / CANCEL D→; ACT LEG softkey; D→ = direct to the row |
+| NRST page / PFD NRST window | 25 nearest airports: BRG, DIS, longest runway, TWR/CTAF, ILS flag; selected airport's frequencies; VOR/NDB lists | inner = row, outer = frequency list; ENT = D→ (airport) / COM1 standby (frequency) / NAV1 standby (VOR) |
+| PROC window | SELECT APPROACH at the destination (else D→ airport, else nearest; re-spellable), ILS list, LOAD? / ACTIVATE? | LOAD: FFxx/RWxx fixes appended, LOC into NAV1 + course, CDI switches GPS → LOC on the final; ACTIVATE: also D→ FAF and CDI → NAV1 |
+| PFD TMR/REF, ALERTS | timer START/STOP/RESET, V-speed bugs ON/OFF, BARO minimums (bug + box); active alerts | outer = field, inner = value, ENT |
+
+PFD softkeys: INSET (inset map, RANGE knob; OFF, DCLTR), PFD (DFLTS, WIND opt 1/2/off, DME, BRG1,
+BRG2, STD BARO), OBS (GPS OBS course on the CRS knob), CDI (GPS → NAV1 → NAV2), DME, XPDR (STBY,
+ON, ALT, VFR, CODE digit entry, IDENT), IDENT (18 s), TMR/REF, NRST, ALERTS. MFD: MAP (orientation),
+DCLTR (0–3), ACT LEG (FPL), APT/VOR/NDB (NRST). Other keys carry their NXi labels and do nothing.
+
+**Commands** (`G1000Command`, to `onCommand` or `takeCommands()`): `navStandby`/`navActive`
+{radio, kHz}, `navSwap`, `navCourse` {radio, courseDeg mag}, `comStandby` {radio, kHz} (the G1000's
+own `com1/com2` already changed), `comSwap`, `cdiSource` {source, navSource: 'gps'|'nav1'|'nav2'}
+(also once on the first update), `action` {SimAction, count} (AFCS keys, HDG `headingBugInc/Dec`
++ `apHdgSync`, ALT `apAltInc/Dec` ×1 / ×10, BARO `altimeterInc/Dec`, NOSE UP/DN `apVsInc/Dec` or in
+FLC `apIasDec/Inc`), `baroStd`, `xpdr` {code, mode, ident}. NAV frequencies and courses are read
+back from `snapshot.nav1/nav2` every update (several detents within one frame accumulate).
+
+**Flight plan**: every edit goes through the `FlightPlanner` (`insert`, `remove`,
+`directToWaypoint`, `cancelDirectTo`, `activateLeg`, `setObs`, `clear`), so `snapshot.plan`, the
+autopilot's GPS/NAV source and the HSI follow on the next frame. Off-route D→ keeps the stored
+plan (FPL shows it with "D→ KOAK"); the map draws D→/OBS legs from `plan.legFrom`.
+
+**Render cost**: the UI state folds into the change hash (`fms.version`), windows with live
+values add the aircraft position at ~0.05 nm, the inset map at half a pixel; labels come from
+`LabelCache`s and list strings are built when data changes (NRST refresh every 2 s), never per
+frame. The bezel is painted once (again only on hover changes or `invalidate()`).
 
 Sharing one `InstrumentModel` between the steam panel and the G1000: pass `model` to the G1000
 and call `model.update(snapshot, dt)` yourself before `g1000.update()` (a G1000 never steps a
@@ -131,6 +195,22 @@ model it does not own, so the lags are not advanced twice).
   heading wrap, ILS, engine off on the ground, extreme attitude, FLC, NaN/∞/out-of-range plan
   data); AFCS labels/reference/flashing; alert priority and softkey; wind options; NAV box;
   `dmeValid`, back course and marker beacons.
+* `g1000/fms.test.ts` (real `NavDb` + `FlightPlanner`): D→ typed and knob-spelled, VOR via the
+  duplicate list, NDB, off-route D→ keeps the plan, MENU cancels, snapshot plan and HSI follow;
+  FPL with 11 waypoints (active magenta, past grey), insert/append/remove, ACTIVATE LEG (menu and
+  softkey), D→ from the cursor, DELETE FLIGHT PLAN, PFD FPL window.
+* `g1000/fmsControls.test.ts`: NRST airports/VOR/NDB lists, D→ and frequency loading from the
+  list; PROC ILS ACTIVATE (fixes, NAV1 frequency + course, CDI → NAV1) and LOAD (auto GPS → LOC
+  switch, fixes replaced on reload); every implemented PFD/MFD softkey; NAV/COM tuning steps and
+  focus, swaps, HDG/ALT/BARO/CRS knobs and AFCS keys as commands, MFD page groups, RANGE, queue
+  without `onCommand`, keyboard routing.
+* `g1000/bezel.test.ts`: every control has one region, region centres hit their control, dual
+  knob rings, softkey cells, scaling and `bezel: false`; wheel detents (px/lines/pages, trackpad
+  accumulation, cap) and `G1000.wheel`; clicks and hover; `G1000Panel` layout, UV mapping, gap,
+  compose only on change.
+* `g1000/pages.test.ts`: 20 page/dialog scenarios draw without throwing with balanced
+  save/restore and show their title; stacked menus/confirms; dead bus; idle displays with a
+  window open are not redrawn; softkey menu shapes and inert keys.
 * `g1000/G1000.test.ts`: first `update` returns true and a second within 33 ms returns false;
   ≤ 30 Hz cadence; unchanged frames skipped; forced refresh after `maxIdleS`; CDI cycling; MFD
   content (EIS, data fields, legs, airports, range); nav-database airports; zoom steps; track-up;
@@ -151,7 +231,11 @@ The layout was also checked visually by rendering the PFD, MFD and HUD in headle
 ## Known limitations
 
 * GPS CDI scaling has ENR/TERM only (no DPRT/APR/LPV ramps; the `FlightPlan` contract carries no
-  approach phase). No VNAV, OBS/SUSP, or flight-plan pages; softkeys are drawn but inert.
+  approach phase). No VNAV, holds, SUSP, user waypoints, airways, departures/arrivals or RNAV
+  approaches: PROC offers the (synthetic) ILS of each equipped runway end with two fixes.
+* Not simulated (keys labelled, inert): SYN VIS, HSI FRMT, ALT UNIT, WX/TRAFFIC/TERRAIN/NEXRAD,
+  ENGINE/LEAN/SYSTEM pages, charts, checklists, VNV, BC, RANGE push (pan), the volume knobs; the
+  MFD has no WPT/AUX page groups. The cursor highlight does not flash.
 * The moving map has no terrain/topo shading, airspace, roads or runway-shaped airport icons
   (the nearest-airport input has no runway data), and uses an equirectangular projection
   (schematic beyond ~100 nm). Labels are not decluttered beyond a range threshold.
