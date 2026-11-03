@@ -150,12 +150,6 @@ export interface AutopilotProtections {
   disconnectOnStallWarning: boolean;
   /** disconnect on the FDM's overspeed warning */
   disconnectOnOverspeed: boolean;
-  /**
-   * the stall / overspeed warning must persist this long before the AP disconnects, s. Leaky: the
-   * timer runs down while the warning is off, so gust chirps in turbulence (0.02–0.3 s on the C172
-   * FDM, light to severe) are ridden through and a speed bleeding off toward the stall is not
-   */
-  warningPersistS: number;
   /** the avionics bus (`AircraftState.electrical.avionicsPowered`) must be down this long before AP/FD/YD drop, s */
   powerLossS: number;
 }
@@ -270,7 +264,6 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     maxBankRad: 60 * DEG,
     disconnectOnStallWarning: true,
     disconnectOnOverspeed: true,
-    warningPersistS: 1.0,
     powerLossS: 0.25,
   },
   behaviour: {

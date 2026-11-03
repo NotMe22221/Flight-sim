@@ -141,6 +141,10 @@ DOM classes and the CSS-importing barrel) in Node to prove nothing touches the D
 - Graphics › Shadows and Terrain detail are only as effective as the host's `setGraphics`
   (the current SimUiHost applies quality, render scale, FOV, imagery and clouds).
 - Runway idents are shown as the nav data spells them ('1R/19L' for OurAirports' KSFO data).
+- In flight the Weather panel's time-of-day buttons show the planned selection; a challenge's own
+  time of day (e.g. dusk) is not reflected there (its weather preset is).
+- Settings › Controls and the help sheet list SimActions only: keyboard flight-control axes
+  (pitch/roll/rudder/throttle keys) are not reported by `host.bindings()`.
 
 ## Tuning knobs
 

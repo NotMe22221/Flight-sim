@@ -114,8 +114,6 @@ export class GfcAutopilot implements Autopilot {
   /** engaged before any pilot sample: seed trim and servos from the next `apply()` instead */
   private seedOnApply = false;
   private overrideTimer = 0;
-  private stallTimer = 0;
-  private overspeedTimer = 0;
   private trimTimer = 0;
   private trimRunning = false;
   private gsLostTimer = 0;
@@ -190,8 +188,6 @@ export class GfcAutopilot implements Autopilot {
     if (s.lateral === 'OFF') this.selectRollHold();
     if (s.vertical === 'OFF') this.selectPitchHold();
     this.overrideTimer = 0;
-    this.stallTimer = 0;
-    this.overspeedTimer = 0;
     this.trimTimer = 0;
     this.trimRunning = false;
     s.trimCommand = this.pilotTrim;
@@ -450,17 +446,12 @@ export class GfcAutopilot implements Autopilot {
 
     // Protections.
     if (s.engaged) {
-      // Warnings must persist (leaky timers): a stall-warning chirp in turbulence is not a stall.
-      const stallWarn = p.disconnectOnStallWarning && (ac.aero.stallWarning || ac.warnings.stall);
-      const overspeedWarn = p.disconnectOnOverspeed && ac.warnings.overspeed;
-      this.stallTimer = stallWarn ? this.stallTimer + dt : Math.max(0, this.stallTimer - dt);
-      this.overspeedTimer = overspeedWarn ? this.overspeedTimer + dt : Math.max(0, this.overspeedTimer - dt);
       // LVL is the recovery mode: it stays engaged in steep banks, overspeed and stall warning
       // (its α ceiling keeps the pitch command out of the stall).
       if (ac.crashed) this.disconnect('crash');
-      else if (!s.lvl && stallWarn && this.stallTimer >= p.warningPersistS) this.disconnect('stall');
+      else if (!s.lvl && p.disconnectOnStallWarning && (ac.aero.stallWarning || ac.warnings.stall)) this.disconnect('stall');
       else if (!s.lvl && Math.abs(ac.euler[0]) > p.maxBankRad) this.disconnect('bank');
-      else if (!s.lvl && overspeedWarn && this.overspeedTimer >= p.warningPersistS) this.disconnect('overspeed');
+      else if (!s.lvl && p.disconnectOnOverspeed && ac.warnings.overspeed) this.disconnect('overspeed');
       else {
         const over = Math.abs(this.pilotPitch) > p.overrideThreshold || Math.abs(this.pilotRoll) > p.overrideThreshold;
         this.overrideTimer = over ? this.overrideTimer + dt : 0;
