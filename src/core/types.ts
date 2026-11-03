@@ -557,6 +557,13 @@ export interface AutopilotState {
   /** autothrottle if present */ outThrottle?: number;
   yawDamper: boolean;
   /** pitch trim command the servo is applying */ trimCommand: number;
+  /** GFC 700 extras (filled by GfcAutopilot): LVL recovery active (annunciate LVL in both fields) */
+  lvl?: boolean;
+  /** why the autopilot last disconnected, and the autopilot clock (s) when it did: flash a red AP and sound the tone on change */
+  disconnectReason?: 'pilot' | 'override' | 'stall' | 'bank' | 'overspeed' | 'crash' | 'power' | null;
+  disconnectT?: number;
+  /** altitude alerter: approaching the selected altitude / deviating from it after capture */
+  altAlert?: 'none' | 'approach' | 'deviation';
 }
 
 export interface Autopilot {
@@ -660,6 +667,8 @@ export interface AssistanceOptions {
   landingPathHints: boolean;
   taxiRibbon: boolean;
   routeRibbon: boolean;
+  /** MSFS "AI anti-stall protection": nose-up input fades out as the wing nears the stall */
+  antiStall: boolean;
 }
 
 export interface SimSnapshot {

@@ -79,6 +79,7 @@ export interface SimPlugins {
 export const DEFAULT_ASSISTS: AssistanceOptions = {
   autoRudder: false, assistedTakeoff: false, assistedLanding: false, autoMixture: true, unlimitedFuel: false,
   crashDamage: true, stressDamage: false, gyroDrift: false, landingPathHints: true, taxiRibbon: false, routeRibbon: true,
+  antiStall: false,
 };
 
 const SPAWN_ROLL_OFFSET_M = 40;

@@ -113,7 +113,7 @@ export function makeSampleSnapshot(o: SampleOptions = {}): SimSnapshot {
     frame: { lat0: 37.6135, lon0: -122.357, alt0: 4 },
     paused: false,
     slew: false,
-    assists: { autoRudder: false, assistedTakeoff: false, assistedLanding: false, autoMixture: false, unlimitedFuel: false, crashDamage: true, stressDamage: true, gyroDrift: true, landingPathHints: false, taxiRibbon: false, routeRibbon: false },
+    assists: { autoRudder: false, assistedTakeoff: false, assistedLanding: false, autoMixture: false, unlimitedFuel: false, crashDamage: true, stressDamage: true, gyroDrift: true, landingPathHints: false, taxiRibbon: false, routeRibbon: false, antiStall: false },
     terrainReady: 1,
     fps: 60,
   };

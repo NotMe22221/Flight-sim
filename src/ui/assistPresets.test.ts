@@ -43,7 +43,7 @@ describe('assist presets', () => {
   });
   it('counts and badges helpers only', () => {
     expect(activeAssistCount(assistPreset('true-to-life'))).toBe(0);
-    expect(activeAssistCount(assistPreset('all'))).toBe(8);
+    expect(activeAssistCount(assistPreset('all'))).toBe(9); // incl. anti-stall protection
     expect(assistBadges(assistPreset('middle'))).toEqual(['AUTO-RUDDER', 'AUTO-MIX', 'LDG PATH', 'TAXI', 'ROUTE']);
   });
   it('every option key has metadata', () => {

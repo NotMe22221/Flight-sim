@@ -10,7 +10,8 @@ export interface AssistItemMeta { key: AssistKey; label: string; category: 'Pilo
 
 export const ASSIST_ITEMS: AssistItemMeta[] = [
   { key: 'autoRudder', label: 'Auto-rudder', category: 'Piloting', help: 'Couples rudder to ailerons and cancels P-factor/crosswind yaw on takeoff and landing.' },
-  { key: 'assistedTakeoff', label: 'Assisted takeoff', category: 'Piloting', help: 'Manages rotation and the initial climb.' },
+  { key: 'assistedTakeoff', label: 'Assisted takeoff', category: 'Piloting', help: 'Keeps the take-off roll on the runway heading (rudder and nose wheel); you rotate and climb.' },
+  { key: 'antiStall', label: 'Anti-stall protection', category: 'Piloting', help: 'Fades out nose-up input as the wing nears the stall.' },
   { key: 'assistedLanding', label: 'Assisted landing', category: 'Piloting', help: 'Holds glideslope and speed on final and flares below 50 ft.' },
   { key: 'autoMixture', label: 'Auto mixture', category: 'Aircraft systems', help: 'Leans the mixture automatically with altitude.' },
   { key: 'unlimitedFuel', label: 'Unlimited fuel', category: 'Aircraft systems', help: 'Fuel never runs out.' },
@@ -37,19 +38,19 @@ export function assistPreset(level: AssistLevel): AssistanceOptions {
       return {
         autoRudder: true, assistedTakeoff: true, assistedLanding: true, autoMixture: true, unlimitedFuel: true,
         crashDamage: false, stressDamage: false, gyroDrift: false,
-        landingPathHints: true, taxiRibbon: true, routeRibbon: true,
+        landingPathHints: true, taxiRibbon: true, routeRibbon: true, antiStall: true,
       };
     case 'middle':
       return {
         autoRudder: true, assistedTakeoff: false, assistedLanding: false, autoMixture: true, unlimitedFuel: false,
         crashDamage: false, stressDamage: false, gyroDrift: false,
-        landingPathHints: true, taxiRibbon: true, routeRibbon: true,
+        landingPathHints: true, taxiRibbon: true, routeRibbon: true, antiStall: false,
       };
     case 'true-to-life':
       return {
         autoRudder: false, assistedTakeoff: false, assistedLanding: false, autoMixture: false, unlimitedFuel: false,
         crashDamage: true, stressDamage: true, gyroDrift: true,
-        landingPathHints: false, taxiRibbon: false, routeRibbon: false,
+        landingPathHints: false, taxiRibbon: false, routeRibbon: false, antiStall: false,
       };
   }
 }
@@ -74,7 +75,7 @@ export function activeAssistCount(a: AssistanceOptions): number {
 export function assistBadges(a: AssistanceOptions): string[] {
   const short: Partial<Record<AssistKey, string>> = {
     autoRudder: 'AUTO-RUDDER', assistedTakeoff: 'ASSIST T/O', assistedLanding: 'ASSIST LDG', autoMixture: 'AUTO-MIX',
-    unlimitedFuel: 'INF FUEL', landingPathHints: 'LDG PATH', taxiRibbon: 'TAXI', routeRibbon: 'ROUTE',
+    unlimitedFuel: 'INF FUEL', landingPathHints: 'LDG PATH', taxiRibbon: 'TAXI', routeRibbon: 'ROUTE', antiStall: 'ANTI-STALL',
   };
   const out: string[] = [];
   for (const it of ASSIST_ITEMS) if (!REALISM_KEYS.has(it.key) && a[it.key] && short[it.key]) out.push(short[it.key]!);
