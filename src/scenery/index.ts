@@ -8,7 +8,10 @@ import type { SceneryLike } from '../app/Simulator';
 import { SceneryManager } from './manager';
 
 export function createScenery(options: SceneryHostOptions): SceneryLike {
-  return new SceneryManager(options);
+  const m = new SceneryManager(options);
+  // automation handle (stats, parking, debug views), like window.__sim
+  if (typeof window !== 'undefined') (window as unknown as { __scenery?: SceneryManager }).__scenery = m;
+  return m;
 }
 
 export { SceneryManager } from './manager';

@@ -28,6 +28,8 @@ export class ZohSim {
   readonly plan = makeFlightPlan();
   course: TestCourse | null = null;
   ils: TestIls | null = null;
+  /** scripted pilot, called at the start of every frame (e.g. a throttle governor) */
+  pilotHook: ((s: ZohSim) => void) | null = null;
   /** FDM sub-steps per autopilot frame (1 = AP at 120 Hz, 2 = 60 Hz, 4 = 30 Hz, 16 = 7.5 Hz) */
   readonly sub: number;
   t = 0;
@@ -44,6 +46,7 @@ export class ZohSim {
 
   frame(): void {
     const dt = this.sub * FDM_DT;
+    if (this.pilotHook) this.pilotHook(this);
     if (this.course) updateTestPlan(this.ac, this.course, this.plan);
     if (this.ils) {
       updateTestIls(this.ac, this.ils, this.nav1);

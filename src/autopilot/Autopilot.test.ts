@@ -250,14 +250,21 @@ describe('GfcAutopilot protections and servos', () => {
     expect(sim.s.lateral).toBe('OFF');
   });
 
-  it('disconnects on stall warning', () => {
+  it('disconnects on a stall warning that persists (1 s), not on a chirp', () => {
     const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 0 });
     const reasons: DisconnectReason[] = [];
     sim.ap.onDisconnect((r) => reasons.push(r));
     sim.ap.engage(true);
     sim.run(1);
-    sim.ac.aero.stallWarning = true;
-    sim.ap.update(1 / 120, sim.ac, { nav1: sim.nav1, nav2: sim.nav2, plan: null });
+    const step = (warn: boolean, seconds: number) => {
+      sim.ac.aero.stallWarning = warn;
+      for (let i = 0; i < Math.round(seconds * 120); i++) sim.ap.update(1 / 120, sim.ac, { nav1: sim.nav1, nav2: sim.nav2, plan: null });
+    };
+    step(true, 0.3); // gust chirps: on 0.3 s, off 0.5 s, on 0.3 s, ...
+    step(false, 0.5);
+    step(true, 0.3);
+    expect(sim.s.engaged).toBe(true);
+    step(true, 0.8);
     expect(sim.s.engaged).toBe(false);
     expect(reasons).toEqual(['stall']);
   });
@@ -271,6 +278,8 @@ describe('GfcAutopilot protections and servos', () => {
     sim.ac.euler[0] = 0;
     sim.ap.engage(true);
     sim.ac.warnings.overspeed = true;
+    for (let i = 0; i < 119; i++) sim.ap.update(1 / 120, sim.ac, { nav1: sim.nav1, nav2: sim.nav2, plan: null });
+    expect(sim.s.engaged).toBe(true); // the overspeed warning must persist 1 s
     sim.ap.update(1 / 120, sim.ac, { nav1: sim.nav1, nav2: sim.nav2, plan: null });
     expect(sim.s.disconnectReason).toBe('overspeed');
   });

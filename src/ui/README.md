@@ -101,7 +101,9 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
 - **In flight** (`flight/FlightUi.ts`, `flight/FlightPanels.ts`): toolbar revealed at the top edge
   (Camera · ATC · Checklist · Nav log · VFR map · Weather · Controls · Menu), draggable /
   resizable panels with persisted positions (`flightsim.ui.layout.v1`), status bar, info strip,
-  ATC subtitles, toasts (also in menus).
+  ATC subtitles, toasts (also in menus). The Weather panel highlights the preset the simulator is
+  actually flying (a challenge sets its own); the pause menu's "Restart flight" respawns at the
+  same position (runway, parking or challenge final).
 
 Per-frame cost: `Txt`/`Cls` write the DOM only on change; closed panels cost nothing; ATC
 station lookup 1 Hz; VFR map ≤ 10 Hz; checklist auto-check 4 Hz; no allocations in the menu

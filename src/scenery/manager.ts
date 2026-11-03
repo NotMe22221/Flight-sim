@@ -91,6 +91,9 @@ export class SceneryManager implements SceneryLike {
   private failedCount = 0;
   /** last frame's main-thread time (ms) */
   lastUpdateMs = 0;
+  /** automation / debugging: geodetic camera pose forced every frame (see debugView) */
+  private debugPose: { lat: number; lon: number; alt: number; headingDeg: number; pitchDeg: number; fovDeg?: number } | null = null;
+  private readonly debugPos = new THREE.Vector3();
 
   constructor(opts: SceneryManagerOptions) {
     this.host = opts;
@@ -114,9 +117,11 @@ export class SceneryManager implements SceneryLike {
 
   // ───────────────────────────── SceneryLike ─────────────────────────────
 
-  update(_dt: number, cam: THREE.Vector3, _camera: THREE.PerspectiveCamera, sunElevationRad: number): void {
+  update(_dt: number, camIn: THREE.Vector3, camera: THREE.PerspectiveCamera, sunElevationRad: number): void {
     if (this.disposed) return;
     const t0 = this.now();
+    let cam = camIn;
+    if (this.debugPose) cam = this.applyDebugPose(camera);
     try {
       this.frameNo++;
       this.night = nightFactor(sunElevationRad);
@@ -209,6 +214,28 @@ export class SceneryManager implements SceneryLike {
     this.treeGeo.conifer.dispose();
     this.treeGeo.broadleaf.dispose();
     this.root.removeFromParent();
+  }
+
+  /**
+   * Automation / debugging aid (screenshots): force the render camera to a geodetic pose every
+   * frame (heading true, pitch up positive); null releases it. Inert unless called.
+   */
+  debugView(v: { lat: number; lon: number; alt: number; headingDeg: number; pitchDeg: number; fovDeg?: number } | null): void {
+    this.debugPose = v;
+    this.lastSelect.set(NaN, NaN, NaN);
+  }
+
+  private applyDebugPose(camera: THREE.PerspectiveCamera): THREE.Vector3 {
+    const v = this.debugPose!;
+    const p = this.frame.geodeticToThree(v.lat, v.lon, v.alt);
+    this.debugPos.set(p[0], p[1], p[2]);
+    if (camera && camera.isPerspectiveCamera) {
+      camera.position.copy(this.debugPos);
+      camera.rotation.set((v.pitchDeg * Math.PI) / 180, (-v.headingDeg * Math.PI) / 180, 0, 'YXZ');
+      if (v.fovDeg && Math.abs(camera.fov - v.fovDeg) > 1e-6) { camera.fov = v.fovDeg; camera.updateProjectionMatrix(); }
+      camera.updateMatrixWorld(true);
+    }
+    return this.debugPos;
   }
 
   get isVisible(): boolean { return this.visible; }

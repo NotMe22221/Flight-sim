@@ -109,7 +109,13 @@ export class GfcAutopilot implements Autopilot {
   private pilotPitch = 0;
   private pilotRoll = 0;
   private pilotTrim = 0;
+  /** `apply()` has sampled the pilot's controls since construction / `reset()` */
+  private pilotSampled = false;
+  /** engaged before any pilot sample: seed trim and servos from the next `apply()` instead */
+  private seedOnApply = false;
   private overrideTimer = 0;
+  private stallTimer = 0;
+  private overspeedTimer = 0;
   private trimTimer = 0;
   private trimRunning = false;
   private gsLostTimer = 0;
@@ -184,9 +190,13 @@ export class GfcAutopilot implements Autopilot {
     if (s.lateral === 'OFF') this.selectRollHold();
     if (s.vertical === 'OFF') this.selectPitchHold();
     this.overrideTimer = 0;
+    this.stallTimer = 0;
+    this.overspeedTimer = 0;
     this.trimTimer = 0;
     this.trimRunning = false;
     s.trimCommand = this.pilotTrim;
+    // without a pilot sample the trim and stick seeds would be 0: the trim wheel would jump
+    this.seedOnApply = !this.pilotSampled;
     if (this.lastAc) this.syncServos(this.lastAc);
     else this.pendingEngageSync = true;
     this.modeChanged();
@@ -207,6 +217,7 @@ export class GfcAutopilot implements Autopilot {
     this.trimTimer = 0;
     this.trimRunning = false;
     this.pendingEngageSync = false;
+    this.seedOnApply = false;
     if (!s.flightDirector) this.clearModes();
     for (const cb of this.disconnectCbs) cb(reason);
     this.modeChanged();
@@ -270,6 +281,7 @@ export class GfcAutopilot implements Autopilot {
     this.ydWashout.reset(); this.lateralDotsRate.reset();
     this.locIntegral = 0; this.gsIntegral = 0; this.overrideTimer = 0; this.trimTimer = 0; this.trimRunning = false; this.sourceLostTimer = 0; this.gsLostTimer = 0;
     this.lastAc = null; this.lastNav = null; this.pendingEngageSync = false; this.lvlUnloading = false; this.powered = true; this.unpoweredT = 0;
+    this.pilotSampled = false; this.seedOnApply = false;
   }
 
   // ───────────────────────────── mode selection ─────────────────────────────
@@ -438,12 +450,17 @@ export class GfcAutopilot implements Autopilot {
 
     // Protections.
     if (s.engaged) {
+      // Warnings must persist (leaky timers): a stall-warning chirp in turbulence is not a stall.
+      const stallWarn = p.disconnectOnStallWarning && (ac.aero.stallWarning || ac.warnings.stall);
+      const overspeedWarn = p.disconnectOnOverspeed && ac.warnings.overspeed;
+      this.stallTimer = stallWarn ? this.stallTimer + dt : Math.max(0, this.stallTimer - dt);
+      this.overspeedTimer = overspeedWarn ? this.overspeedTimer + dt : Math.max(0, this.overspeedTimer - dt);
       // LVL is the recovery mode: it stays engaged in steep banks, overspeed and stall warning
       // (its α ceiling keeps the pitch command out of the stall).
       if (ac.crashed) this.disconnect('crash');
-      else if (!s.lvl && p.disconnectOnStallWarning && (ac.aero.stallWarning || ac.warnings.stall)) this.disconnect('stall');
+      else if (!s.lvl && stallWarn && this.stallTimer >= p.warningPersistS) this.disconnect('stall');
       else if (!s.lvl && Math.abs(ac.euler[0]) > p.maxBankRad) this.disconnect('bank');
-      else if (!s.lvl && p.disconnectOnOverspeed && ac.warnings.overspeed) this.disconnect('overspeed');
+      else if (!s.lvl && overspeedWarn && this.overspeedTimer >= p.warningPersistS) this.disconnect('overspeed');
       else {
         const over = Math.abs(this.pilotPitch) > p.overrideThreshold || Math.abs(this.pilotRoll) > p.overrideThreshold;
         this.overrideTimer = over ? this.overrideTimer + dt : 0;
@@ -537,6 +554,15 @@ export class GfcAutopilot implements Autopilot {
     this.pilotPitch = inputs.pitch;
     this.pilotRoll = inputs.roll;
     this.pilotTrim = inputs.pitchTrim;
+    this.pilotSampled = true;
+    if (this.seedOnApply) {
+      // engaged before the pilot's controls were known: start from them now (same frame, bumpless)
+      this.seedOnApply = false;
+      if (s.engaged) {
+        s.trimCommand = inputs.pitchTrim;
+        if (this.lastAc) this.syncServos(this.lastAc);
+      }
+    }
     if (!s.engaged) {
       s.trimCommand = inputs.pitchTrim;
       if (!s.yawDamper) return inputs;

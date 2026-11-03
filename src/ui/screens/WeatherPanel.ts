@@ -33,6 +33,8 @@ export class WeatherPanel {
   private currentWx: Txt;
   private lastScale = -1;
   private lastWxSummary = '';
+  /** last simulator preset reflected by the in-flight panel (a challenge or a hotkey can change it) */
+  private lastLivePreset: string | null = null;
   private unsub: () => void;
 
   constructor(private readonly ctx: ScreenContext, private readonly opts: { compact: boolean }) {
@@ -89,10 +91,15 @@ export class WeatherPanel {
   private lon(): number { return this.ctx.selection.sel.spawn.airport.position.lon; }
   private lat(): number { return this.ctx.selection.sel.spawn.airport.position.lat; }
 
+  private markPreset(m: string): void {
+    for (const [id, b] of this.presetButtons) { b.classList.toggle('active', id === m); b.setAttribute('aria-checked', String(id === m)); }
+  }
+
   /** Syncs the controls with the selection store. */
   refresh(): void {
     const m = this.mode;
-    for (const [id, b] of this.presetButtons) { b.classList.toggle('active', id === m); b.setAttribute('aria-checked', String(id === m)); }
+    this.lastLivePreset = null; // the next in-flight update re-checks the simulator's weather
+    this.markPreset(m);
     this.editorWrap.style.display = m === 'custom' ? '' : 'none';
     if (m === 'custom') { const w = this.ctx.selection.sel.weather; if (w.mode === 'custom') { this.draft = cloneWeather(w.custom); this.renderEditor(); } }
     const tm = this.timeModeFromSelection();
@@ -214,8 +221,15 @@ export class WeatherPanel {
       qnh.el, temp.el, turb.el, ts);
   }
 
-  /** In flight: reflect the current time scale and weather summary from the snapshot. */
+  /**
+   * In flight: reflect the current time scale, the weather summary and (compact in-flight panel)
+   * the preset the simulator is actually flying, e.g. a landing challenge's own weather.
+   */
   update(s: SimSnapshot): void {
+    if (this.opts.compact && this.ctx.inFlight() && s.weather.preset !== this.lastLivePreset) {
+      this.lastLivePreset = s.weather.preset;
+      if (this.presetButtons.has(s.weather.preset)) this.markPreset(s.weather.preset);
+    }
     const sc = s.time.timeScale;
     if (sc !== this.lastScale) { this.lastScale = sc; this.scaleSeg.set(TIME_SCALES.includes(sc) ? String(sc) : null); }
     const sum = `${weatherSummary(s.weather)} · ${formatTimeScale(sc)}`;
