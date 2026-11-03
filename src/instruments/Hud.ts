@@ -135,7 +135,7 @@ export class Hud {
       drawControls(ctx, w, h, k, v);
     }
     drawFlags(ctx, w, L.apY + L.apH + 12 * k, k, v, this.blinkOn);
-    drawStatus(ctx, h, k, v.terrainReady, this.statusText);
+    drawStatus(ctx, w, h, k, v.terrainReady, this.statusText, this.showData);
   }
 
   private signature(s: SimSnapshot): number {

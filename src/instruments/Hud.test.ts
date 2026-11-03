@@ -125,7 +125,9 @@ describe('HUD helpers', () => {
     expect(gearText(0).text).toBe('UP');
     expect(gearText(0.5).text).toBe('TRANSIT');
     expect(hudScale(1800, 1200)).toBeCloseTo(1.6);
-    expect(hudScale(390, 844)).toBeCloseTo(0.45);
+    expect(hudScale(390, 844)).toBeCloseTo((390 - 24) / 620); // width-limited portrait phone
+    expect(hudScale(320, 200)).toBe(0.45);
+    expect(hudScale(1280, 720)).toBeCloseTo(1.2);
     expect(hudScale(900, 600, 1.2)).toBeCloseTo(1.2);
   });
 });

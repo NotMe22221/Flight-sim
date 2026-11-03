@@ -92,9 +92,11 @@ export function drawFlags(ctx: Ctx2D, widthCss: number, yTop: number, k: number,
  * Bottom-left status: terrain loading progress while `terrainReady` < 1, then an optional custom
  * status text (the integrator's hook for "Loading imagery…" and similar).
  */
-export function drawStatus(ctx: Ctx2D, heightCss: number, k: number, terrainReady: number, status: string | null): void {
+export function drawStatus(ctx: Ctx2D, widthCss: number, heightCss: number, k: number, terrainReady: number, status: string | null, avoidControls: boolean): void {
   const x = 14 * k, w = 210 * k, h = 30 * k;
   let y = heightCss - h - 14 * k;
+  // on narrow viewports stack the status above the controls strip instead of beside it
+  if (avoidControls && x + w > widthCss / 2 - controlsWidth(k) / 2 - 6 * k) y -= 72 * k;
   if (terrainReady < 0.995) {
     panel(ctx, x, y, w, h, k, C.panelStrong);
     label(ctx, 'LOADING TERRAIN', x + 10 * k, y + 11 * k, 11 * k, C.dim);

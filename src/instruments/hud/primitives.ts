@@ -22,9 +22,15 @@ export const HUD_COLORS = Object.freeze({
   barBg: 'rgba(255,255,255,0.16)',
 });
 
-/** Scale factor for a viewport: 1 at ~900×600 CSS px and up, never below 0.45 (phones). */
+/** Base width of the top strip (speed + heading tape + altitude blocks) at scale 1, CSS px. */
+export const HUD_STRIP_BASE_W = 620;
+
+/**
+ * Scale factor for a viewport: follows the height (1 at 600 CSS px), limited so the top strip
+ * still fits the width with 12 px margins (portrait phones), clamped to 0.45…1.6.
+ */
 export function hudScale(widthCss: number, heightCss: number, uiScale = 1): number {
-  return clamp(Math.min(widthCss / 900, heightCss / 600), 0.45, 1.6) * uiScale;
+  return clamp(Math.min(heightCss / 600, (widthCss - 24) / HUD_STRIP_BASE_W), 0.45, 1.6) * uiScale;
 }
 
 /** Rounded-rectangle path (manual arcs so it works on every 2D context). */

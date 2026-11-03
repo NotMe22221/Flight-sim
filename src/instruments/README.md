@@ -107,7 +107,9 @@ model it does not own, so the lags are not advanced twice).
   VS 0.6 s); top strip (IAS/GS, ±30° heading tape with bug, ALT/VS/AGL), AP mode line, flags
   (CRASHED, STALL flashing, OVERSPEED, OVER-G, FLAP/GEAR SPEED, LOW FUEL, PAUSED, SLEW), bottom
   controls strip (THR, MIX, FLAPS, TRIM, GEAR, BRAKE/PARK) and the terrain-loading bar while
-  `snapshot.terrainReady < 1`. In the cockpit camera only flags and status are shown.
+  `snapshot.terrainReady < 1`. In the cockpit camera only flags and status are shown. The scale
+  follows the viewport height (1 at 600 CSS px) but shrinks so the top strip always fits the
+  width (portrait phones); the status box stacks above the controls strip when space is short.
 
 ## Tests (`npx vitest run src/instruments`)
 
@@ -142,7 +144,10 @@ The layout was also checked visually by rendering the PFD, MFD and HUD in headle
   `SimSnapshot` has no COM/XPDR state (see proposed contract changes).
 * Bearing pointers support NAV1/NAV2/GPS (no ADF). The marker annunciator is static (no keying).
 * The G1000 has no failure injection beyond what `InstrumentReadings` reports (dead bus → black
-  screens, AHRS invalid → red X).
+  screens, AHRS invalid → red X over the full-width attitude and the HSI).
+* Panel dimming (`inputs.lights.panel`) and night palettes are not applied to the glass displays.
+* When the PFD and MFD are composited into one texture, use `g1000.changed.pfd/mfd` to blit only
+  the display that changed.
 * Fonts: the canvas uses the CSS stacks in `canvas.ts`; load "Roboto Condensed"/"Roboto Mono"
   with `document.fonts.load` before the first draw or a fallback face is used.
 

@@ -63,7 +63,7 @@ export function drawEis(ctx: Ctx2D, r: InstrumentReadings): void {
   drawBar(ctx, y, 'OIL TEMP', B.oilTemp, e.oilTempF, ints.get(e.oilTempF)); y += EIS.barStep;
   drawBar(ctx, y, 'EGT °F', B.egt, e.egtF, ints.get(e.egtF)); y += EIS.barStep;
   drawBar(ctx, y, 'VAC', B.vac, r.suctionInHg, oneDec.get(r.suctionInHg)); y += EIS.barStep;
-  drawFuel(ctx, y, r.fuelGal[0], r.fuelGal[1]); y += 72;
+  drawFuel(ctx, y, r.fuelGal[0], r.fuelGal[1]); y += 78;
   text(ctx, 'ENG HRS', EIS.barX, y, cond.get(13), G.white);
   num(ctx, hoursLabels.get(r.tachHours), EIS.barX + EIS.barW, y, condBold.get(15), G.white, 'right');
   y += 28;
@@ -151,7 +151,7 @@ export function drawBar(ctx: Ctx2D, y: number, label: string, spec: BarSpec, val
 }
 
 function drawFuel(ctx: Ctx2D, y: number, leftGal: number, rightGal: number): void {
-  const spec = EIS_BARS.fuel, barY = y + 38;
+  const spec = EIS_BARS.fuel, barY = y + 44;
   text(ctx, 'FUEL QTY GAL', EIS.w / 2, y + 8, cond.get(13), G.white, 'center');
   num(ctx, oneDec.get(leftGal), EIS.barX, y + 22, condBold.get(13), inRedBand(spec, leftGal) ? G.red : G.white, 'left');
   num(ctx, oneDec.get(rightGal), EIS.barX + EIS.barW, y + 22, condBold.get(13), inRedBand(spec, rightGal) ? G.red : G.white, 'right');

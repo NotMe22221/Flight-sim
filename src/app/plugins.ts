@@ -90,7 +90,7 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
   if (path.endsWith('/G1000.ts')) {
     const G1000 = ctor<G1000Like>(mod, 'G1000');
     if (!G1000) return;
-    type G1000Full = G1000Like & { readonly mfdCanvas: HTMLCanvasElement | OffscreenCanvas };
+    type G1000Full = G1000Like & { readonly mfdCanvas: HTMLCanvasElement | OffscreenCanvas; readonly changed?: { pfd: boolean; mfd: boolean } };
     const g = new (G1000 as unknown as new (o?: object) => G1000Full)({});
     // One panel texture with the PFD (left) and MFD (right) side by side, as in the 172 G1000.
     const pfd = g.pfdCanvas, mfd = g.mfdCanvas;
@@ -111,8 +111,10 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
           g.setNearestAirports(sim.nearby.map((a) => ({ icao: a.icao, lat: a.position.lat, lon: a.position.lon, type: a.type })));
         }
         if (!g.update(s, dt)) return false;
-        ctx.drawImage(pfd as CanvasImageSource, 0, 0);
-        ctx.drawImage(mfd as CanvasImageSource, pfd.width + gap, 0);
+        // redraw only the display(s) that changed this frame
+        const ch = g.changed ?? { pfd: true, mfd: true };
+        if (ch.pfd) ctx.drawImage(pfd as CanvasImageSource, 0, 0);
+        if (ch.mfd) ctx.drawImage(mfd as CanvasImageSource, pfd.width + gap, 0);
         return true;
       },
     });
