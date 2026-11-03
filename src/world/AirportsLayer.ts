@@ -49,8 +49,19 @@ export const runwayBulge = (lengthM: number, t: number): number => (lengthM * le
  * the air; World.update sets it). The OSM taxiways next to a runway stay under the slab (6–10 mm).
  */
 export const RUNWAY_NEAR_DROP_M = { slab: 0.108, markings: 0.136, designator: 0.144 };
+/**
+ * Pavement albedos for the sky's calibrated light (src/sky/README.md "Calibration": a clear noon puts white paint
+ * at ≈ 238/255). Asphalt texture sRGB `base … base + span` (linear ≈ 0.04, sunlit ≈ 70/255 at noon; the old
+ * 80–120 was linear ≈ 0.13 and rendered ≈ 156), markings and designators a little below white paint
+ * (linear ≈ 0.55, ≈ 226 at noon; the old 0xf2f2ea clipped), turf a mid green.
+ */
+export const ASPHALT_SRGB = { base: 44, span: 24 } as const;
+export const RUNWAY_MARKING_COLOR = 0xc4c4bc;
+export const TURF_COLOR = 0x3e5028;
 export const RUNWAY_NEAR_FULL_M = 40;
 export const RUNWAY_NEAR_END_M = 400;
+/** Longest slab segment / marking piece along a runway (m): see `buildSlab` (near drop per vertex). */
+export const RUNWAY_SEGMENT_M = 50;
 
 /** Lower a material's vertices along the render-frame up near the camera by `drop.value × scale` (view space, after project_vertex). */
 export function patchRunwayNearDrop(m: THREE.Material, drop: { value: number }, scale: number): void {
@@ -91,10 +102,10 @@ export class AirportsLayer {
     this.opts = { ...DEFAULTS, ...options };
     this.group.name = 'airports';
     const asphaltTex = makeAsphaltTexture();
-    // the texture alone sets the albedo: sRGB ~100 is linear ~0.13, aged asphalt (a darker material
-    // colour multiplied it down to ~0.03 and the pavement rendered near-black at noon)
+    // the texture alone sets the albedo (ASPHALT_SRGB: linear ≈ 0.04 for the calibrated light; the material
+    // colour stays white)
     this.asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, color: 0xffffff, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    this.markings = new THREE.MeshStandardMaterial({ color: 0xf2f2ea, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+    this.markings = new THREE.MeshStandardMaterial({ color: RUNWAY_MARKING_COLOR, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
     patchRunwayNearDrop(this.asphalt, this.nearDrop, RUNWAY_NEAR_DROP_M.slab);
     patchRunwayNearDrop(this.markings, this.nearDrop, RUNWAY_NEAR_DROP_M.markings);
     this.lightSprite = makeLightSprite();
@@ -245,7 +256,9 @@ export class AirportsLayer {
    */
   private buildSlab(g: RunwayGeometry, rw: Runway): THREE.Mesh {
     const [al, ar, br, bl] = g.corners;
-    const n = Math.max(1, Math.ceil(g.lengthM / 250));
+    // the near-camera drop is computed per vertex: ≤ 50 m segments keep every vertex around the
+    // wheels within its full-drop distance (250 m segments left the slab 2.8 cm up mid-segment)
+    const n = Math.max(1, Math.ceil(g.lengthM / RUNWAY_SEGMENT_M));
     const repeatU = Math.max(1, Math.round(g.widthM / 12));
     const repeatV = Math.max(1, Math.round(g.lengthM / 12));
     const pos = new Float32Array((n + 1) * 2 * 3), uv = new Float32Array((n + 1) * 2 * 2);
@@ -283,11 +296,11 @@ export class AirportsLayer {
     const slopeAt = (t: number) => g.ends[0].pos[1] + (g.ends[1].pos[1] - g.ends[0].pos[1]) * t;
     const horiz = Math.hypot(g.ends[1].pos[0] - g.ends[0].pos[0], g.ends[1].pos[2] - g.ends[0].pos[2]);
     // Quad in runway coordinates: s along from A (m), c across from centreline (m, + right of A→B travel);
-    // long quads are split into ≤ 250 m pieces that follow the pavement's curvature bulge
+    // long quads are split into ≤ 50 m pieces that follow the pavement's curvature bulge (and the slab's near drop)
     const pushQuad = (s0: number, s1: number, c0: number, c1: number) => {
       const a = g.ends[0].pos;
       const p = (s: number, c: number): Vec3 => [a[0] + g.along[0] * s + g.across[0] * c, slopeAt(s / horiz) + runwayBulge(horiz, s / horiz) + lift, a[2] + g.along[2] * s + g.across[2] * c];
-      const pieces = Math.max(1, Math.ceil((s1 - s0) / 250));
+      const pieces = Math.max(1, Math.ceil((s1 - s0) / RUNWAY_SEGMENT_M));
       for (let i = 0; i < pieces; i++) {
         const sa = s0 + ((s1 - s0) * i) / pieces, sb = s0 + ((s1 - s0) * (i + 1)) / pieces;
         const p0 = p(sa, c0), p1 = p(sa, c1), p2 = p(sb, c1), p3 = p(sb, c0);
@@ -452,7 +465,9 @@ const hasDocument = typeof document !== 'undefined';
 
 function makeAsphaltTexture(): THREE.Texture {
   if (!hasDocument) {
-    const t = new THREE.DataTexture(new Uint8Array([110, 110, 110, 255]), 1, 1);
+    const mean = Math.round(ASPHALT_SRGB.base + ASPHALT_SRGB.span / 2);
+    const t = new THREE.DataTexture(new Uint8Array([mean, mean, mean, 255]), 1, 1);
+    t.colorSpace = THREE.SRGBColorSpace;
     t.needsUpdate = true;
     return t;
   }
@@ -460,13 +475,13 @@ function makeAsphaltTexture(): THREE.Texture {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const ctx = c.getContext('2d')!;
-  ctx.fillStyle = '#5c5c5c';
+  ctx.fillStyle = '#383838';
   ctx.fillRect(0, 0, size, size);
   const img = ctx.getImageData(0, 0, size, size);
   let seed = 12345;
   const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
   for (let i = 0; i < img.data.length; i += 4) {
-    const n = 80 + rnd() * 40;
+    const n = ASPHALT_SRGB.base + rnd() * ASPHALT_SRGB.span;
     img.data[i] = n; img.data[i + 1] = n; img.data[i + 2] = n + 2;
   }
   ctx.putImageData(img, 0, 0);
@@ -512,7 +527,7 @@ function makeTextTexture(text: string): THREE.Texture {
   c.width = w; c.height = h;
   const ctx = c.getContext('2d')!;
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#f4f4ec';
+  ctx.fillStyle = `#${RUNWAY_MARKING_COLOR.toString(16).padStart(6, '0')}`;
   ctx.font = 'bold 230px "Arial Narrow", "Helvetica Neue", Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -525,7 +540,7 @@ function makeTextTexture(text: string): THREE.Texture {
 
 let grassMat: THREE.MeshStandardMaterial | null = null;
 function grassMaterial(): THREE.MeshStandardMaterial {
-  if (!grassMat) grassMat = new THREE.MeshStandardMaterial({ color: 0x4f6b35, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  if (!grassMat) grassMat = new THREE.MeshStandardMaterial({ color: TURF_COLOR, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   return grassMat;
 }
 

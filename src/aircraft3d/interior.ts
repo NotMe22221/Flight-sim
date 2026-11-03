@@ -90,18 +90,28 @@ function buildHood(gs: C172Layout['glareshield'], panelTop: { y: number; z: numb
 }
 
 /**
+ * Light on the unlit (MeshBasicMaterial, not tone-mapped) instrument panels at night, as a linear factor on
+ * the texture as drawn (1 = daylight). The night scene around the panel is dark (sRGB ≈ 0–60), so the warm
+ * post lights bring the gauge faces, their markings and the panel background to ≈ 30 % (white markings
+ * ≈ 150 / 255 on black faces: readable, no longer the daylight panel they were at 0.7); with the lights off
+ * the faces keep a dim floor. The G1000 screens are backlit LCDs: at night they dim to 35 %.
+ */
+export const PANEL_NIGHT = { postLights: 0.3, floor: 0.1, g1000: 0.35 } as const;
+
+/**
  * Instrument lighting shared by the cockpits. The panel planes are unlit (MeshBasicMaterial),
  * so their colour is the light on the gauges: daylight (0 night … 1 day) or the warm post
  * lights (`panelLight` 0..1), whichever is brighter, with a dim floor so the faces never go
- * fully black. The G1000 screens are emissive: they only dim to ~55 % at night.
+ * fully black (`PANEL_NIGHT`). The G1000 screens are emissive: they dim with the daylight to
+ * `PANEL_NIGHT.g1000`.
  */
 export function applyPanelLighting(steam: PanelMesh, g1000: PanelMesh, daylight: number, panelLight: number): void {
   const d = Math.max(0, Math.min(1, daylight || 0));
-  const p = 0.7 * Math.max(0, Math.min(1, panelLight || 0));
+  const p = PANEL_NIGHT.postLights * Math.max(0, Math.min(1, panelLight || 0));
   // the floor (≈ 35 % perceived) keeps a night spawn with the panel lights off readable
-  const base = 0.1 + 0.9 * d;
+  const base = PANEL_NIGHT.floor + (1 - PANEL_NIGHT.floor) * d;
   steam.material.color.setRGB(Math.max(base, p), Math.max(base, p * 0.9), Math.max(base, p * 0.72));
-  const glass = 0.55 + 0.45 * d;
+  const glass = PANEL_NIGHT.g1000 + (1 - PANEL_NIGHT.g1000) * d;
   g1000.material.color.setRGB(glass, glass, glass);
 }
 
@@ -301,7 +311,7 @@ export class CockpitInterior implements CockpitAssembly {
    * Instrument lighting. The panel planes are unlit (MeshBasicMaterial), so their colour is the
    * light on the gauges: daylight (0 night … 1 day) or the warm post lights (`panelLight`
    * 0..1), whichever is brighter, with a dim floor so the faces never go fully black. The
-   * G1000 screens are emissive: they only dim to ~55 % at night. Linear factors; 1 = as drawn.
+   * G1000 screens are emissive: they dim to `PANEL_NIGHT.g1000` at night. Linear factors; 1 = as drawn.
    */
   setPanelLighting(daylight: number, panelLight: number): void {
     applyPanelLighting(this.panelMesh, this.panelMeshG1000, daylight, panelLight);

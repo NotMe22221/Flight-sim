@@ -9,6 +9,7 @@ export { SkySystem, patchSkyDepth, patchSkyDome, type SkySystemOptions, type Sky
 export { type SkyLighting, createSkyLighting, HEIGHT_FOG_GLSL, HAZE_LOBE_GLSL } from './types';
 export { SKY_UNIFORMS, SKY_UNIFORMS_GLSL, MAX_SHADOW_LAYERS, createSkySharedUniforms, cloudShadowAt, type SkySharedUniforms } from './skyUniforms';
 export { installBuiltinHeightFog, setBuiltinHeightFog, builtinHeightFogInstalled } from './builtinFog';
+export { applyIblScale, iblScaleOf, patchIblScaleSource, IBL_SCALE_ANCHOR, IBL_SCALE_GLSL, type IblScaleState } from './iblScale';
 export { CloudLayers, type CloudLayersOptions } from './clouds';
 export { Precipitation, type PrecipitationOptions } from './precipitation';
 export { StarField, generateStarCatalog, equatorialToLocalMatrix, equatorialDir, gmstDeg, blackbodyRGB, type StarCatalog } from './stars';

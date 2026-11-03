@@ -6,14 +6,23 @@
  * so it works with both the logarithmic and the reversed depth buffer.
  */
 import * as THREE from 'three';
+import { applyIblScale } from '../sky/iblScale';
 import { makeFacadeImages, makePavementImage, makePlainImage, makePoolImage, makeRoofImage, makeSpriteImage, toTexture } from './textures';
 
 /**
- * Image-based lighting share. The sky's PMREM environment is several times brighter than its
- * sun DirectionalLight, so even a small share turns every roof and apron sky-blue; diffuse
- * scenery is shaded by the sun and the (desaturated) hemisphere light, like the terrain shader.
+ * Image-based lighting shares (relative to the sky's `scene.environmentIntensity`, applied with
+ * `applyIblScale`: three r187 ignores `material.envMapIntensity` for materials lit by
+ * `scene.environment`). Since the sky's light calibration the environment's diffuse light IS the
+ * skylight (the dome desaturated to skylight's hue over the lit ground; the hemisphere light is
+ * ≈ 0 by day), so diffuse scenery keeps it in full — shaded like the terrain, whose skylight is the
+ * same irradiance. Its reflections stay off: matte roofs, walls and pavement do not mirror the sky
+ * (the old reason for `envMapIntensity` 0), except a faint sheen on the facades' glass.
  */
-export const ENV_INTENSITY = 0;
+export const ENV_DIFFUSE = 1;
+/** sky reflections on diffuse scenery (roofs, pavement, markings, plain walls) */
+export const ENV_SPECULAR = 0;
+/** sky reflections on the windowed facades (glass) */
+export const ENV_SPECULAR_GLASS = 0.03;
 /** Relative depth bias of draped surfaces (fraction of the view distance) so they win over the terrain mesh. */
 export const DRAPE_DEPTH_BIAS = 0.0025;
 
@@ -130,16 +139,16 @@ export class SceneryMaterials {
 
     this.walls = new THREE.MeshStandardMaterial({
       name: 'scenery-walls', map: facadeMap, roughnessMap: facadeRough, emissiveMap: facadeEmissive, emissive: 0xffffff, emissiveIntensity: 0,
-      vertexColors: true, roughness: 1, metalness: 0.05, envMapIntensity: 0.03,
+      vertexColors: true, roughness: 1, metalness: 0.05,
     });
-    this.plain = new THREE.MeshStandardMaterial({ name: 'scenery-plain', map: plainMap, vertexColors: true, roughness: 0.85, metalness: 0.1, envMapIntensity: ENV_INTENSITY });
-    this.roofs = new THREE.MeshStandardMaterial({ name: 'scenery-roofs', map: roofMap, vertexColors: true, roughness: 0.95, metalness: 0, envMapIntensity: ENV_INTENSITY });
+    this.plain = new THREE.MeshStandardMaterial({ name: 'scenery-plain', map: plainMap, vertexColors: true, roughness: 0.85, metalness: 0.1 });
+    this.roofs = new THREE.MeshStandardMaterial({ name: 'scenery-roofs', map: roofMap, vertexColors: true, roughness: 0.95, metalness: 0 });
     this.surfaces = new THREE.MeshStandardMaterial({
-      name: 'scenery-pavement', map: paveMap, vertexColors: true, roughness: 0.92, metalness: 0, envMapIntensity: ENV_INTENSITY,
+      name: 'scenery-pavement', map: paveMap, vertexColors: true, roughness: 0.92, metalness: 0,
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     });
     this.markings = new THREE.MeshStandardMaterial({
-      name: 'scenery-markings', vertexColors: true, roughness: 0.7, metalness: 0, envMapIntensity: ENV_INTENSITY,
+      name: 'scenery-markings', vertexColors: true, roughness: 0.7, metalness: 0,
       polygonOffset: true, polygonOffsetFactor: -1.5, polygonOffsetUnits: -1.5,
     });
     patchMaterial(this.walls, { ambientSat: this.ambientSat }, 'scenery-walls-1');
@@ -149,6 +158,9 @@ export class SceneryMaterials {
     patchMaterial(this.markings, { depthBias: this.depthBias, nearDrop: this.nearDrop, ambientSat: this.ambientSat }, 'scenery-markings-2');
     this.trees = new THREE.MeshLambertMaterial({ name: 'scenery-trees', vertexColors: true });
     patchMaterial(this.trees, { ambientSat: this.ambientSat }, 'scenery-trees-1');
+    // after patchMaterial (it assigns the hooks applyIblScale chains onto)
+    applyIblScale(this.walls, ENV_DIFFUSE, ENV_SPECULAR_GLASS);
+    for (const m of [this.plain, this.roofs, this.surfaces, this.markings, this.trees]) applyIblScale(m, ENV_DIFFUSE, ENV_SPECULAR);
     this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 16, false);
     // airport lights stand on draped pavement, which is depth-biased toward the camera: the
     // same bias keeps them in front of it (seen from 300 m up the bias is worth ~0.75 m)

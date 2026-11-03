@@ -7,7 +7,7 @@ pop-out displays). Everything runs in Node against `testing/mockCanvas.ts`. Spec
 
 | Export | What it draws | Canvas |
 |---|---|---|
-| `SteamPanel` | C172S six-pack, engine/system gauges, radio stack, annunciators | 1024×512 opaque |
+| `SteamPanel` | C172S six-pack, engine/system gauges, radio stack, annunciators — or the Super Cub panel (`CUB_STEAM_LAYOUT`) | 1024×512 opaque |
 | `G1000` | G1000 NXi-style PFD and MFD in GDU bezels, interactive (softkeys, knobs, D→, FPL, NRST, PROC) | 2 × 1344×1008 opaque (1024×768 screens; `bezel: false` → 2 × 1024×768) |
 | `G1000Panel` | both GDUs side by side on one texture + UV → control mapping | 2769×1008 opaque |
 | `Hud` | translucent MSFS-like overlay for the external views | viewport × dpr, transparent |
@@ -49,8 +49,13 @@ hud.setStatus('Loading imagery…' | null);   // custom status-line hook (bottom
 hud.values;                       // the numbers shown last frame
 
 // Steam panel ────────────────────────────────────────────────────────────────────
-const panel = new SteamPanel({ layout?, factory?, pixelRatio?, hz?, model?, vspeeds? });
+const panel = new SteamPanel({ layout?, factory?, pixelRatio?, hz?, model?, vspeeds?, spec? });
 if (panel.update(snapshot, dt)) steamTex.needsUpdate = true;
+// per aircraft (panels.ts): the C172S keeps C172_STEAM_LAYOUT + C172S_PANEL_SPEC, the Super Cub
+// gets CUB_STEAM_LAYOUT + markings from its own AircraftConfig
+const cub = new SteamPanel({ layout: steamLayoutFor(cfg), spec: panelSpecFor(cfg) });
+hasAutopilot(cfg);                       // false for 'cub-steam'
+hitTestPanel(layout, px, py);            // → { item, u, v } | null (footprints = size × ITEM_ASPECT)
 
 // Texture helpers (no Three.js types) ────────────────────────────────────────────
 PANEL_TEXTURE_SIZE.g1000;  // { width: 1024, height: 768 } (screen); .g1000Bezel 1344×1008; .g1000Panel 2769×1008; .steam 1024×512
@@ -167,6 +172,40 @@ Sharing one `InstrumentModel` between the steam panel and the G1000: pass `model
 and call `model.update(snapshot, dt)` yourself before `g1000.update()` (a G1000 never steps a
 model it does not own, so the lags are not advanced twice).
 
+## Per-aircraft panels (`panelSpec.ts`, `panels.ts`, `cub.ts`)
+
+A `PanelSpec` carries everything aircraft-specific a steam panel draws or simulates: V-speeds and
+the airspeed dial geometry (`AsiDial`), the ASI and panel placards, tachometer / oil temperature /
+oil pressure markings (with optional yellow arcs), the fuel senders (`FuelMarkings`: tank full
+scale, unusable fuel, LOW FUEL threshold), the electrical bus (`ElectricalMarkings`: regulated and
+battery volts, LOW VOLTS and drop-out thresholds, ammeter and voltmeter scales for a 14 V or 28 V
+system), flap detents and whether an autopilot is fitted. `panelSpecFor(config)` returns the frozen
+historical `C172S_PANEL_SPEC` for both 172 variants (so their panel is unchanged) and
+`cubPanelSpec(config)` for `panel: 'cub-steam'`: V-speeds from `config.limits`
+(`vspeedsFromLimits`), tanks from `config.mass.tanks`, the bus from `config.electrical`
+(`electricalMarkings`; 12 V battery → 14 V nominal). `instrumentConfigFor(spec)` turns it into the
+`InstrumentModel` settings: fuel senders, OIL PRESS threshold and the fallback bus with its
+`busLiveV` (only used when the flight model publishes no `electrical` state; the FDM's own bus,
+`avionicsPowered` and LOW VOLTS always win). `instrumentConfigFor(C172S_PANEL_SPEC)` equals
+`defaultInstrumentConfig()`.
+
+**Super Cub panel** (`CUB_STEAM_LAYOUT`, 1024×512 on the 0.60 × 0.30 m cockpit plane): no gyros.
+Airspeed (20–140 kt dial, 2.7°/kt: white 37–61, green 41–106, yellow 106–133, red 133 KIAS from
+the PA-18-150 limits) and altimeter top left over an electric turn coordinator and the VSI; the
+wet compass above a large tachometer (green 500–2,700, red 2,700 rpm) with the LOW VOLTS / STALL
+lights under it; one NAV/COM (COM1 + NAV1, the stack ATC uses) and the transponder top right, dark
+while the radio bus is unpowered; fuel L/R (18 gal tanks), oil temperature (green 75–245 °F) and
+pressure (red 25 / 100, green 60–90, yellow 25–60 and 90–100 psi); a 8–16 V voltmeter (red below
+LOW VOLTS 12.5 V, green 13–14.8 V) and the clock/OAT; along the bottom the magneto key (OFF · R · L ·
+BOTH · START), MASTER and RADIO rockers, primer and carb-heat knobs (`gauges/switches.ts`, reading
+`InstrumentReadings.switches`), the nameplate and the manoeuvring-speed placard. Markings sources:
+PA-18-150 owner's handbook instrument markings and the Lycoming O-320-A operator's manual.
+
+New gauge ids: `navcom`, `xpdr`, `volts` (`Voltmeter`), `mags` (`MagnetoSwitch`), `master`
+(`MasterSwitches`), `carbHeat` / `primer` (`PushPullKnob`), `warn` (`WarningLights`). `ITEM_ASPECT`
+lists the footprint aspect of every non-square item; `hitTestPanel` uses it (the C172's radio stack
+is no longer shadowed by the compass's square box).
+
 ## How it works
 
 * **Readings** (`readings.ts`): `InstrumentModel.update(snapshot, dt)` turns `AircraftState` into
@@ -218,6 +257,15 @@ model it does not own, so the lags are not advanced twice).
   width (portrait phones); the status box stacks above the controls strip when space is short.
 
 ## Tests (`npx vitest run src/instruments`)
+
+* `cubPanel.test.ts`: Super Cub layout inside 1024×512 without overlaps, the instruments a Cub
+  has (no AI/DG/autopilot unit), every item draws; markings from the PA-18-150 config (V-speed
+  arcs, 20–140 kt dial monotonic over 340°, tach red line, 18 gal tanks, 14 V bus and thresholds);
+  the 172S panel spec and layout unchanged (`instrumentConfigFor(C172S_PANEL_SPEC)` =
+  `defaultInstrumentConfig()`); power with the **real Cub flight model**: master off dark, battery
+  only ≈12 V with LOW VOLTS, engine started → ≈14.2 V and LOW VOLTS out; the fallback bus at 14 V
+  (and still 28 V for the 172); radios dark without radio power; fuel gauges for the 18 gal
+  tanks; hit-testing by real footprints (NAV/COM rows, master vs radio rocker, C172 radio stack).
 
 * `readings.test.ts`, `format.test.ts`, `gauges/gauges.test.ts`: altimetry, lags, gyros, turn
   coordinator, compass, systems, formatting, every steam gauge draws, static-layer caching.
@@ -343,3 +391,5 @@ Displays:
   `MAP.labelRangeNm`, `MAP.minTrackGsKt`, `MAP.rotatedCy` (map), `HSI.trendMaxDeg`/`arrowRateDegS`.
 * Aircraft: `VSpeeds` (`c172.ts` `C172S_VSPEEDS`) for tape bands/bugs; gauge markings in `c172.ts`;
   instrument dynamics in `defaultInstrumentConfig()` (lags, gyro drift, low-fuel threshold, …).
+  Super Cub: `CUB_ASI_DIAL`, `CUB_TACH`, `CUB_OIL_TEMP`, `CUB_OIL_PRESS`, `CUB_LOW_FUEL_GAL` and
+  `CUB_STEAM_LAYOUT` in `cub.ts`; `voltmeterScale(nominalV)` in `panelSpec.ts`.

@@ -115,17 +115,22 @@ function signature(a: PavementArea): string {
   return `${a.kind[0]}${h1.toString(36)}${h2.toString(36)}`;
 }
 
-interface Accepted { spec: PavementFlatteningSpec; icao: string; points: number }
+interface Accepted { spec: PavementFlatteningSpec; icao: string; points: number; sig: string }
 
 /**
  * Keeps the flattened pavement: areas near the current airports, deduplicated by geometry,
  * one stable plane per airport. Areas stay while their airport is current even after the
- * scenery evicts their tile (the terrain must not un-flatten behind the aircraft).
+ * scenery evicts their tile (the terrain must not un-flatten behind the aircraft). A piece is
+ * flattened once, to the plane of the nearest current airport: when a nearer airport is built
+ * later (the spawn airport is built first, its neighbours a few seconds after), the pieces it
+ * claims move to it instead of being flattened a second time to another plane.
  */
 export class PavementRegistry {
   private readonly opts: PavementRegistryOptions;
   private readonly planes = new Map<string, PavementPlane>();
   private readonly accepted = new Map<string, Accepted>();
+  /** geometry signature → key of the accepted spec carrying that piece (whichever airport claims it) */
+  private readonly bySig = new Map<string, string>();
   /** source keys already classified (accepted, duplicate or outside every airport) for the current airport set */
   private readonly seen = new Set<string>();
   private points = 0;
@@ -167,6 +172,7 @@ export class PavementRegistry {
       for (const [k, a] of this.accepted) {
         if (keep.has(a.icao)) continue;
         this.accepted.delete(k);
+        this.bySig.delete(a.sig);
         this.points -= a.points;
         changed = true;
       }
@@ -201,12 +207,20 @@ export class PavementRegistry {
     if (!best) return false;
     const sig = signature(area);
     const key = `${best.icao}:${sig}`;
-    if (this.accepted.has(key)) return false; // the same piece from another scenery tile
+    const prior = this.bySig.get(sig);
+    if (prior === key) return false; // the same piece from another scenery tile
+    const old = prior === undefined ? undefined : this.accepted.get(prior);
     const points = area.rings.reduce((s, r) => s + r.length / 2, 0) + area.line.length / 2;
-    if (this.accepted.size >= this.opts.maxAreas || this.points + points > this.opts.maxPoints) { this.capped = true; return false; }
+    if (this.accepted.size - (old ? 1 : 0) >= this.opts.maxAreas || this.points - (old?.points ?? 0) + points > this.opts.maxPoints) { this.capped = true; return false; }
     const spec = makePavementSpec(key, { rings: area.rings, line: area.line, halfWidthM: area.widthM / 2 }, this.planeFor(best));
     if (!spec) return false;
-    this.accepted.set(key, { spec, icao: best.icao, points });
+    if (old && prior !== undefined) {
+      // accepted earlier for an airport that is current but farther: re-plane it (one spec per piece)
+      this.accepted.delete(prior);
+      this.points -= old.points;
+    }
+    this.accepted.set(key, { spec, icao: best.icao, points, sig });
+    this.bySig.set(sig, key);
     this.points += points;
     return true;
   }

@@ -38,13 +38,17 @@ export const PROCEDURAL_MAX_H = 3000;
 
 /**
  * sRGB land-cover palette (bytes), in the tones of true-colour satellite imagery (Sentinel-2-like:
- * vegetation darker and less saturated than paint greens).
+ * vegetation darker and less saturated than paint greens). Grass, scrub and field tones are albedos for
+ * the sky's calibrated light (src/sky/README.md "Calibration"): a lowland around an airport reads as a mid
+ * green at a clear noon (G ≈ 80–130 / 255, R and B lower) — the earlier, ≈ 2.2 × brighter tones were tuned
+ * against a ≈ 4 × too dim sun and rendered as straw (≈ 182/169/119).
  */
+export const COL_LUSH = [44, 66, 30], COL_GRASS = [62, 80, 40], COL_DRY = [100, 92, 60], COL_SCRUB = [70, 68, 46];
 const COL_DEEP = [12, 30, 46], COL_SHALLOW = [38, 74, 78], COL_WET_SAND = [138, 128, 100], COL_SAND = [204, 190, 150],
-  COL_LUSH = [70, 98, 48], COL_GRASS = [96, 114, 62], COL_DRY = [158, 144, 96], COL_FOREST = [42, 62, 36], COL_CONIFER = [34, 50, 33],
-  COL_SCRUB = [106, 101, 72], COL_ALPINE = [120, 117, 92], COL_ROCK = [124, 117, 108], COL_DARK_ROCK = [90, 86, 82], COL_SNOW = [236, 240, 246];
-/** Field patchwork tones (crops, pasture, fallow, stubble). */
-const FIELD_TONES = [[86, 108, 54], [118, 126, 70], [146, 132, 86], [72, 92, 46], [132, 112, 82], [104, 118, 60], [168, 152, 102], [94, 100, 66]];
+  COL_FOREST = [42, 62, 36], COL_CONIFER = [34, 50, 33],
+  COL_ALPINE = [120, 117, 92], COL_ROCK = [124, 117, 108], COL_DARK_ROCK = [90, 86, 82], COL_SNOW = [236, 240, 246];
+/** Field patchwork tones (crops, pasture, fallow, stubble), same calibration as the grass. */
+export const FIELD_TONES = [[54, 74, 32], [72, 84, 42], [92, 86, 54], [44, 62, 28], [80, 70, 50], [62, 78, 36], [102, 94, 60], [58, 66, 42]];
 
 /** Integer hash of a lattice cell → 0…1 (deterministic, platform independent). */
 function cellHash(ix: number, iy: number, seed: number): number {

@@ -57,9 +57,9 @@ receive its cloud shadows. Nothing to wire.
 | `prefetch(lat, lon, radiusM = 1500)` | Requests the two finest zooms around a point (+ coverage anchors) and resolves when nothing more is outstanding for the finest tile under it: current data (a resident tile made stale by `setRunways` is reloaded first, so a respawn never starts on unflattened ground), or a failure. Works without `update()`; never rejects. Only tiles with a request in flight are pinned. |
 | `whenIdle()` | Resolves when no request is outstanding (tests, loading screens). |
 | `setFrame(frame)` | Rebase: every tile object is re-placed from its float64 ECEF centre plus the rotation between its build frame and the new frame. No vertex is rebuilt. |
-| `setRunways(segments)` | `{ a, b: Geodetic (alt = threshold elevation), widthM }[]` — tiles touching added/removed runways reload; old data stays drawn meanwhile. Unchanged input is a no-op. |
-| `setPavement(specs)` | Airport pavement flattening (`PavementFlatteningSpec[]`, see below): aprons / taxiway areas (polygons with holes) and taxiway centre lines buffered to their width, each with its target plane. Diffed by `key` (a key names immutable content): tiles touching added/removed areas reload, old data stays drawn meanwhile, a pending `prefetch` waits for the new version. `pavementCount` = areas in use. |
-| `revision()` / `changesSince(rev)` | Change signal of the collision heights: `revision()` is bumped whenever a tile's heights arrive, are replaced by a reload or are evicted; `changesSince(rev)` lists the tiles `{ z, x, y }` changed after `rev` (oldest first, last 512 changes), or null when `rev` is older than that (treat everything as changed). The scenery re-grounds exactly the tiles under changed terrain with it; `World.groundShift` uses `revision()` to move a standing aircraft with a reloaded tile. |
+| `setRunways(segments)` | `{ a, b: Geodetic (alt = threshold elevation), widthM }[]` — tiles touching added/removed runways reload; old data stays drawn meanwhile. Unchanged input is a no-op. The first reload after such a change ignores a retry backoff (data from before it is wrong, not merely coarse; offline stand-ins wait 10 s … 120 s between retries). |
+| `setPavement(specs)` | Airport pavement flattening (`PavementFlatteningSpec[]`, see below): aprons / taxiway areas (polygons with holes) and taxiway centre lines buffered to their width, each with its target plane. Diffed by `key` (a key names immutable content): tiles touching added/removed areas reload (the first reload ignores a retry backoff, as for `setRunways`), old data stays drawn meanwhile, a pending `prefetch` waits for the new version. `pavementCount` = areas in use. |
+| `revision()` / `changesSince(rev)` | Change signal of the collision heights: `revision()` is bumped whenever a tile's heights arrive, are replaced by a reload with different heights, or are evicted (a reload over identical heights — imagery switch, offline stand-in retry — is no change); `changesSince(rev)` lists the tiles `{ z, x, y }` changed after `rev` (oldest first, last 512 changes), or null when `rev` is older than that (treat everything as changed). The scenery re-grounds exactly the tiles under changed terrain with it; `World.groundShift` uses `revision()` to move a standing aircraft with a reloaded tile. |
 | `setImagery('satellite' \| 'procedural')` | Switch the imagery chain; resident tiles reload in the background. |
 | `setSun(dir, color, intensity, ambient)` / `setFog(color, density, heightFalloff, sunGlow?)` | Shared uniforms of every terrain/ocean material. |
 | `attribution()` | Credit lines for the providers whose data is on screen. |
@@ -135,12 +135,13 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   crack opens where the coarse patch lies above the finer neighbour's edge (0.3–1.7 m on the fixtures).
 * **Fallbacks**: HTTP 4xx is definitive (try the next source). Network errors, 15 s timeouts and 5xx
   are transient: the job skips that provider's remaining ancestors (same host) and flags the response.
-  Synthetic (procedural) heights never replace real data: when the tile already has data or a real
+  Synthetic (procedural) heights never replace real data: when the tile already has real data or a real
   ancestor is resident, the request says `proceduralOnTransient: false` and the job answers a transient
   error, so the real data (the tile's own, or the ancestor drawn in its place) stays on screen and under
   the wheels while the tile retries with backoff (2 s … 60 s). Only where no real data exists at all
   (offline cold start) do procedural stand-ins appear; they are retried without limit (10 s … 120 s)
-  and dropped the moment real data covers them. A cached response that fails to decode is evicted from
+  and dropped the moment real data covers them. A stand-in may be replaced by a new stand-in: a
+  runway or pavement change reloads it at once (ignoring the backoff) with the new flattening. A cached response that fails to decode is evicted from
   the Cache API. A module worker that fails to start switches the loader to in-thread; a worker reply
   that cannot be posted becomes an `error`, so no request waits forever.
 * **Materials** (`materials.ts`): ShaderMaterial, sRGB imagery, sun + the sky's ambient irradiance with
@@ -201,8 +202,10 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   pavement in the pipeline; coarse and far tiles are skipped; an apron split in two pieces gives the
   same heights as the whole. `pavementSystem.test.ts` — `setPavement` reloads the touched tiles and
   `heightAt` on the apron is the plane (< 1 cm), unchanged input is a no-op, removing it restores the
-  DEM, `prefetch` after `setPavement` (resident or cold) resolves on flattened ground, and
-  `revision` / `changesSince` report the reloaded tiles (null once the log is too short).
+  DEM, `prefetch` after `setPavement` (resident or cold) resolves on flattened ground, also offline
+  (procedural stand-ins inside their retry backoff reload at once, re-flattened), `revision` /
+  `changesSince` report the reloaded tiles (null once the log is too short) but not a reload over
+  identical heights (imagery switch).
 * `tileMesh.test.ts` — also: neighbouring tiles agree on a sloped shared edge (< 1 mm); every
   sub-square down to depth 2 has outward-facing skirts, and a quadrant gets all four sides.
 * `sampling.test.ts` — `triangleSample` equals barycentric interpolation on the `gridIndex`

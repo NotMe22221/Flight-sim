@@ -90,6 +90,28 @@ describe('PavementRegistry', () => {
     expect(reg.sync(null, [KSFO], true)).toBeNull();
   });
 
+  it('a piece claimed by a nearer airport built later moves to it: never flattened twice with two planes', () => {
+    const src = new Source([apron('t/a0', -1300, -700), line('t/l0')]);
+    const reg = new PavementRegistry();
+    expect(reg.sync(src, [KSFO])!.map((s) => s.key.split(':')[0])).toEqual(['KSFO', 'KSFO']);
+    // a field at 30 m whose runway passes 100 m south of the apron (the line stays nearer KSFO)
+    const [aLon, aLat] = ll(-1400, -800), [bLon, bLat] = ll(-900, -800);
+    const NEAR: Airport = { ...KSFO, icao: 'XNEAR', position: { lat: aLat, lon: aLon, alt: 30 }, elevationM: 30, runways: [rw('09/27', [aLat, aLon, 30], [bLat, bLon, 30])] };
+    const both = reg.sync(src, [KSFO, NEAR])!;
+    expect(both).not.toBeNull();
+    expect(both).toHaveLength(2);
+    const apronSpec = both.find((s) => s.rings.length > 0)!;
+    expect(apronSpec.key.startsWith('XNEAR:')).toBe(true);
+    expect(apronSpec.plane.h0).toBeCloseTo(30, 6);
+    expect(both.find((s) => s.line.length > 0)!.key.startsWith('KSFO:')).toBe(true);
+    // the same result whichever airport was built first
+    const fresh = new PavementRegistry().sync(src, [NEAR, KSFO])!;
+    expect(fresh.map((s) => s.key).sort()).toEqual(both.map((s) => s.key).sort());
+    // the field goes again: the apron returns to KSFO (still published)
+    const back = reg.sync(src, [KSFO])!;
+    expect(back.map((s) => s.key.split(':')[0])).toEqual(['KSFO', 'KSFO']);
+  });
+
   it('PavementIndex: inside an apron (not its hole) and within half width of a taxiway line is pavement', () => {
     const holed: PavementArea = { key: 'h', kind: 'apron', rings: [rect(-1600, -1100, -1000, -300), rect(-1400, -800, -1250, -650)], line: [], widthM: 0 };
     const specs = new PavementRegistry().sync(new Source([holed, line('l')]), [KSFO])!;

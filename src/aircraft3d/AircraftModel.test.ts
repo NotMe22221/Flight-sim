@@ -312,10 +312,15 @@ describe('AircraftModel (Node build, no DOM)', () => {
     m.update(st, inputs, 0.01, true);
     expect(steam.r).toBeLessThan(0.15); // dark night, panel lights off: dim but readable
     expect(steam.r).toBeGreaterThan(0);
-    expect(glass.r).toBeGreaterThan(0.5); // the G1000 screens are emissive
+    // the G1000 screens are emissive: dimmed for the night (≈ 35 %), still well above the unlit faces
+    expect(glass.r).toBeGreaterThan(0.3);
+    expect(glass.r).toBeLessThan(0.45);
     inputs.lights.panel = 1;
     m.update(st, inputs, 0.01, true);
-    expect(steam.r).toBeGreaterThan(0.6);
+    // post lights: faces, markings and background at ≈ 25–35 % of daylight (0.7 read as a daylight panel at night)
+    expect(steam.r).toBeGreaterThanOrEqual(0.25);
+    expect(steam.r).toBeLessThanOrEqual(0.35);
+    expect(steam.r).toBeGreaterThan(0.15 * 1.5); // clearly brighter than the lights-off floor
     expect(steam.b).toBeLessThan(steam.r); // warm post lights
     inputs.lights.panel = Number.NaN;
     m.setSunElevation(Number.NaN); // ignored: keeps the last good elevation

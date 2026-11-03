@@ -121,6 +121,13 @@ export const READY_RADIUS_M = 5000;
 const IDENTITY_UV: readonly number[] = [0, 0, 1];
 const IDENTITY_Q = new Quaternion();
 
+/** Bit-identical height arrays (NaN-free lattices). */
+function sameValues(a: ArrayLike<number>, b: ArrayLike<number>): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 const imageryChain = (mode: ImageryMode): readonly ImageryProvider[] => (mode === 'procedural' ? [proceduralImagery] : DEFAULT_IMAGERY_CHAIN);
 const sameFrame = (a: LocalFrameInfo, b: LocalFrameInfo): boolean => a.lat0 === b.lat0 && a.lon0 === b.lon0 && a.alt0 === b.alt0;
 
@@ -355,12 +362,15 @@ export class TerrainSystem {
     }
     const missing = !rec.gpu && !rec.pending;
     if (!missing && rec.haveVersion >= rec.wantVersion) return;
-    if (now < rec.retryAt) return; // backoff after a failure or a degraded (fallback) load
+    // backoff after a failure or a degraded (fallback) load — except for the first reload after
+    // the flattening input changed: data from before that change is wrong, not just coarse
+    if (now < rec.retryAt && rec.reqVersion >= rec.inputVersion) return;
     rec.reqVersion = rec.wantVersion;
     rec.reqKey = `${rec.key}@${rec.reqVersion}`;
-    // Once a tile has data, or real data covers it from an ancestor, a network outage must not
-    // replace that with synthetic heights: the worker then answers a transient error instead.
-    const proceduralOnTransient = !rec.hasData && !this.hasRealCover(rec);
+    // Once real data covers the tile (its own, or an ancestor's), a network outage must not
+    // replace that with synthetic heights: the worker then answers a transient error instead. A
+    // tile holding a synthetic stand-in may get a new one (e.g. re-flattened for new pavement).
+    const proceduralOnTransient = !this.hasRealCover(rec);
     rec.req = buildLoadRequest(rec.reqKey, rec.z, rec.x, rec.y, this.frame, this.requestCfg, this.runways, proceduralOnTransient, this.pavement);
     this.byReqKey.set(rec.reqKey, rec);
     this.loader.request(rec.req, priority);
@@ -405,8 +415,12 @@ export class TerrainSystem {
     // Collision samples the vertex lattice of the mesh that will be drawn, on its own
     // triangles, so wheels rest on the visible surface (not on a smoother bilinear DEM).
     const lattice = r.mesh.height.subarray(0, (r.mesh.quads + 1) * (r.mesh.quads + 1));
+    // a reload over the same heights (imagery switch, an offline stand-in retried) is no height
+    // change: the scenery would re-ground everything under it and groundShift re-sample for nothing
+    const prev = this.heights.get(rec.z, rec.x, rec.y);
+    const same = !!prev && prev.layout === 'mesh' && prev.width === r.mesh.quads + 1 && sameValues(prev.heights, lattice);
     this.heights.setMeshLattice(rec.z, rec.x, rec.y, lattice, r.mesh.quads, r.mesh.minH, r.mesh.maxH, now);
-    this.noteChange(rec.z, rec.x, rec.y);
+    if (!same) this.noteChange(rec.z, rec.x, rec.y);
     rec.hasData = true;
     rec.dataProviderId = r.elevationProviderId;
     if (rec.degraded !== standIn) { rec.degraded = standIn; this.degradedCount += standIn ? 1 : -1; }
@@ -753,7 +767,7 @@ export class TerrainSystem {
     this.runwayMap = next;
     this.runways = [...next.values()];
     for (const rec of this.records.values()) {
-      if ((rec.hasData || rec.reqKey) && tileTouchesRunways(rec.z, rec.x, rec.y, changed)) rec.wantVersion++;
+      if ((rec.hasData || rec.reqKey) && tileTouchesRunways(rec.z, rec.x, rec.y, changed)) rec.inputVersion = ++rec.wantVersion;
     }
     this.lastSelectAt = -Infinity;
   }
@@ -775,7 +789,7 @@ export class TerrainSystem {
     this.pavementMap = next;
     this.pavement = [...next.values()];
     for (const rec of this.records.values()) {
-      if ((rec.hasData || rec.reqKey) && tileTouchesPavement(rec.z, rec.x, rec.y, changed)) rec.wantVersion++;
+      if ((rec.hasData || rec.reqKey) && tileTouchesPavement(rec.z, rec.x, rec.y, changed)) rec.inputVersion = ++rec.wantVersion;
     }
     this.lastSelectAt = -Infinity;
   }

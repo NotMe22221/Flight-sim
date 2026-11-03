@@ -102,6 +102,44 @@ describe('TerrainSystem pavement flattening', () => {
     fresh.ts.dispose();
   });
 
+  it('offline (procedural stand-ins waiting out their retry backoff): new pavement reloads them at once, prefetch resolves on flattened ground', async () => {
+    // every fetch fails like a blocked network: tiles are procedural stand-ins, re-tried 10 s … 120 s later
+    const offline: FetchFn = async () => { throw new TypeError('Failed to fetch'); };
+    const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0), { fetch: offline });
+    const cam = cameraAt(0, 300, 0);
+    await settle(ts, clock, cam);
+    const [lon, lat] = ll(-320, 0);
+    const plane = planeHeightAt(PLANE, lon, lat);
+    expect(Math.abs(ts.heightAt(lat, lon)! - plane)).toBeGreaterThan(0.5); // natural (procedural) ground
+    // a parking spawn: pavement pushed, then the prefetch (no update() in between, well inside the backoff)
+    ts.setPavement([APRON]);
+    await ts.prefetch(lat, lon, 500);
+    expect(Math.abs(ts.heightAt(lat, lon)! - plane)).toBeLessThan(0.01);
+    // the rest of the apron follows within a frame or two, not after the backoff
+    clock.t += 200;
+    await settle(ts, clock, cam);
+    for (const [e, n] of [[-410, -70], [-230, 75]]) {
+      const [lo, la] = ll(e, n);
+      expect(Math.abs(ts.heightAt(la, lo)! - planeHeightAt(PLANE, lo, la))).toBeLessThan(0.01);
+    }
+    ts.dispose();
+  });
+
+  it('a reload that leaves the heights as they were (imagery switch, offline retry) is no height change', async () => {
+    const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0));
+    const cam = cameraAt(0, 300, 0);
+    await settle(ts, clock, cam);
+    const rev = ts.revision();
+    expect(rev).toBeGreaterThan(0);
+    ts.setImagery('procedural'); // every resident tile reloads over the same DEM
+    await settle(ts, clock, cam);
+    expect(ts.stats().inflight).toBe(0);
+    // the scenery would otherwise re-ground every tile, and World.groundShift re-sample, for nothing
+    expect(ts.changesSince(rev)).toEqual([]);
+    expect(ts.revision()).toBe(rev);
+    ts.dispose();
+  });
+
   it('changesSince returns null once the log no longer reaches back that far', async () => {
     const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0));
     expect(ts.changesSince(0)).toEqual([]);

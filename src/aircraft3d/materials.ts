@@ -4,6 +4,7 @@
  * pass, which would need a scene render-to-texture per frame).
  */
 import * as THREE from 'three';
+import { applyIblScale } from '../sky/iblScale';
 import { C172_LIVERY, createHaloTexture, createLiveryTexture, createPanelPlaceholderTexture, createPropBlurTexture, type LiveryScheme, type LiverySection } from './textures';
 
 export interface ModelMaterials {
@@ -70,6 +71,17 @@ export interface PaintScheme {
   fallback: number;
 }
 
+/**
+ * Share of the sky's environment light (image-based light, diffuse and reflections alike) each cabin surface
+ * receives: the cabin is mostly enclosed and sees the sky only through its windows. Applied with
+ * `applyIblScale` (three r187 replaces `material.envMapIntensity` by `scene.environmentIntensity` for materials
+ * lit by `scene.environment`, so the value cannot go on the material itself); relative to the sky's
+ * environment intensity (≈ 1 by day).
+ */
+export const CABIN_IBL_SHARE = {
+  interior: 0.35, interiorDark: 0.35, trimDark: 0.12, doorPanel: 0.3, cabinInner: 0.15, seat: 0.35, panelFrame: 0.35, frame: 0.35,
+} as const;
+
 /** The C172's white scheme (also the default). */
 export const C172_PAINT: PaintScheme = { livery: C172_LIVERY, plain: 0xf4f4f2, trim: 0x1f4e9c, fallback: 0xffffff };
 
@@ -109,19 +121,19 @@ export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials
   const hub = new THREE.MeshStandardMaterial({ color: 0xa8aaad, roughness: 0.5, metalness: 0.7 });
   const blade = new THREE.MeshStandardMaterial({ color: 0x1e1e1e, roughness: 0.55, metalness: 0.5 });
   // The cabin is mostly enclosed: the sky environment map (unoccluded) is turned well down on
-  // interior surfaces, and they do not receive the coarse sun shadow map (see AircraftModel).
+  // interior surfaces (CABIN_IBL_SHARE), and they do not receive the coarse sun shadow map (see AircraftModel).
   // A small warm emissive term stands in for light bounced around the cabin (no GI); it is
   // scaled with daylight by setCabinBounce().
   const bounce = new THREE.Color(0x2c2a26);
-  const interior = new THREE.MeshStandardMaterial({ color: 0xa39f97, roughness: 0.9, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.35, emissive: bounce });
-  const interiorDark = new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.9, metalness: 0, envMapIntensity: 0.35 });
-  // matte black padding: little sky reflection, or the grazing-angle Fresnel tints it blue
-  const trimDark = new THREE.MeshStandardMaterial({ color: 0x1d1e20, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.12 });
-  const doorPanel = new THREE.MeshStandardMaterial({ color: 0x7b766d, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.3, emissive: bounce });
+  const interior = new THREE.MeshStandardMaterial({ color: 0xa39f97, roughness: 0.9, metalness: 0, side: THREE.DoubleSide, emissive: bounce });
+  const interiorDark = new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.9, metalness: 0 });
+  // matte black padding: little sky reflection (CABIN_IBL_SHARE.trimDark), or the grazing-angle Fresnel tints it blue
+  const trimDark = new THREE.MeshStandardMaterial({ color: 0x1d1e20, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
+  const doorPanel = new THREE.MeshStandardMaterial({ color: 0x7b766d, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, emissive: bounce });
   const gasket = new THREE.MeshStandardMaterial({ color: 0x1a1b1c, roughness: 0.7, metalness: 0 });
-  const cabinInner = new THREE.MeshStandardMaterial({ color: 0x1c1d1f, roughness: 1, metalness: 0, side: THREE.BackSide, envMapIntensity: 0.15 });
-  const seat = new THREE.MeshStandardMaterial({ color: 0x6c645a, roughness: 0.85, metalness: 0, envMapIntensity: 0.35, emissive: bounce });
-  const panelFrame = new THREE.MeshStandardMaterial({ color: 0x2b2c2e, roughness: 0.85, metalness: 0.1, envMapIntensity: 0.35 });
+  const cabinInner = new THREE.MeshStandardMaterial({ color: 0x1c1d1f, roughness: 1, metalness: 0, side: THREE.BackSide });
+  const seat = new THREE.MeshStandardMaterial({ color: 0x6c645a, roughness: 0.85, metalness: 0, emissive: bounce });
+  const panelFrame = new THREE.MeshStandardMaterial({ color: 0x2b2c2e, roughness: 0.85, metalness: 0.1 });
   // Until the instruments module assigns a map, a dark placeholder map shows instead of a white
   // rectangle. The colour must stay white: MeshBasicMaterial multiplies map × color.
   const panelPlaceholder = createPanelPlaceholderTexture();
@@ -137,7 +149,9 @@ export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials
   const haloWhite = new THREE.SpriteMaterial({ ...haloOpts, color: 0xffffff });
   const knobBlack = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
   const knobRed = new THREE.MeshStandardMaterial({ color: 0xc01818, roughness: 0.6 });
-  const frame = new THREE.MeshStandardMaterial({ color: 0x8a8d86, roughness: 0.7, metalness: 0.2, envMapIntensity: 0.35, emissive: bounce });
+  const frame = new THREE.MeshStandardMaterial({ color: 0x8a8d86, roughness: 0.7, metalness: 0.2, emissive: bounce });
+  const cabin = { interior, interiorDark, trimDark, doorPanel, cabinInner, seat, panelFrame, frame };
+  for (const name of Object.keys(CABIN_IBL_SHARE) as (keyof typeof CABIN_IBL_SHARE)[]) applyIblScale(cabin[name], CABIN_IBL_SHARE[name]);
 
   const setCabinBounce = (k: number): void => {
     const v = Number.isFinite(k) ? Math.max(0, Math.min(1, k)) : 0;

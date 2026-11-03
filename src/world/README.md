@@ -33,7 +33,7 @@ world.update(dt, cameraPosThree, camera, aircraftGeo, aircraftPosThree, sunEleva
 | File | Role |
 |---|---|
 | `World.ts` | Frame, rebasing, `Environment` sources (`groundHeight` clamped to the sea surface except on runways, `surfaceAt`: paved on runways and on the flattened aprons / taxiways), runway + pavement sync to the terrain, `groundShift`. |
-| `AirportsLayer.ts`, `runwayGeometry.ts`, `runwayIdents.ts` | Runway slabs (0.12 m up, curved along their length, 12 mm near the camera), markings, edge / threshold / approach lights, REIL, PAPI; airports built within 45 nm (max 14). `flatteningSegments()` and `builtAirports()` feed the terrain. |
+| `AirportsLayer.ts`, `runwayGeometry.ts`, `runwayIdents.ts` | Runway slabs (0.12 m up, curved along their length in ≤ 50 m segments, 12 mm near the camera), markings, edge / threshold / approach lights, REIL, PAPI; airports built within 45 nm (max 14). `flatteningSegments()` and `builtAirports()` feed the terrain. |
 | `pavement.ts` | Scenery pavement → terrain flattening specs: `PavementArea` (the scenery's published pieces), `PavementSource`, `airportPavementPlane`, `PavementRegistry`, `PavementIndex` (point-on-pavement lookup for tyre friction). |
 | `environment.ts`, `rebase.ts`, `LandingGuide.ts` | Environment object with fallbacks, rebase transform, landing path hints. |
 
@@ -47,7 +47,10 @@ run every 2 s from `World.update` and on every spawn:
 * **Bounded to the current airports**: a piece belongs to the nearest built airport whose runways
   pass within 2.5 km of its centre; others are ignored. At most 6000 areas / 250 000 points.
 * **Deduplicated**: the spec key is `ICAO:<geometry hash>`, so the same piece published by two
-  tiles (a line on a tile border, a rebuilt tile) is flattened once. Pieces of one apron split
+  tiles (a line on a tile border, a rebuilt tile) is flattened once. A piece belongs to one airport:
+  when a nearer airport is built after the piece was accepted (the spawn airport is built first, its
+  neighbours seconds later), the piece moves to that airport's plane instead of being flattened a
+  second time. Pieces of one apron split
   across tiles are separate areas with the same plane; the terrain takes the distance to their
   union, so they join without a seam.
 * **Sticky**: accepted areas stay while their airport is built, even after the scenery evicts the
@@ -90,14 +93,17 @@ fallback ground, rebase), `pavement.test.ts` (KSFO plane within 0.35 m of every 
 runway contained exactly and level across, flat without runways, slope clamp; registry: duplicates
 across tiles collapse, areas far from every airport are ignored, one plane object per airport,
 no-op on unchanged input, accepted areas survive the scenery dropping them, go with their airport,
-caps; `PavementIndex` inside an apron but not its hole, within half width of a centre line),
+caps, a piece claimed by a nearer airport built later moves to it (one spec, its plane, whatever the
+build order); `PavementIndex` inside an apron but not its hole, within half width of a centre line),
 `pavementWorld.test.ts` (in-thread terrain on the KSFO fixtures: pavement pushed before the
 prefetch → the first ground under the stand is the plane < 1 cm; the near-camera pavement of every
 tier is 0–1 cm above the collision ground on the apron, also between the 16 m drape vertices
 (< 2 mm); `groundShift` reports a reload under a standing aircraft once and ignores teleports),
 `runwayNearDrop.test.ts` (the shader patch lands after `project_vertex` and before the log-depth
 chunk with a shared uniform; slab / markings / designator end at 12 / 14 / 16 mm near the camera,
-above the OSM taxiways' 10 mm; only with the camera near the ground), plus runway geometry,
+above the OSM taxiways' 10 mm; the drawn slab, interpolated between its per-vertex drops, is
+≤ 13.5 mm up under the wheels anywhere along KSFO 28R for a cockpit or chase camera — with the former
+250 m segments it was 27 mm mid-segment; only with the camera near the ground), plus runway geometry,
 landing guide, rebase and environment tests. `src/app/groundShift.test.ts`
 runs the C172 flight model on a World whose terrain jumps ±0.5 m under it: with the re-seat a
 parked and a taxiing aircraft keep their gear compression (no crash, |vz| < 0.2 m/s); without it

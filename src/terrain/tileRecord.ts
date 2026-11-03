@@ -41,6 +41,12 @@ export interface TileRecord {
   wantVersion: number;
   reqVersion: number;
   haveVersion: number;
+  /**
+   * wantVersion at the last change of the flattening input touching the tile (runways, pavement):
+   * data older than this is wrong, not merely low quality, so the first reload for it ignores a
+   * retry backoff (an offline stand-in would otherwise keep unflattened ground for up to 2 min)
+   */
+  inputVersion: number;
   /** last load failed (drawn by ancestors meanwhile) */
   failed: boolean;
   /** consecutive failed or degraded loads; next (re)load not before `retryAt` (ms) */
@@ -67,7 +73,7 @@ export function createTileRecord(z: number, x: number, y: number, frame: LocalFr
     id: tileId(z, x, y), key: `${z}/${x}/${y}`, z, x, y,
     widthM: tileWidthMeters(c.lat, z), center: new Vector3(p[0], p[1], p[2]),
     gpu: null, pending: null, queued: false, hasData: false, dataProviderId: '', degraded: false,
-    reqKey: '', req: null, wantVersion: 0, reqVersion: 0, haveVersion: -1,
+    reqKey: '', req: null, wantVersion: 0, reqVersion: 0, haveVersion: -1, inputVersion: 0,
     failed: false, failures: 0, retryAt: 0,
     lastUsed: 0, wantedPass: -1, drawPass: -1,
     centerEcef: null, buildFrame: null, elevationProviderId: '', imageryProviderId: '',

@@ -79,7 +79,7 @@ are exactly the commands fed to the inner loops (smooth the bar drawing in the U
 ### `FlightAssists`
 
 ```ts
-const assists = new FlightAssists({ antiStall: { stallAlphaRad: stallAlphaFromConfig(C172S) } });
+const assists = new FlightAssists(assistsConfigFor(config));  // C172S: { antiStall: { stallAlphaRad } }
 assists.apply(effective, fdm.state, dt, flags); // flags: { autoRudder, assistedTakeoff, antiStall? }, reused; mutates effective
 assists.emergencyLevel(ap);   // LVL emergency = ap.level()
 assists.reset();              // new flight / respawn
@@ -90,7 +90,10 @@ assists.reset();              // new flight / respawn
 (nose-up authority left, 1 = untouched), `antiStallPush` (≤ 0), `takeoffHeadingRad` (heading held
 on the runway, NaN when none), `releaseHeadingRad` (heading captured at the last brake release).
 `stallAlphaFromConfig(config)` reads the stall α (largest CL of the flaps-up column) from an
-`AircraftConfig`: 0.280 rad (16.0°) for the C172S, which is also the default.
+`AircraftConfig`: 0.280 rad (16.0°) for the C172S, which is also the default; 15.5° for the Super
+Cub. `assistsConfigFor(config)` is the per-aircraft tuning the simulator uses: the stall α for
+every aircraft, plus, for a tail-dragger (`isTailDragger`: a steerable or castering wheel behind
+the CG), the anti-stall **speed floor** (below).
 
 ## How it flies
 
@@ -164,6 +167,12 @@ modes exist exactly while the AP or FD is on (also when `state.flightDirector` i
   beyond α_stall − 1.5° a push of 4 per rad of excess (≤ 0.3) is added. Nose-down input is never
   reduced; inactive on the ground and below 25 kt. After the autopilot's `apply` it also limits the
   autopilot's nose-up elevator (the AP normally disconnects on the stall warning first).
+  **Speed floor** (`speedFloorMs` > 0; `assistsConfigFor` sets it for the Super Cub, the C172 keeps
+  0 = off): the nose-up authority is also multiplied by smoothstep(V_floor, V_start, IAS + 3 s ·
+  dIAS/dt) and below the floor a push of 0.05 per m/s of deficit (≤ 0.3) is added, with V_floor =
+  Vs1 and V_start = 1.3 Vs1, active down to 12 kt. The Cub's elevator is strong enough to zoom it to
+  50–75° nose-up with α still held below the stall, until the airspeed was gone (18 kt) and it
+  stalled anyway; with the floor full aft stick settles at about 45 kt (power off) and never stalls.
 * **LVL emergency**: `emergencyLevel(ap)` is `ap.level()` — the autopilot's own loops do the work.
 
 ## Gain table (defaults in `config.ts`)
@@ -222,6 +231,9 @@ Acceptance on the test plant at 120 Hz (`Autopilot.test.ts`, `pid.test.ts`, `lev
 | Auto-rudder | roll-in slip −70 %+, steady 2° slip trimmed to < 0.05° | peak 6.6° → 2.5°, final 0.0° |
 | Assisted take-off holds the brake-release heading | < 3°, < 2 m (calm, 10 kt crosswind); taxi never steered | < 2.3°, < 2 m (calm, 10 kt crosswind); 159° swing without it |
 | Anti-stall | no stall at full aft stick, factor → 0 | α ≤ 13.6° (stall 16°) |
+| Super Cub FDM (`cubAssists.test.ts`): assisted take-off on the tail wheel | — | heading within 2.8° (calm) / 3.0° (10 kt crosswind), < 4.5 m off the line, lift-off at 9–11 s; ground loop (> 45°) without it |
+| Super Cub: anti-stall with the speed floor, full aft stick | — | no stall power off (65 KCAS) or at full power (90 KCAS); α < 14.5°, IAS never below 35 kt (min 38 / 46 kt), ends above Vs1; stalls without it |
+| Super Cub: auto-rudder against adverse yaw | — | roll-in slip 3.9° → 0.8°, final 0.01° |
 | Review (`review.test.ts`): ALTS under an armed GS | VS −500 below the GS levels at the selected altitude (−12 ft), GS then captures | — |
 | Review: NaN targets / deviations / air data | servos, trim and assists stay finite and recover | — |
 | Review: engage before the first `apply()` | trim and stick kept (was: trim zeroed) | — |
@@ -251,7 +263,9 @@ Acceptance on the test plant at 120 Hz (`Autopilot.test.ts`, `pid.test.ts`, `lev
 * The FD bars are the raw commands (spec §5.5 suggests a 0.5 s low-pass for drawing: do it in the UI).
 * LVL limits the pull-up to 1.8 g, so from an inverted, steep dive it trades altitude and speed
   for load (143° / −14° at 128 kt: 2 300 ft and 212 kt); it cannot save an upset close to the ground.
-* Anti-stall acts on α only (no speed-based protection, no stick pusher on the ground); the
-  assisted take-off steers heading, not the runway centreline (it holds the line it started on).
+* Anti-stall acts on α only on the 172 (the speed floor is enabled for tail-draggers only; no stick
+  pusher on the ground); the assisted take-off steers heading, not the runway centreline (it holds
+  the line it started on). On the Super Cub it keeps the C172 gains (they hold the heading within
+  3° through tail-up); it does not raise the tail or rotate (pitch stays with the pilot).
 * The test plant is a linearised model valid for |φ| < 90°; inverted LVL behaviour is checked on
   the flight model only.

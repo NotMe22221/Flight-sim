@@ -129,7 +129,22 @@ describe('pavement flattening', () => {
     const out = runTilePipeline({ z: Z, x: TX, y: TY, heights: grid(TX, TY), width: 256, frame: frame.info, quads: 128, skirt: 20, runways: [rw], pavement: [spec], fullHeights: true, water: false });
     const mid = 64 * 129 + 64; // lattice centre ≈ tile centre, on the runway
     expect(out.mesh.height[mid]).toBeCloseTo(2, 3);
-    // 150 m north of the runway centreline: pavement, blended toward the runway inside its feather
+    // walking north across the strip edge (60 m) and the runway feather (to 210 m) onto the apron
+    // (plane ≈ 5 m, 3 m above the strip): no step anywhere, the strip inside, the plane beyond
+    const N = 128, W = N + 1;
+    let maxStep = 0, rows = 0;
+    for (let j = 64; j > 0; j--) {
+      const lat = tileToLonLat(TX, TY + j / N, Z).lat, lon = tileToLonLat(TX + 0.5, TY, Z).lon, n = local(lon, lat).n;
+      if (n > 290) break;
+      const h = out.mesh.height[j * W + 64], hNext = out.mesh.height[(j - 1) * W + 64];
+      maxStep = Math.max(maxStep, Math.abs(hNext - h));
+      if (n < 55) expect(h).toBeCloseTo(2, 3);
+      if (n > 215) expect(h).toBeCloseTo(planeHeightAt(PLANE, lon, lat), 3);
+      rows++;
+    }
+    expect(rows).toBeGreaterThan(30);
+    // smoothstep over 150 m: at most 1.5 · 3 m / 150 m = 3 % → ≤ 0.23 m per 7.6 m lattice step
+    expect(maxStep).toBeLessThan(0.25);
     expect(tileTouchesPavement(PAVEMENT_MIN_ZOOM - 1, TX >> 5, TY >> 5, [spec])).toBe(false);
     expect(pavementForTile(Z, TX + 5, TY, [spec])).toHaveLength(0);
     expect(pavementForTile(Z, TX, TY, [spec])).toHaveLength(1);
