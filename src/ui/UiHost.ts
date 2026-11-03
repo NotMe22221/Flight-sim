@@ -7,6 +7,35 @@ import type {
   SimAction, SimSnapshot, Waypoint, WeatherPresetId, WeatherState,
 } from '../core/types';
 import type { EventBus } from '../core/events';
+import type { ActivityDef, ActivityResult, LegRecord, LessonRecord, Line, ObjectiveView, RunnerPhase } from '../activities';
+
+/**
+ * Read-only view of the simulator's activity runner (src/activities ActivityRunner) that the UI
+ * polls: phase, the current activity, the live objective views of the current step, the hint that
+ * applies right now and the debrief of the last finished activity.
+ */
+export interface ActivityRunnerView {
+  readonly phase: RunnerPhase;
+  readonly def: ActivityDef | null;
+  /** live views of the current step's objectives (mutated in place by the runner) */
+  readonly objectives: readonly ObjectiveView[];
+  readonly liveHint: Line | null;
+  readonly result: ActivityResult | null;
+  /** index of the current step (−1 before the first) */
+  readonly stepIndex: number;
+}
+
+/** Saved activity progress (src/activities ProgressStore): legs unlock in order, lesson best scores. */
+export interface ActivityProgressView {
+  isLegUnlocked(tripId: string, legIndex: number): boolean;
+  isLegCompleted(tripId: string, legIndex: number): boolean;
+  /** first incomplete leg (legCount when the trip is done) */
+  nextLeg(tripId: string, legCount: number): number;
+  completedLegs(tripId: string): number;
+  leg(tripId: string, legIndex: number): LegRecord | null;
+  resetTrip(tripId: string): void;
+  lesson(id: string): LessonRecord | null;
+}
 
 export interface RunwayEndChoice {
   runwayIdent: string; endIdent: string; threshold: Geodetic; headingDeg: number; lengthM: number;
@@ -81,4 +110,20 @@ export interface UiHost {
    * draws its own speed/altitude/heading strip (an instruments HUD replacing the UI's) honour it.
    */
   setInfoStrip?(visible: boolean): void;
+
+  // ── Activities: Flight Training lessons and bush trips (src/activities) ──
+  /** Activities › Flight training "Start": a lesson id from `LESSONS`. Resolves when the flight is live. */
+  startLesson?(id: string): Promise<void>;
+  /** Activities › Bush trips "Start" / "Resume" / debrief "Next leg": leg `legIndex` of a `BUSH_TRIPS` trip. */
+  startBushLeg?(tripId: string, legIndex: number): Promise<void>;
+  /** Pause menu "Abort activity": ends the running activity (unsuccessfully); the flight goes on. */
+  abortActivity?(): void;
+  /** Debrief "Retry": starts the current (or last) activity again from its set-up. */
+  restartActivity?(): Promise<void>;
+  /** Pause menu "Restart step": resets the current step's objectives (the aircraft is not moved). */
+  restartActivityStep?(): void;
+  /** The runner, polled by the objectives panel (live progress and hint) and the debrief. */
+  readonly activityRunner?: ActivityRunnerView;
+  /** Saved progress for the Activities screen (completed badges, best scores, unlocked legs). */
+  readonly activityProgress?: ActivityProgressView;
 }

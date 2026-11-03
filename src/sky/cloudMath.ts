@@ -20,12 +20,17 @@ export interface CloudTypeParams {
   /** multiplier on the detail erosion */ erosion: number;
 }
 
-export function cloudTypeParams(type: CloudLayer['type']): CloudTypeParams {
+const CIRRUS: Readonly<CloudTypeParams> = Object.freeze({ featureSizeM: 6000, sigmaT: 0.0006, brightness: 1.6, erosion: 0.6 });
+const STRATUS: Readonly<CloudTypeParams> = Object.freeze({ featureSizeM: 3500, sigmaT: 0.004, brightness: 0.9, erosion: 0.2 });
+const CUMULUS: Readonly<CloudTypeParams> = Object.freeze({ featureSizeM: 2500, sigmaT: 0.006, brightness: 1.0, erosion: 0.4 });
+
+/** Shared frozen constants (called per layer every frame and per FDM density query: no allocation). */
+export function cloudTypeParams(type: CloudLayer['type']): Readonly<CloudTypeParams> {
   switch (type) {
-    case 'cirrus': return { featureSizeM: 6000, sigmaT: 0.0006, brightness: 1.6, erosion: 0.6 };
-    case 'stratus': return { featureSizeM: 3500, sigmaT: 0.004, brightness: 0.9, erosion: 0.2 };
+    case 'cirrus': return CIRRUS;
+    case 'stratus': return STRATUS;
     case 'cumulus':
-    default: return { featureSizeM: 2500, sigmaT: 0.006, brightness: 1.0, erosion: 0.4 };
+    default: return CUMULUS;
   }
 }
 

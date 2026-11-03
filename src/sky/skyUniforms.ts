@@ -16,7 +16,8 @@
  *   `uCloudShadowA[i]` = (coverage, 1 / featureSize, unused, column optical depth at density 1 = (top − base)·density·σt)
  *   `uCloudShadowB[i]` = (render-y of the layer middle, drift x, drift z, unused)
  * with the same noise field as the cloud planes (`CLOUD_SHADOW_GLSL` below, `CLOUD_NOISE_GLSL` in cloudMath).
- * The transmittance along the sun ray is floored at `uCloudShadowFloor` and multiplied by
+ * Only layers whose middle is above the point count (the sun ray goes up), so the aircraft and peaks on
+ * top of a deck are in full sun. The transmittance along the sun ray is floored at `uCloudShadowFloor` and multiplied by
  * `uCloudShadowNorm` = 1 / (mean cloud dimming already applied to the sun intensity), so a lit gap gets the
  * unobstructed sun and the average over the ground matches the dimmed sun the built-in materials receive.
  */
@@ -94,9 +95,11 @@ float skyCloudShadow( vec3 worldPos, vec3 sunDir ) {
     if ( float( i ) >= uCloudShadowCount ) break;
     vec4 a = uCloudShadowA[ i ];
     vec4 b = uCloudShadowB[ i ];
-    // where the sun ray through this point crosses the layer middle
-    vec2 q = worldPos.xz + sunDir.xz * ( ( b.x - worldPos.y ) / sy );
-    float dens = cloudCoverageMask( cloudFbm( ( q - b.yz ) * a.y ), a.x );
+    // where the sun ray through this point crosses the layer middle; the ray goes UP, so a layer below
+    // the point (an aircraft or a peak on top of the clouds) casts nothing on it
+    float above = step( worldPos.y, b.x );
+    vec2 q = worldPos.xz + sunDir.xz * ( max( b.x - worldPos.y, 0.0 ) / sy );
+    float dens = cloudCoverageMask( cloudFbm( ( q - b.yz ) * a.y ), a.x ) * above;
     tr *= exp( - a.w * dens / sy );
   }
   float f = max( tr, uCloudShadowFloor ) * uCloudShadowNorm;
@@ -117,6 +120,7 @@ export function cloudShadowAt(u: SkySharedUniforms, x: number, y: number, z: num
   let tr = 1;
   for (let i = 0; i < n; i++) {
     const a = u.uCloudShadowA.value[i], b = u.uCloudShadowB.value[i];
+    if (b.x < y) continue; // the sun ray goes up: a layer below the point casts nothing on it (GLSL: step)
     const t = (b.x - y) / sy;
     const qx = x + sunX * t, qz = z + sunZ * t;
     const dens = coverageMask(fbm2((qx - b.y) * a.y, (qz - b.z) * a.y, 3), a.x);
