@@ -6,6 +6,22 @@ const ctx = (flapDetents = 4, locked: LeverAxis[] = []): MapperContext =>
   ({ flapDetents, rates: { ...DEFAULT_CONTROL_RATES }, leverFree: (a) => !locked.includes(a) });
 
 describe('applyControlAction', () => {
+  it('toggles the electrical switches like the 172 split master rocker (undefined = on / pump off)', () => {
+    const c = defaultControlInputs();
+    applyControlAction(c, 'masterToggle', ctx());
+    expect(c.masterBattery).toBe(false); expect(c.masterAlternator).toBe(false);
+    applyControlAction(c, 'masterToggle', ctx());
+    expect(c.masterBattery).toBe(true); expect(c.masterAlternator).toBe(true);
+    applyControlAction(c, 'masterBatteryToggle', ctx()); // BAT off takes ALT with it
+    expect(c.masterBattery).toBe(false); expect(c.masterAlternator).toBe(false);
+    applyControlAction(c, 'masterAlternatorToggle', ctx()); // ALT on pushes BAT on
+    expect(c.masterBattery).toBe(true); expect(c.masterAlternator).toBe(true);
+    applyControlAction(c, 'avionicsMasterToggle', ctx());
+    expect(c.avionicsMaster).toBe(false);
+    applyControlAction(c, 'fuelPumpToggle', ctx());
+    expect(c.fuelPump).toBe(true);
+  });
+
   it('flaps step and clamp to the detent count', () => {
     const c = defaultControlInputs();
     for (let i = 0; i < 10; i++) applyControlAction(c, 'flapsDown', ctx(4));

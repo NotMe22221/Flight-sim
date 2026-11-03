@@ -57,6 +57,8 @@ const MSFS_BINDINGS: Binding[] = [
   key('Ctrl+PageUp', 'apAltInc'), key('Ctrl+PageDown', 'apAltDec'), key('Ctrl+Home', 'apVsInc'), key('Ctrl+End', 'apVsDec'),
   key('Ctrl+Insert', 'headingBugInc'), key('Ctrl+Delete', 'headingBugDec'),
   key('KeyB', 'altimeterStd'),
+  // electrical (no MSFS defaults): master BAT+ALT, avionics, aux fuel pump
+  key('Shift+KeyB', 'masterToggle'), key('Shift+KeyV', 'avionicsMasterToggle'), key('Shift+KeyU', 'fuelPumpToggle'),
   // camera
   key('End', 'cameraNext'), key('Insert', 'cameraDrone'), key('Ctrl+Space', 'cameraReset'), key('KeyS', 'cameraChase'),
   // sim / UI

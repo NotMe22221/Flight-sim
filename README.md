@@ -56,6 +56,7 @@ in Settings → Controls (gamepads and joysticks are detected automatically).
 | Brakes / parking brake | `.` / `Ctrl+.` | `Num Del` / `Ctrl+Num Del` |
 | Elevator trim nose down / up | `[` / `]` | `Num 7` / `Num 1` |
 | Engine auto-start / shutdown | `Ctrl+E` / `Ctrl+Shift+E` | |
+| Master switch / avionics master / fuel pump | `Shift+B` / `Shift+V` / `Shift+U` | same |
 | Cameras: next / chase / drone | `C` / `S` / `Insert` | `End` |
 | Autopilot master / HDG / ALT | `Z` / `Ctrl+H` / `Shift+T` | `Z` / `Ctrl+H` / `Ctrl+T` |
 | Pause / sim rate | `P` / `Ctrl+=` `Ctrl+-` | `Pause` / `Ctrl+Num +` `Ctrl+Num -` |

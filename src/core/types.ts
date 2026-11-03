@@ -605,6 +605,7 @@ export type SimAction =
   | 'engineAutoStart' | 'engineShutdown' | 'starter' | 'magnetosNext' | 'magnetosPrev'
   | 'lightsNav' | 'lightsBeacon' | 'lightsStrobe' | 'lightsLanding' | 'lightsTaxi' | 'lightsPanel' | 'lightsAll'
   | 'pitotHeat' | 'carbHeat'
+  | 'masterToggle' | 'masterBatteryToggle' | 'masterAlternatorToggle' | 'avionicsMasterToggle' | 'fuelPumpToggle'
   | 'apToggle' | 'apHdg' | 'apNav' | 'apApr' | 'apAlt' | 'apVs' | 'apFlc' | 'apLvl' | 'fdToggle' | 'yawDamper'
   | 'apHdgInc' | 'apHdgDec' | 'apAltInc' | 'apAltDec' | 'apVsInc' | 'apVsDec' | 'apIasInc' | 'apIasDec' | 'apHdgSync' | 'apAltSync'
   | 'nav1Swap' | 'nav1Inc' | 'nav1Dec' | 'obs1Inc' | 'obs1Dec' | 'nav2Swap' | 'com1Swap'

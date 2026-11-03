@@ -114,6 +114,26 @@ export function applyControlAction(c: ControlInputs, a: BindableAction, ctx: Map
     }
     case 'pitotHeat': c.pitotHeat = !c.pitotHeat; return true;
     case 'carbHeat': c.carbHeat = !c.carbHeat; return true;
+    // electrical switches: undefined means on (master, avionics) / off (fuel pump), as in ControlInputs
+    case 'masterToggle': {
+      const on = !((c.masterBattery ?? true) && (c.masterAlternator ?? true));
+      c.masterBattery = on; c.masterAlternator = on;
+      return true;
+    }
+    case 'masterBatteryToggle': {
+      const on = !(c.masterBattery ?? true);
+      c.masterBattery = on;
+      if (!on) c.masterAlternator = false; // the split rocker's ALT half cannot stay on without BAT
+      return true;
+    }
+    case 'masterAlternatorToggle': {
+      const on = !(c.masterAlternator ?? true);
+      c.masterAlternator = on;
+      if (on) c.masterBattery = true; // ALT on pushes BAT on
+      return true;
+    }
+    case 'avionicsMasterToggle': c.avionicsMaster = !(c.avionicsMaster ?? true); return true;
+    case 'fuelPumpToggle': c.fuelPump = !(c.fuelPump ?? false); return true;
     case 'spoilersToggle': c.speedbrake = c.speedbrake > 0 ? 0 : 1; return true;
     default: return false;
   }
