@@ -21,7 +21,7 @@ import { SkySystem, WeatherSystem } from '../sky';
 import { AircraftModel, bodyQuatToThree } from '../aircraft3d';
 import { CameraController } from '../camera';
 import { InputManager } from '../input/InputManager';
-import { GfcAutopilot } from '../autopilot/Autopilot';
+import { FlightAssists, GfcAutopilot, stallAlphaFromConfig, type NavInputs } from '../autopilot';
 import { SteamPanel } from '../instruments/SteamPanel';
 import { TouchdownDetector } from '../activities/TouchdownDetector';
 import { ReplayRecorder } from '../activities/ReplayRecorder';
@@ -109,6 +109,9 @@ export class Simulator {
   readonly cameras: CameraController;
   readonly input: InputManager;
   readonly autopilot: GfcAutopilot;
+  /** auto-rudder, assisted take-off heading hold and anti-stall (MSFS assistance options) */
+  readonly flightAssists: FlightAssists;
+  private readonly navIn: NavInputs;
   readonly radios: RadioStack;
   readonly planner = new FlightPlanner();
   readonly touchdown: TouchdownDetector;
@@ -177,6 +180,8 @@ export class Simulator {
     this.input = new InputManager(this.gfx.renderer.domElement, { flapDetents: this.config.controls.flaps.detentsDeg.length });
     this.autopilot = new GfcAutopilot({ events: this.events });
     this.radios = new RadioStack(this.nav);
+    this.flightAssists = new FlightAssists({ antiStall: { stallAlphaRad: stallAlphaFromConfig(this.config) } });
+    this.navIn = { nav1: this.radios.nav1, nav2: this.radios.nav2, plan: null };
     this.touchdown = new TouchdownDetector(this.events, { airports: () => this.nearbyAirports });
     this.steam = new SteamPanel({});
     this.steamTex = new THREE.CanvasTexture(this.steam.canvas as HTMLCanvasElement);
@@ -234,11 +239,11 @@ export class Simulator {
     const t0 = performance.now();
     const inp = this.input.poll(dt);
     for (let i = 0; i < inp.actions.length; i++) this.handleAction(inp.actions[i]);
-    this.composeControls(dt);
-    const t1 = performance.now();
-
     const running = this.inFlight && !this.paused && !this.replayer.active && !this.slew;
     const scale = running ? this.time.timeScale : 0;
+    // the autopilot and assists run on simulated time: frozen while paused, faster under time compression
+    this.composeControls(dt, running ? dt * Math.min(scale, 8) : 0);
+    const t1 = performance.now();
     let alpha = 1;
     if (running) {
       const r = this.loop.advance(dt, Math.min(scale, 8), () => copyPose(this.fdm.state, this.prev), (h) => this.physicsStep(h));
@@ -260,8 +265,11 @@ export class Simulator {
 
   private mark(k: keyof Simulator['timings'], ms: number): void { this.timings[k] += (ms - this.timings[k]) * 0.1; }
 
-  /** Pilot controls → assists → autopilot → effective controls (allocation-free). */
-  private composeControls(dt: number): void {
+  /**
+   * Pilot controls → autopilot → assists → effective controls (allocation-free).
+   * @param dt display seconds (engine auto-start timer); simDt simulated seconds (autopilot, assists)
+   */
+  private composeControls(dt: number, simDt: number): void {
     const u = this.input.controls;
     // While the drone camera is flying, the stick moves the drone: freeze the aircraft's flight
     // controls at the values they had when the drone was entered.
@@ -274,7 +282,6 @@ export class Simulator {
     for (const k in this.overrides) (this.effective as unknown as Record<string, unknown>)[k] = (this.overrides as Record<string, unknown>)[k];
     const s = this.fdm.state;
     if (this.assists.autoMixture && this.effective.mixture > 0.05 && s.engine.running) this.effective.mixture = Math.min(this.effective.mixture, this.fdm.bestPowerMixture());
-    if (this.assists.autoRudder && !s.onGround) this.effective.yaw = clamp(this.effective.yaw + 6 * s.aero.beta, -1, 1);
     // engine auto-start sequence (Ctrl+E)
     if (this.autoStartT >= 0) {
       this.autoStartT += dt;
@@ -290,9 +297,15 @@ export class Simulator {
         this.events.emit('engine:started', {});
       } else if (this.autoStartT > 12) this.autoStartT = -1;
     }
-    this.autopilot.update(dt, s, { nav1: this.radios.nav1, nav2: this.radios.nav2, plan: this.plan });
+    this.navIn.plan = this.plan;
+    this.autopilot.update(simDt, s, this.navIn);
     const ap = this.autopilot.apply(this.effective);
     if (ap !== this.effective) Object.assign(this.effective, ap);
+    // persist the auto-trim: `effective` is rebuilt from input.controls every frame, so without this
+    // the trim would snap back to the pilot's old setting when the autopilot disconnects
+    if (this.autopilot.state.engaged) this.input.controls.pitchTrim = this.autopilot.state.trimCommand;
+    // assists act on what the flight model flies, after the autopilot (auto-rudder sees its aileron)
+    this.flightAssists.apply(this.effective, s, simDt, this.assists);
   }
 
   private physicsStep(h: number): void {
@@ -370,6 +383,7 @@ export class Simulator {
     };
     this.fdm.clearCrash();
     this.fdm.reset(spawn, this.world.env);
+    this.flightAssists.reset();
     if (!onGround) {
       this.fdm.snapControls(c);
       const a = this.fdm.state.atmosphere;
@@ -483,15 +497,17 @@ export class Simulator {
       // B (MSFS): set the altimeter to the local QNH; pressing it again when already set selects standard
       case 'altimeterStd': this.fdm.setAltimeter(Math.abs(s.qnhSetPa - this.weather.state.qnhPa) < 30 ? 101325 : this.weather.state.qnhPa); break;
       case 'apToggle': ap.engage(!aps.engaged); break;
-      case 'fdToggle': aps.flightDirector = !aps.flightDirector; break;
-      case 'yawDamper': aps.yawDamper = !aps.yawDamper; break;
-      case 'apHdg': ap.setLateral(aps.lateral === 'HDG' ? 'ROL' : 'HDG'); this.ensureAp(); break;
-      case 'apNav': ap.setLateral(aps.lateral === 'NAV' ? 'ROL' : 'NAV'); this.ensureAp(); break;
-      case 'apApr': ap.setLateral(aps.lateral === 'APR' ? 'ROL' : 'APR'); this.ensureAp(); break;
-      case 'apAlt': ap.setAltitudeTarget(Math.round(s.altitudeIndicatedM / FT / 100) * 100 * FT); ap.setVertical('ALT'); this.ensureAp(); break;
-      case 'apVs': ap.setVerticalSpeedTarget(Math.round(s.verticalSpeedMs / FPM / 100) * 100 * FPM); ap.setVertical('VS'); this.ensureAp(); break;
-      case 'apFlc': ap.setIasTarget(Math.round(s.aero.ias / KT) * KT); ap.setVertical('FLC'); this.ensureAp(); break;
-      case 'apLvl': ap.setLateral('ROL'); ap.setVerticalSpeedTarget(0); ap.setVertical('VS'); this.ensureAp(); break;
+      case 'fdToggle': ap.press('FD'); break;
+      case 'yawDamper': ap.press('YD'); break;
+      // GFC 700 panel semantics: toggle back to ROL/PIT, sync targets, disarm an armed mode
+      case 'apHdg': ap.press('HDG'); this.ensureAp(); break;
+      case 'apNav': ap.press('NAV'); this.ensureAp(); break;
+      case 'apApr': ap.press('APR'); this.ensureAp(); break;
+      case 'apAlt': ap.press('ALT'); this.ensureAp(); break;
+      case 'apVs': ap.press('VS'); this.ensureAp(); break;
+      case 'apFlc': ap.press('FLC'); this.ensureAp(); break;
+      // real LVL: recovers from any attitude and engages the autopilot itself
+      case 'apLvl': ap.press('LVL'); break;
       case 'apHdgInc': case 'headingBugInc': ap.setHeadingBug(aps.headingBugDeg + 1); break;
       case 'apHdgDec': case 'headingBugDec': ap.setHeadingBug(aps.headingBugDeg - 1); break;
       case 'apHdgSync': ap.setHeadingBug(Math.round(s.headingMagRad * RAD)); break;
@@ -660,7 +676,9 @@ export class Simulator {
     this.fdm.setAltimeter(this.weather.state.qnhPa);
     copyPose(this.fdm.state, this.prev);
     this.loop.reset();
-    this.autopilot.engage(false);
+    // power-on state (FD/YD off, modes and trim cleared) without a disconnect tone
+    this.autopilot.reset();
+    this.flightAssists.reset();
     this.autopilot.setHeadingBug(Math.round(this.fdm.state.headingMagRad * RAD));
     this.autopilot.setAltitudeTarget(Math.round((this.fdm.state.altitudeMslM + 3000 * FT) / (100 * FT)) * 100 * FT);
     this.touchdown.reset(spawn.onGround);
@@ -709,7 +727,7 @@ export class Simulator {
   advance(seconds: number): void {
     const n = Math.round(seconds / PHYSICS_DT);
     for (let i = 0; i < n && !this.fdm.state.crashed; i++) {
-      this.composeControls(PHYSICS_DT);
+      this.composeControls(PHYSICS_DT, PHYSICS_DT);
       this.physicsStep(PHYSICS_DT);
       this.time.utcMs += PHYSICS_DT * 1000;
       this.time.simTimeS += PHYSICS_DT;

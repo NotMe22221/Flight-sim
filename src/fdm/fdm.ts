@@ -259,6 +259,8 @@ export class Fdm implements FlightModel {
       const cas = casFromTas(Math.max(spawn.speedMs, 25), this.atm.pressurePa, this.atm.speedOfSound);
       this.trim(cas, spawn.gammaRad ?? 0, env);
     }
+    // publish the electrical state right away (air spawns take no settling steps)
+    this.electrical.step(0, this.elecSw, this.elecLoads, (y[13] * 60) / TWO_PI);
   }
 
   step(dt: number, rawInputs: ControlInputs, env: Environment): void {
