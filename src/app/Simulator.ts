@@ -95,6 +95,7 @@ export class Simulator {
   readonly overrides: Partial<ControlInputs> = {};
   lastSpawn: { airport: Airport | null; spawn: SpawnState; end: RunwayEndRef | null } | null = null;
   currentAirport: Airport | null = null;
+  panelVariant: 'steam' | 'g1000' = 'steam';
   weatherPreset: WeatherPresetId = 'few';
 
   private readonly loop = new FixedStepLoop(PHYSICS_DT);
@@ -160,8 +161,9 @@ export class Simulator {
     this.g1000Tex.colorSpace = THREE.SRGBColorSpace;
   }
 
-  /** Swap the cockpit panel between steam gauges and the G1000. */
+  /** Swap the cockpit panel between steam gauges and the G1000 (falls back to steam if no G1000 is attached). */
   setPanel(variant: 'steam' | 'g1000'): void {
+    this.panelVariant = variant === 'g1000' && this.g1000Tex ? 'g1000' : 'steam';
     if (variant === 'g1000' && this.g1000Tex) {
       this.model.setPanelVariant('g1000');
       const mesh = (this.model as unknown as { cockpit: { panelMeshG1000: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> } }).cockpit.panelMeshG1000;

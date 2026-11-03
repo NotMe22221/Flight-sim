@@ -3,6 +3,8 @@
  * internals; everything goes through these methods.
  */
 import type { AircraftConfig, AssistanceOptions, CameraMode, SimAction, SimSnapshot, Waypoint, WeatherPresetId, WeatherState } from '../core/types';
+import { C172S } from '../fdm/aircraft/c172';
+import { AIRCRAFT, C172S_G1000 } from './aircraftCatalog';
 import { fetchOpenMeteo, OPEN_METEO_ATTRIBUTION, weatherFromPreset } from '../sky';
 import type { AudioSettings, BindingInfo, GraphicsSettings, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
 import type { Simulator } from './Simulator';
@@ -27,8 +29,8 @@ export class SimUiHost implements UiHost {
   get events() { return this.sim.events; }
   get nav() { return this.sim.nav; }
   snapshot(): SimSnapshot { return this.sim.snapshot; }
-  aircraftList(): AircraftConfig[] { return [this.sim.config]; }
-  currentAircraft(): AircraftConfig { return this.sim.config; }
+  aircraftList(): AircraftConfig[] { return [...AIRCRAFT]; }
+  currentAircraft(): AircraftConfig { return this.sim.panelVariant === 'g1000' ? C172S_G1000 : C172S; }
 
   dispatch(action: SimAction): void {
     // control actions (flaps, gear, lights …) live in the input layer; everything else in the simulator
@@ -36,7 +38,8 @@ export class SimUiHost implements UiHost {
     this.sim.handleAction(action);
   }
 
-  async spawn(choice: SpawnChoice, _aircraftId: string, options: { fuelFraction: number; payloadKg: number }): Promise<void> {
+  async spawn(choice: SpawnChoice, aircraftId: string, options: { fuelFraction: number; payloadKg: number }): Promise<void> {
+    this.sim.setPanel(aircraftId === C172S_G1000.id ? 'g1000' : 'steam');
     await this.sim.spawnAtRunway(choice.airport, choice.runwayEnd?.endIdent ?? null, { coldAndDark: choice.coldAndDark || !choice.runwayEnd, fuelFraction: options.fuelFraction, payloadKg: options.payloadKg });
   }
 
