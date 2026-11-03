@@ -37,8 +37,8 @@ export function mergeStatic(meshes: THREE.Mesh[], mat: THREE.Material, name: str
     m.updateMatrix();
     const g = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(m.matrix);
     // applyMatrix4 renormalises the normals with the normal matrix (non-uniform scales included)
-    pos.push(...(g.getAttribute('position').array as Float32Array));
-    nor.push(...(g.getAttribute('normal').array as Float32Array));
+    for (const v of g.getAttribute('position').array as Float32Array) pos.push(v);
+    for (const v of g.getAttribute('normal').array as Float32Array) nor.push(v);
     g.dispose();
     m.geometry.dispose();
   }
