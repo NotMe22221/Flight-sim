@@ -178,25 +178,36 @@ export class TileObject {
   /**
    * Watch the terrain under the tile: sample up to `budget` probe points (round-robin). A
    * ground change since the last look (or ground appearing where there was none, after the
-   * first sweep) means the terrain refined there: restart every settled layer's pass and owe
-   * one full re-sampling cycle (`hotSamples`). Returns the samples used.
+   * first sweep) means the terrain refined there: the whole grid is taken in at once (one
+   * cycle per refinement), every settled layer's pass restarts and one full re-sampling cycle
+   * is owed (`hotSamples`). Returns the samples used.
    */
   checkTerrain(s: GroundSampler, budget: number): number {
     const n = this.probeY.length;
     if (this.layers.length === 0) return 0;
     let used = 0;
-    for (; used < budget; used++) {
+    while (used < budget) {
       const i = this.probeCursor;
       const swept = this.probeSweeps > 0;
       if (++this.probeCursor >= n) { this.probeCursor = 0; this.probeSweeps++; }
-      const prev = this.probeY[i];
-      const y = s.sample(this.placement, this.probeXZ[i * 2], this.probeXZ[i * 2 + 1], Number.isFinite(prev) ? prev : this.layers[0].meanGround);
-      if (Number.isNaN(y)) continue;
-      this.probeY[i] = y;
-      const changed = Number.isFinite(prev) ? Math.abs(y - prev) > PROBE_EPS_M : swept;
-      if (changed) this.markHot();
+      used++;
+      if (this.probe(s, i) && swept) {
+        for (let k = 0; k < n; k++) this.probe(s, k);
+        used += n;
+        this.markHot();
+        break;
+      }
     }
     return used;
+  }
+
+  /** Sample probe point i; true when its ground moved by more than PROBE_EPS_M or appeared. */
+  private probe(s: GroundSampler, i: number): boolean {
+    const prev = this.probeY[i];
+    const y = s.sample(this.placement, this.probeXZ[i * 2], this.probeXZ[i * 2 + 1], Number.isFinite(prev) ? prev : this.layers[0].meanGround);
+    if (Number.isNaN(y)) return false;
+    this.probeY[i] = y;
+    return Number.isFinite(prev) ? Math.abs(y - prev) > PROBE_EPS_M : true;
   }
 
   private markHot(): void {

@@ -74,11 +74,20 @@ footprints longer than 18 m; the base is the lowest sample and walls reach 2 m b
 per draped vertex, per light and per tree, and converted back to tile-local y along the
 tile's own vertical (one fixed-point step from the previous value). Buildings stay collapsed
 (zero-area triangles) until their ground exists; draped meshes, lights and trees appear when
-their first pass is done. Sampling continues forever at a reduced share of the budget (30 %):
-half of it goes to the tile under the camera, the rest round-robin over all resident tiles, and
-inside a tile the layers take turns (one full pass each: buildings, pavement, markings, light
-pools, lights, trees), so everything follows terrain refinements, not only buildings. GPU
-uploads use one persistent update range per attribute (no per-frame allocations).
+their first pass is done.
+
+Terrain refinements are caught in two ways. Every wanted tile has an 8 × 8 probe grid (about
+240 m apart) that is re-sampled round-robin, 32 probes per frame over all tiles; when a probe's
+ground moves by more than 0.1 m (or ground appears where there was none), the tile becomes
+**hot**: its whole grid is taken in, every layer restarts its pass (buildings first) and the tile
+owes one full re-sampling cycle, which it gets before anything else (hot tiles nearest first,
+with the rest of the frame's sample budget). A refinement under a tile is followed within about
+a second at the shipped budget (`stats().tilesHot` counts the tiles catching up). Besides that,
+background re-sampling continues forever at a reduced share of the budget (30 %): half of it
+goes to the tile under the camera, the rest round-robin over all resident tiles, and inside a
+tile the layers take turns (one full pass each: buildings, pavement, markings, light pools,
+lights, trees), so changes smaller than the probe spacing are followed too, only more slowly.
+GPU uploads use one persistent update range per attribute (no per-frame allocations).
 
 ### Airport surfaces
 
@@ -101,7 +110,11 @@ from the air keep the full lift.
 Taxiway light sprites stand 0.30 m (centre line) and 0.35 m (edge) above the ground, above
 the draped layers, and the airport light points get the same relative depth bias as the
 pavement (seen from 300 m up the bias is worth ~0.75 m of height, which would otherwise hide
-every light standing on pavement).
+every light standing on pavement). Apron floodlight masts follow the real apron outline only:
+segments of the clipped ring that run along the tile border (the apron continues in the
+neighbouring tile) carry no masts. Pavement and markings receive the sun shadow map like the
+AirportsLayer runway slabs, so the aircraft keeps its shadow on taxiways and aprons (they cast
+none).
 
 ### Lighting
 
@@ -138,7 +151,7 @@ visible) and apron floodlight pools are additive decals; all fade with the sun f
 `update`, `setFrame`, `setQuality`, `setVisible`, `parkingSpots(lat, lon, radiusM)` (gates and
 apron stands, nearest first; loads missing tiles on demand, parking data only), `attribution`,
 `stats` (`tilesLoaded`, `tilesPending`, `tilesFailed`, `tilesEmpty`, `buildings`, `trees`,
-`lights`, `triangles` drawn, `buildingsWaiting`, `inFlight`, `workerMode`, `updateMs`,
+`lights`, `triangles` drawn, `buildingsWaiting`, `tilesHot`, `inFlight`, `workerMode`, `updateMs`,
 `groundSamples`, `groundUsPerSample`) and `dispose`. For automation it is also exposed as
 `window.__scenery`, with `debugView({ lat, lon, alt, headingDeg, pitchDeg, fovDeg })` to force
 the render camera to a geodetic pose for screenshots (`null` releases it).
@@ -169,7 +182,11 @@ For screenshots, `window.__scenery.debugView({ lat, lon, alt, headingDeg, pitchD
 pins the camera to a geodetic pose, and `window.__scenery.setStreamOverrides({
 groundSamplesPerFrame: 40000, frameBudgetMs: 400 })` makes the scenery settle quickly in a
 slow software renderer; wait until `stats()` reports `tilesPending === 0` and
-`buildingsWaiting === 0`.
+`buildingsWaiting === 0`. `debugView` moves the render camera only: the terrain keeps refining
+around the simulator's own camera (the aircraft), so close-ups far from the aircraft show a
+coarse terrain LOD that the draped pavement (sampled on the finest loaded heights) does not
+match. For ground-level views, move the aircraft instead (e.g.
+`__sim.sim.spawnAtParking(__sim.sim.currentAirport)` parks it at the nearest gate).
 
 Runway coordinates come from `public/data/airports.json`. Tests build the same world in memory
 (`testUtil.ts`).
@@ -183,11 +200,13 @@ clipping, extrusion (outward normals, winding, UV scale, courtyards, elevated pa
 gable roofs, LOD order, caps), draping (crack-free grids, mitres), synthetic tiles (runway
 exclusion, markings / lights off runways and aprons, gates and stands, determinism, tree
 placement, clipping), ground sampling and re-sampling (buildings collapsed until grounded,
-following a terrain change), the worker protocol on the sync path (transfer lists, failure
+following a terrain change, probe grids noticing a refinement and nothing else), the worker protocol on the sync path (transfer lists, failure
 kinds, gzip, failover, cancellation), the manager (grounding through `groundUp`, `setFrame`
 re-expression to the centimetre, LRU eviction and dispose, TileJSON success / failure,
-404 / network retries, parking on demand, night fade and LOD), the tile object (every ground
-layer follows a terrain change, layers take turns in re-sampling) and the material patches
+404 / network retries, parking on demand, night fade and LOD, a local terrain refinement
+followed within ~1 s at the shipped budget), the tile object (every ground layer follows a
+terrain change, layers take turns in re-sampling, pavement receives shadows), floodlights only
+along real apron edges, and the material patches
 (depth bias, near-camera drop and point size, with the logdepthbuf chunks kept).
 
 ## Integration (app side)

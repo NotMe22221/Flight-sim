@@ -379,11 +379,12 @@ export class SceneryManager implements SceneryLike {
     // 2) watch the terrain under the resident tiles (a few probe samples per frame); a tile whose
     //    ground moved ("hot": the terrain refined there) is re-sampled first, nearest first, with
     //    the rest of the budget, so its buildings, pavement, lights and trees follow within a second
-    const n = this.ready.length;
+    const n = this.ready.length, nw = this.wanted.length;
     let probe = Math.min(left, PROBE_SAMPLES_PER_FRAME);
-    for (let k = 0; k < n && probe > 0; k++) {
-      this.probeCursor = (this.probeCursor + 1) % n;
-      const o = this.ready[this.probeCursor].obj;
+    for (let k = 0; k < nw && probe > 0; k++) {
+      // wanted tiles only (LRU leftovers beyond the radius keep the background round-robin)
+      this.probeCursor = (this.probeCursor + 1) % nw;
+      const o = this.entries.get(this.wanted[this.probeCursor].key)?.obj;
       if (!o) continue;
       const u = o.checkTerrain(this.sampler, Math.min(probe, PROBE_CHUNK));
       probe -= u; left -= u;
