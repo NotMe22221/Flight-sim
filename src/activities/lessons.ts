@@ -152,7 +152,10 @@ export const TAKEOFF: ActivityDef = {
   title: 'Takeoff',
   description: 'Lined up on San Francisco 28R: before-takeoff checks, full power, keep the centreline, rotate at 55 KIAS, climb at Vy, flaps up above 500 ft and level at 1,500 ft.',
   aircraft: 'c172',
-  setup: { spawn: 'runway', icao: KSFO_28R.icao, runway: KSFO_28R.ident, weather: 'few', time: 'morning' },
+  setup: {
+    spawn: 'runway', icao: KSFO_28R.icao, runway: KSFO_28R.ident, parkingBrake: true, weather: 'few', time: 'morning',
+    anchor: { lat: KSFO_28R.lat, lon: KSFO_28R.lon },
+  },
   passScore: 0,
   steps: [
     {

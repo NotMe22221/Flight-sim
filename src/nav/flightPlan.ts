@@ -8,9 +8,10 @@
  * bank), or when the waypoint has been passed abeam. The final waypoint is never sequenced
  * past; `complete` becomes true once it has been passed.
  *
- * Editing follows the G1000: `insert` / `remove` keep the active waypoint, `activateLeg` flies
- * the leg into a waypoint from its predecessor, `directToWaypoint` goes direct to a waypoint of
- * the plan or, for one that is not in it, "off-route" — the stored plan is kept, inactive, until
+ * Editing follows the G1000: `insert` / `remove` keep the active waypoint (except that a waypoint
+ * inserted into the active leg becomes its TO waypoint), `activateLeg` flies the leg into a
+ * waypoint from its predecessor, `directToWaypoint` goes direct to a waypoint of the plan (the
+ * occurrence ahead when an ident appears twice) or, for one that is not in it, "off-route" — the stored plan is kept, inactive, until
  * a leg is activated again or the direct-to is cancelled. `setObs` is the GPS OBS mode: a
  * selected course through the active waypoint with sequencing suspended. `version` increments on
  * every change so displays can detect edits cheaply.
@@ -116,11 +117,16 @@ export class FlightPlanner {
     this.bump();
   }
 
-  /** Insert before `index` (clamped). The active waypoint stays the same waypoint object. */
+  /**
+   * Insert before `index` (clamped). Inserted into the active leg — between its FROM and TO
+   * waypoints, no direct-to — the new waypoint becomes the TO waypoint (A → X → B is flown A → X,
+   * as on the G1000); anywhere else the active waypoint stays the same waypoint object.
+   */
   insert(index: number, w: Waypoint): void {
     const i = Math.max(0, Math.min(Math.trunc(index), this.waypoints.length));
     this.waypoints.splice(i, 0, w);
-    if (i <= this.activeIndex && this.waypoints.length > 1) this.activeIndex++;
+    const intoActiveLeg = i === this.activeIndex && i > 0 && this.directOrigin === null && this.offRoute === null;
+    if (i <= this.activeIndex && this.waypoints.length > 1 && !intoActiveLeg) this.activeIndex++;
     this.plan.complete = false;
     this.bump();
   }
@@ -310,13 +316,25 @@ export class FlightPlanner {
     f.lat = g.lat; f.lon = g.lon; f.alt = g.alt;
   }
 
+  /**
+   * Index of `w` in the plan: the very object, else a waypoint with the same id and position —
+   * the first one from the active leg on (a round trip's destination, not its departure), else
+   * the first one behind it. −1 when there is none.
+   */
   private findSame(w: Waypoint): number {
-    const id = w.id.toUpperCase();
-    for (let i = 0; i < this.waypoints.length; i++) {
-      const c = this.waypoints[i];
-      if (c === w) return i;
+    const wps = this.waypoints, n = wps.length;
+    const i0 = this.indexOf(w);
+    if (i0 >= 0) return i0;
+    const id = w.id.toUpperCase(), start = Math.min(Math.max(this.activeIndex, 0), n);
+    for (let k = 0; k < n; k++) {
+      const i = (start + k) % n, c = wps[i];
       if (c.id.toUpperCase() === id && greatCircleDistance(c.position, w.position) < SAME_WAYPOINT_M) return i;
     }
+    return -1;
+  }
+
+  private indexOf(w: Waypoint): number {
+    for (let i = 0; i < this.waypoints.length; i++) if (this.waypoints[i] === w) return i;
     return -1;
   }
 

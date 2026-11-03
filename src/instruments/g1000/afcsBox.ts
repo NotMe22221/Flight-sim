@@ -132,15 +132,18 @@ const brgLabels = new LabelCache((v) => formatHeadingNum(v) + '°', 1);
 const eteLabels = new LabelCache((v) => formatEte(v), 1);
 
 /**
- * Navigation status box: active leg (magenta "to" waypoint) on the first line, distance, bearing
- * (magnetic) and ETE to the active waypoint on the second. Blank without a flight plan.
+ * Navigation status box: active leg (magenta "to" waypoint; "D→ WPT" for a direct-to) on the
+ * first line, distance, bearing (magnetic) and ETE to the active waypoint on the second. Blank
+ * without a flight plan.
  */
 export function drawNavStatus(ctx: Ctx2D, plan: FlightPlan | null, magVarDeg: number): void {
   const { x, w, navY: y, navH: h } = STATUS;
   box(ctx, x, y, w, h, G.barBg);
   const to = plan ? plan.waypoints[plan.activeLeg] : undefined;
   if (!plan || !to) return;
-  const from = plan.activeLeg > 0 ? plan.waypoints[plan.activeLeg - 1] : undefined;
+  // a direct-to leg starts at the present position, not at the plan's previous waypoint
+  const direct = (plan as { directTo?: boolean }).directTo === true;
+  const from = plan.activeLeg > 0 && !direct ? plan.waypoints[plan.activeLeg - 1] : undefined;
   const mid = x + w / 2, y1 = y + 12, y2 = y + 31;
   if (from) {
     text(ctx, from.id, mid - 16, y1, condBold.get(17), G.white, 'right');

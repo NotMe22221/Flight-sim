@@ -147,7 +147,7 @@ export class ActivityRunner {
     try {
       if (s.weather) this.host.setWeatherPreset(s.weather);
       if (s.spawn === 'runway') {
-        await this.host.spawnAtRunway(s.icao, s.runway, { coldAndDark: s.coldAndDark, fuelFraction: s.fuelFraction });
+        await this.host.spawnAtRunway(s.icao, s.runway, { coldAndDark: s.coldAndDark, fuelFraction: s.fuelFraction, parkingBrake: s.parkingBrake });
       } else {
         await this.host.spawnInAir(s.lat, s.lon, s.altFt * FT, s.headingDeg, s.iasKt * KT, { flapsIndex: s.flapsIndex, gammaRad: (s.gammaDeg ?? 0) * DEG });
       }
@@ -365,8 +365,9 @@ export class ActivityRunner {
     if (this.expectingReset || this.phase !== 'running' || !this.def) return;
     const a = this.anchor(this.def);
     if (a && flatDistanceM(spawn.geo.lat, spawn.geo.lon, a.lat, a.lon) <= this.resetRadiusM) {
-      // the pilot restarted the flight: back to the first step
+      // the pilot restarted the flight: back to the first step (a reset clears the flight plan, so reload the route)
       this.resetRunState();
+      if (this.def.setup.route) this.host.loadRoute(this.def.setup.route);
       this.beginStep(0);
     } else this.finish(false, 'Flight changed');
   }

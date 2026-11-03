@@ -5,7 +5,7 @@ import { destinationPoint } from '../geo/wgs84';
 import { flyState, inputsWith, type FlyParams } from './activityTestKit';
 import { KHAF_30, KSFO_28R } from './lessons';
 import {
-  angleDiffDeg, compileCondition, compileObjective, makeObjectiveContext,
+  angleDiffDeg, compileCondition, compileObjective, makeObjectiveContext, scoreLoss,
   type ConditionSpec, type Objective, type ObjectiveContext, type ObjectiveSpec,
 } from './objectives';
 import { aimAlongM } from './runwayFrame';
@@ -375,6 +375,37 @@ describe('landing objective', () => {
     ctx.landingSeq = 1;
     o.update(ctx);
     expect(o.view.state).toBe('done');
+  });
+});
+
+describe('landing objective: elsewhere ignore', () => {
+  it("bush legs skip landings at other airports and take the destination's", () => {
+    const o = compileObjective({ type: 'landing', label: 'Land at KRHV', minScore: 0, airport: 'KRHV', elsewhere: 'ignore' });
+    const ctx = makeObjectiveContext(flyState(), inputsWith());
+    o.activate(ctx);
+    ctx.dt = 0.1;
+    ctx.landing = { score: 7000, runway: 'KHAF 30', touchdownFromThresholdM: 400, grade: 'Good' };
+    ctx.landingSeq = 1;
+    o.update(ctx);
+    expect(o.view.state).toBe('active');
+    ctx.landing = { score: 5400, runway: 'KRHV 31R', touchdownFromThresholdM: 300, grade: 'Firm' };
+    ctx.landingSeq = 2;
+    o.update(ctx);
+    expect(o.view).toMatchObject({ state: 'done', note: 'Landing score 5400 (Firm)' });
+  });
+});
+
+describe('scoring dead band', () => {
+  it('no loss within 40 % of the tolerance, full loss at the edge', () => {
+    expect(scoreLoss(0)).toBe(0);
+    expect(scoreLoss(0.4)).toBe(0);
+    expect(scoreLoss(0.7)).toBeCloseTo(0.5, 9);
+    expect(scoreLoss(1)).toBe(1);
+    expect(scoreLoss(3)).toBe(1);
+    // a hold flown 30 ft off a ±100 ft target scores full marks, 90 ft off scores ~0.5
+    const spec: ObjectiveSpec = { type: 'hold', label: 'hold', forS: 5, all: [{ c: 'altitude', ft: 3000, tolFt: 100 }] };
+    expect(run(spec, () => at({ altFt: 3030 }), 10).o.view.score).toBeCloseTo(1, 6);
+    expect(run(spec, () => at({ altFt: 3090 }), 10).o.view.score).toBeCloseTo(0.5, 6);
   });
 });
 

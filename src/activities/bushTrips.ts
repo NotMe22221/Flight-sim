@@ -251,6 +251,8 @@ export function bushLegActivity(trip: BushTrip, legIndex: number, opts: BushLegO
           speech: `${leg.briefing.speech ?? leg.briefing.text} Depart ${spellRunway(leg.departureRunway)}, and cruise at ${ftSpeech(leg.cruiseFt)}. The highest terrain near the route is ${leg.terrain.name}, at ${ftSpeech(leg.terrain.ft)}.`,
         },
         objectives: [{ type: 'reach', label: `Take off from ${dep.icao} runway ${leg.departureRunway}`, all: [{ c: 'agl', minFt: 500 }], progress: { metric: 'aglFt', to: 500 } }],
+        // the departure is free (no live coaching), but power against a set parking brake gets one reminder
+        cues: [{ when: [{ c: 'parkingBrake', set: true }, { c: 'throttle', min: 0.5 }, { c: 'onGround', value: true }], line: { text: 'Parking brake is set: release it to roll.', speech: 'The parking brake is set. Release it to roll.' } }],
         quiet: true,
       },
       {

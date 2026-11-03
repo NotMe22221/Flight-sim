@@ -46,7 +46,7 @@ export function pfdSignature(h: Signature, s: SimSnapshot, r: InstrumentReadings
   if (plan) {
     h.num(plan.activeLeg).num(plan.distanceToActiveM, 50).num(plan.bearingToActiveDeg, 1).num(plan.eteS, 1);
     const to = plan.waypoints[plan.activeLeg], from = plan.waypoints[plan.activeLeg - 1];
-    h.str(to ? to.id : null).str(from ? from.id : null);
+    h.str(to ? to.id : null).str(from ? from.id : null).bool((plan as { directTo?: boolean }).directTo === true);
   } else h.bool(false);
   h.num(st.com1.activeKHz).num(st.com1.standbyKHz).num(st.com2.activeKHz).num(st.com2.standbyKHz);
   h.num(st.squawk).str(st.xpdrMode).num(st.windOption).str(st.dmeSource).str(st.cdiSource);

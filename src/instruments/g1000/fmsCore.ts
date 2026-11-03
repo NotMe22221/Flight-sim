@@ -30,12 +30,14 @@ export interface FmsTarget {
   position: Geodetic;
   /** navaid frequency, kHz (0 when none) */
   frequencyKHz: number;
+  /** the flight-plan waypoint this target was picked from (FPL cursor), so D→ goes to that very one */
+  waypoint?: Waypoint;
 }
 
 export const targetFromMatch = (m: IdentMatch): FmsTarget => ({ ident: m.ident, kind: m.kind, name: m.name, position: m.position, frequencyKHz: m.frequencyKHz });
 export const targetFromAirport = (a: Airport): FmsTarget => ({ ident: a.icao, kind: 'airport', name: a.name, position: a.position, frequencyKHz: 0 });
 export const targetFromNavaid = (n: Navaid): FmsTarget => ({ ident: n.id, kind: n.type === 'NDB' ? 'ndb' : 'vor', name: n.name, position: n.position, frequencyKHz: n.frequencyKHz });
-export const targetFromWaypoint = (w: Waypoint): FmsTarget => ({ ident: w.id, kind: w.type === 'airport' ? 'airport' : w.type === 'navaid' ? 'vor' : w.type, name: '', position: w.position, frequencyKHz: 0 });
+export const targetFromWaypoint = (w: Waypoint): FmsTarget => ({ ident: w.id, kind: w.type === 'airport' ? 'airport' : w.type === 'navaid' ? 'vor' : w.type, name: '', position: w.position, frequencyKHz: 0, waypoint: w });
 export const waypointFromTarget = (t: FmsTarget): Waypoint => ({
   id: t.ident, position: { lat: t.position.lat, lon: t.position.lon, alt: t.position.alt },
   type: t.kind === 'airport' ? 'airport' : t.kind === 'vor' || t.kind === 'ndb' ? 'navaid' : t.kind,
@@ -103,6 +105,8 @@ export abstract class FmsWindow {
   selection(): FmsTarget | null { return null; }
   /** true while an ident field is being edited (keyboard routing) */
   editing(): boolean { return false; }
+  /** true when ENT / CLR (keyboard Enter / Escape) act on the window; passive windows leave them to the simulator */
+  takesKeys(): boolean { return true; }
   /** called every update while open with the elapsed time, s */
   refresh(_dt: number): void {}
 }
@@ -169,6 +173,8 @@ export class IdentField {
   /** A typed character (A–Z, 0–9) or '\b' for backspace. Returns false for other characters. */
   type(ch: string): boolean {
     if (ch === '\b') {
+      // a field not yet edited (prefilled, cursor on its first character) is erased from the end
+      if (!this.active) this.pos = this.chars.length;
       if (this.pos >= this.chars.length && this.chars.length) { this.chars.pop(); this.pos = Math.max(0, this.chars.length); }
       else if (this.chars.length) { this.chars.splice(this.pos, 1); }
       this.active = true; this.sync();

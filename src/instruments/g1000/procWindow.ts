@@ -1,9 +1,10 @@
 /**
  * PROC window: SELECT APPROACH at the destination (else the D→ airport, else the nearest; the
  * airport ident can be re-spelled), a list of the airport's ILS approaches, then LOAD? or
- * ACTIVATE?. Loading appends the approach fixes (FFxx, RWxx) to the flight plan and tunes the
- * localizer into NAV1 with its course; ACTIVATE also goes direct to the FAF and switches the CDI
- * to NAV1 (LOAD arms the automatic GPS → LOC switch on the final course instead).
+ * ACTIVATE?. Loading puts the approach fixes (FFxx, RWxx) into the flight plan — in front of the
+ * destination airport when it ends the plan, else at the end — and tunes the localizer into NAV1
+ * with its course; ACTIVATE also goes direct to the FAF and switches the CDI to NAV1 (LOAD arms
+ * the automatic GPS → LOC switch on the final course instead).
  */
 import type { Airport } from '../../core/types';
 import { type ApproachInfo, ilsApproaches } from '../../nav';

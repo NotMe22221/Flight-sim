@@ -6,7 +6,7 @@
  * GPS lateral full scale follows docs/research/05 §2.1: ENR 2.0 nm, TERM 1.0 nm within 31 nm of
  * the departure or destination waypoint (no APR/DPRT phases yet — see README).
  */
-import { clamp, wrap360 } from '../../core/math';
+import { clamp, deltaDeg, wrap360 } from '../../core/math';
 import { NM } from '../../core/units';
 import type { FlightPlan, NavRadioState, SimSnapshot } from '../../core/types';
 import { distanceNm } from './geo';
@@ -122,7 +122,8 @@ export function resolveCdi(s: SimSnapshot, source: CdiSource, magVarDeg: number,
       out.courseDeg = wrap360(plan.desiredTrackDeg - magVarDeg);
       out.fullScaleNm = sc.nm; out.scaleLabel = sc.label;
       out.deviation = clamp(-(plan.crossTrackM / NM) / sc.nm, -1, 1);
-      out.toFrom = 'to';
+      // FROM once the waypoint is behind: an OBS course flown past it, or the last waypoint passed
+      out.toFrom = Math.abs(deltaDeg(plan.bearingToActiveDeg, plan.desiredTrackDeg)) > 90 ? 'from' : 'to';
       out.distanceNm = plan.distanceToActiveM / NM;
     } else {
       out.valid = false; out.deviation = 0; out.toFrom = 'off'; out.scaleLabel = 'ENR';

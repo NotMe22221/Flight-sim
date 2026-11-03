@@ -4,7 +4,7 @@ import { FT, KT, NM } from '../core/units';
 import { destinationPoint, greatCircleDistance, initialBearingDeg } from '../geo/wgs84';
 import { WEATHER_PRESETS } from '../sky/presets';
 import { ActivityRunner } from './ActivityRunner';
-import { FakeHost, ScriptedAircraft, compactAirport, dataAirport, drive, recordActivityEvents } from './activityTestKit';
+import { FakeHost, ScriptedAircraft, compactAirport, dataAirport, inputsWith, recordActivityEvents } from './activityTestKit';
 import {
   BUSH_TRIPS, PACIFIC_COAST, WAYPOINT_RADIUS_M, bushLegActivity, legActivityId, legDistanceNm, legRoute, legRouteNm, navLog, tripById,
   type BushTrip,
@@ -328,6 +328,7 @@ describe('bush trip leg: wrong airport, restart and crash', () => {
     expect(runner.stepIndex).toBe(0);
     expect(rec.of('activity:finished').length).toBe(0);
     expect(rec.of('activity:instruction').filter((x) => x.text.startsWith('Leg 1: Half Moon Bay to Reid-Hillview')).length).toBe(2);
+    expect(host.calls.filter((c) => c === 'route 4').length).toBe(2); // the reset cleared the flight plan: reloaded
 
     // a crash ends it: not completed, the next leg stays locked, the attempt is counted once
     events.emit('aircraft:crash', { reason: 'terrain impact' });
@@ -364,3 +365,23 @@ describe('bush trip leg: wrong airport, restart and crash', () => {
     expect(() => bushLegActivity(PACIFIC_COAST, 99)).toThrow();
   });
 });
+
+describe('bush trip leg: departure reminder', () => {
+  it('power against a set parking brake gets one reminder, nothing else is coached on the departure', async () => {
+    const events = new EventBus();
+    const runner = new ActivityRunner({ host: new FakeHost(), events });
+    const rec = recordActivityEvents(events);
+    await runner.start(bushLegActivity(PACIFIC_COAST, 0));
+    const s = flyStateOnGround();
+    const brake = inputsWith({ parkingBrake: true, throttle: 1 });
+    for (let t = 0; t < 30; t += 0.1) runner.update(0.1, s, brake);
+    const said = rec.of('activity:instruction').map((x) => x.text);
+    expect(said.filter((x) => x === 'Parking brake is set: release it to roll.').length).toBe(1);
+    expect(said.length).toBe(2); // the briefing and the reminder
+  });
+});
+
+function flyStateOnGround() {
+  const ac = new ScriptedAircraft({ lat: 37.509, lon: -122.496, altFt: 36, groundFt: 36, hdgTrue: 317, iasKt: 0, onGround: true });
+  return ac.state();
+}

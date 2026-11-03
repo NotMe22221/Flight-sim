@@ -290,3 +290,52 @@ describe('FlightPlanner editing (G1000 FPL / D→ / OBS)', () => {
     expect(s.obsCourseDeg).toBeNull();
   });
 });
+
+describe('FlightPlanner editing: review follow-ups', () => {
+  const W = (id: string, p: Geodetic, type: Waypoint['type'] = 'user'): Waypoint => ({ id, position: p, type });
+
+  it('a waypoint inserted into the active leg (between FROM and TO) becomes the active waypoint', () => {
+    const a = W('A', KSFO), b = W('B', destinationPoint(KSFO, 90, 40_000)), c = W('C', destinationPoint(KSFO, 90, 80_000));
+    const fp = new FlightPlanner([a, b, c]);
+    expect(fp.activeWaypoint).toBe(b);
+    const x = W('X', destinationPoint(KSFO, 60, 20_000));
+    fp.insert(1, x); // before B: the plan is now A → X → B → C and the aircraft flies A → X first
+    expect(fp.activeWaypoint).toBe(x);
+    expect(fp.legOrigin()).toBe(a.position);
+    const s = fp.update(destinationPoint(KSFO, 80, 5_000), GS)!;
+    expect(s.waypoints[s.activeLeg].id).toBe('X');
+    expect(s.desiredTrackDeg).toBeCloseTo(initialBearingDeg(a.position, x.position), 0);
+    // inserting before an earlier waypoint, or after the active one, keeps the active waypoint
+    fp.insert(0, W('P', destinationPoint(KSFO, 270, 10_000)));
+    expect(fp.activeWaypoint).toBe(x);
+    fp.insert(3, W('Y', destinationPoint(KSFO, 80, 30_000)));
+    expect(fp.activeWaypoint).toBe(x);
+    // during a direct-to the leg starts at the D→ origin, so the D→ target stays active
+    const fp2 = new FlightPlanner([a, b, c]);
+    fp2.directTo(2, KSFO);
+    fp2.insert(2, W('Z', destinationPoint(KSFO, 90, 60_000)));
+    expect(fp2.activeWaypoint).toBe(c);
+    expect(fp2.isDirectTo).toBe(true);
+  });
+
+  it('direct-to a duplicated ident (round trip) picks the occurrence ahead, or the very waypoint object given', () => {
+    const h0 = W('KHAF', KHAF, 'airport'), s = W('KSFO', KSFO, 'airport'), o = W('KOAK', destinationPoint(KSFO, 50, 17_000), 'airport');
+    const h1 = W('KHAF', KHAF, 'airport'); // the destination: same airport as the departure
+    const fp = new FlightPlanner([h0, s, o, h1]);
+    expect(fp.activeLeg).toBe(1);
+    // typed ident (a fresh waypoint object): the KHAF still ahead of the aircraft, not the departure
+    expect(fp.directToWaypoint(W('KHAF', KHAF, 'airport'), KSFO)).toBe('in-plan');
+    expect(fp.activeLeg).toBe(3);
+    // the plan's own waypoint object (FPL cursor → D→) is used as is, wherever it sits
+    fp.activateLeg(2);
+    expect(fp.directToWaypoint(h0, KSFO)).toBe('in-plan');
+    expect(fp.activeLeg).toBe(0);
+    expect(fp.directToWaypoint(h1, KSFO)).toBe('in-plan');
+    expect(fp.activeLeg).toBe(3);
+    // only behind the aircraft: the first one
+    const fp2 = new FlightPlanner([h0, s, o]);
+    fp2.activateLeg(2);
+    fp2.directToWaypoint(W('KHAF', KHAF, 'airport'), KSFO);
+    expect(fp2.activeLeg).toBe(0);
+  });
+});

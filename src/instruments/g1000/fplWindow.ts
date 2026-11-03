@@ -42,6 +42,8 @@ export class FplWindow extends FmsWindow {
 
   /** With the cursor on, typing spells a waypoint to insert. */
   override editing(): boolean { return this.entry !== null || this.cursor; }
+  /** Without the cursor the window only displays the plan: Enter / Escape stay with the simulator. */
+  override takesKeys(): boolean { return this.entry !== null || this.cursor; }
 
   override selection(): FmsTarget | null {
     const p = this.fms.planner;
@@ -164,10 +166,15 @@ export class FplWindow extends FmsWindow {
     const footer = 1.2 + (this.cursor ? 0 : 1) + (this.message ? 1 : 0);
     const rows = Math.max(1, Math.floor((rc.y + rc.h - y - h * footer) / h));
     const total = n + 1 + (this.entry ? 1 : 0);
-    if (this.sel < this.top) this.top = this.sel;
-    if (this.sel >= this.top + rows - (this.entry ? 1 : 0)) this.top = this.sel - rows + 1 + (this.entry ? 1 : 0);
-    this.top = Math.max(0, Math.min(this.top, Math.max(0, total - rows)));
     const active = offRoute ? -1 : p ? p.activeLeg : -1;
+    if (!this.cursor) {
+      // no cursor: keep the active leg in view, its FROM waypoint on the first row
+      this.top = active > 0 ? active - 1 : 0;
+    } else {
+      if (this.sel < this.top) this.top = this.sel;
+      if (this.sel >= this.top + rows - (this.entry ? 1 : 0)) this.top = this.sel - rows + 1 + (this.entry ? 1 : 0);
+    }
+    this.top = Math.max(0, Math.min(this.top, Math.max(0, total - rows)));
     const gs = this.fms.gsKt, mv = this.fms.magVarDeg, pos = this.fms.pos;
     const legFrom: Geodetic | null = plan && plan.legFrom && !offRoute ? plan.legFrom : null;
     let arrowFromY = NaN, arrowToY = NaN;

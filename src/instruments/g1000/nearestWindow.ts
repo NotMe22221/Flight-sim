@@ -74,6 +74,9 @@ export class NearestWindow extends FmsWindow {
 
   get count(): number { return this.type === 'apt' ? this.airports.length : this.navaids.length; }
 
+  /** Only with the cursor on do ENT / CLR do anything here. */
+  override takesKeys(): boolean { return this.cursor; }
+
   setType(t: NearestKind): void {
     if (t === this.type) return;
     this.type = t; this.sel = 0; this.top = 0; this.focus = 'list'; this.age = Infinity;

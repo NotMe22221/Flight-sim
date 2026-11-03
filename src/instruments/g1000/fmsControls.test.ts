@@ -121,10 +121,10 @@ describe('PROC (ILS)', () => {
     expect(Math.abs(((crs.courseDeg - (a.courseTrueDeg - 13)) % 360 + 540) % 360 - 180)).toBeLessThan(1);
     expect(last(r.cmds, 'cdiSource')).toEqual({ kind: 'cdiSource', source: 'NAV1', navSource: 'nav1' });
     expect(r.g.cdiSource).toBe('NAV1');
-    expect(r.planner.waypoints.map((x) => x.id)).toEqual(['KSFO', 'KOAK', `FF${a.runway}`, `RW${a.runway}`]);
+    expect(r.planner.waypoints.map((x) => x.id)).toEqual(['KSFO', `FF${a.runway}`, `RW${a.runway}`, 'KOAK']);
     expect(r.planner.activeWaypoint?.id).toBe(`FF${a.runway}`);
     expect(r.planner.isDirectTo).toBe(true);
-    const ff = r.planner.waypoints[2];
+    const ff = r.planner.waypoints[r.planner.indexOfId(`FF${a.runway}`)];
     expect(ff.altConstraintM! - a.threshold.alt).toBeCloseTo(Math.tan(a.glideslopeDeg * Math.PI / 180) * 5 * NM, 0);
     expect(ff.altConstraintM! / FT).toBeGreaterThan(1500);
   });
@@ -136,9 +136,9 @@ describe('PROC (ILS)', () => {
     r.btn('pfd', 'ENT'); r.btn('pfd', 'ENT'); // choose, LOAD
     expect(r.g.cdiSource).toBe('GPS');
     const app = w.approaches[0];
-    expect(r.planner.indexOfId(`RW${app.runway}`)).toBe(3);
-    // fly the final: the FAF leg is active and the localizer comes alive
-    r.planner.activateLeg(3);
+    expect(r.planner.indexOfId(`RW${app.runway}`)).toBe(2); // KSFO, FFxx, RWxx, KOAK
+    // fly the final: the leg FAF → runway is active and the localizer comes alive
+    r.planner.activateLeg(2);
     r.s.nav1.activeKHz = app.frequencyKHz; r.s.nav1.isLocalizer = true; r.s.nav1.valid = true; r.s.nav1.cdi = 0.2;
     r.frame();
     expect(r.g.cdiSource).toBe('NAV1');

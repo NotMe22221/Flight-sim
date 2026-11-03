@@ -121,7 +121,9 @@ export class G1000Fms implements FmsContext {
   directTo(t: FmsTarget): boolean {
     const p = this.planner;
     if (!p) return false;
-    p.directToWaypoint(waypointFromTarget(t), this.pos);
+    // picked from the plan (FPL cursor): that very waypoint, even when its ident appears twice
+    const w = t.waypoint && p.waypoints.indexOf(t.waypoint) >= 0 ? t.waypoint : waypointFromTarget(t);
+    p.directToWaypoint(w, this.pos);
     this.touch();
     return true;
   }
@@ -140,7 +142,13 @@ export class G1000Fms implements FmsContext {
         const i = p.indexOfId(id);
         if (i >= 0) p.remove(i);
       }
-      const at = p.waypoints.length;
+      // the approach replaces the leg into the destination: with the approach's airport ending the
+      // plan the fixes go in front of it (… → FAF → RW → airport), so the GPS leg leads to the FAF
+      // instead of over the field and back out; after a D→ to that airport, or with waypoints
+      // after it, they are appended
+      const n = p.waypoints.length, end = p.waypoints[n - 1];
+      const beforeDest = !!end && end.type === 'airport' && end.id === a.airportIcao && !(p.isDirectTo && p.activeLeg === n - 1);
+      const at = beforeDest ? n - 1 : n;
       p.insert(at, fixes[0]); p.insert(at + 1, fixes[1]);
       if (activate) p.directToWaypoint(fixes[0], this.pos);
     }
@@ -190,10 +198,22 @@ export class G1000Fms implements FmsContext {
 
   /** The display whose window (or page cursor) takes ENT / CLR from the keyboard, or null. */
   keyDisplay(): G1000Display | null {
-    if (this.mfdStack.length) return 'mfd';
-    if (this.pfdStack.length) return 'pfd';
+    const w = this.keyWindow();
+    return w ? w.display : null;
+  }
+
+  /**
+   * The window keyboard input goes to: an MFD popup, else the top PFD window, else the MFD page
+   * with its cursor on — windows that only display (an FPL or NRST window without its cursor)
+   * leave the keys to the simulator. Enter, Escape and typed characters all go to this one.
+   */
+  private keyWindow(): FmsWindow | null {
+    const m = this.mfdStack[this.mfdStack.length - 1];
+    if (m && m.takesKeys()) return m;
+    const p = this.pfdStack[this.pfdStack.length - 1];
+    if (p && p.takesKeys()) return p;
     const pg = this.mfdPage();
-    return pg && (pg as { cursor?: boolean }).cursor ? 'mfd' : null;
+    return pg && pg.takesKeys() ? pg : null;
   }
 
   /** True when a window showing position-dependent values is open on `display`. */
@@ -236,6 +256,8 @@ export class G1000Fms implements FmsContext {
     this.pfdStack.length = 0; this.mfdStack.length = 0;
     this.pfdMenu = 'root'; this.mfdMenu = 'root'; this.codeEntry = '';
     this.fplPage.cursor = false; this.fplPage.entry = null; this.nrstPage.cursor = false;
+    if (this.pfdFpl) { this.pfdFpl.cursor = false; this.pfdFpl.entry = null; }
+    if (this.pfdNrst) { this.pfdNrst.cursor = true; this.pfdNrst.focus = 'list'; }
     this.loadedApproach = null; this.approachArmed = false;
     this.pfd.identS = 0;
     // re-announce the CDI source on the next update: the autopilot may have been switched while
@@ -296,7 +318,8 @@ export class G1000Fms implements FmsContext {
       case 'wheel': {
         const d = e.display ?? 'mfd', ring = e.ring ?? 'inner';
         const n = this.wheel.steps(`${d}:${e.id}:${ring}`, e.deltaY, e.deltaMode ?? 0);
-        return n !== 0 ? this.turn(d, e.id, ring, n) : true;
+        // less than a detent so far: nothing changed, so no redraw (G1000.wheel still consumes the event)
+        return n !== 0 ? this.turn(d, e.id, ring, n) : false;
       }
       case 'button': return this.button(e.display ?? 'mfd', e.id);
     }
@@ -316,13 +339,10 @@ export class G1000Fms implements FmsContext {
     return ev.key === 'push' || ev.key === 'ENT' || ev.key === 'CLR' || ev.key === 'MENU';
   }
 
-  /** The display whose top window accepts typed characters now, or null. */
+  /** The display whose key window (see `keyDisplay`) accepts typed characters now, or null. */
   editingDisplay(): G1000Display | null {
-    const m = this.mfdStack[this.mfdStack.length - 1] ?? this.mfdPage();
-    if (m && m.editing()) return 'mfd';
-    const p = this.pfdWindow();
-    if (p && p.editing()) return 'pfd';
-    return null;
+    const w = this.keyWindow();
+    return w && w.editing() ? w.display : null;
   }
 
   private stack(d: G1000Display): FmsWindow[] { return d === 'pfd' ? this.pfdStack : this.mfdStack; }

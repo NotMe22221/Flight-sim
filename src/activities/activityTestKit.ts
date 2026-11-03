@@ -136,10 +136,12 @@ export class FakeHost implements ActivityHost {
   readonly calls: string[] = [];
   readonly spoken: string[] = [];
   lastAirSpawn: { lat: number; lon: number; altM: number; headingDeg: number; iasMs: number; opts?: AirSpawnOptions } | null = null;
+  lastRunwaySpawn: { icao: string; runway: string; opts?: RunwaySpawnOptions } | null = null;
   lastRoute: unknown[] | null = null;
   constructor(private readonly onSpawn?: () => void | Promise<void>) {}
-  async spawnAtRunway(icao: string, runway: string, _opts?: RunwaySpawnOptions): Promise<void> {
+  async spawnAtRunway(icao: string, runway: string, opts?: RunwaySpawnOptions): Promise<void> {
     this.calls.push(`spawnAtRunway ${icao} ${runway}`);
+    this.lastRunwaySpawn = { icao, runway, opts };
     await this.onSpawn?.();
   }
   async spawnInAir(lat: number, lon: number, altM: number, headingDeg: number, iasMs: number, opts?: AirSpawnOptions): Promise<void> {

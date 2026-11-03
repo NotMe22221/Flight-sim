@@ -81,7 +81,7 @@ g.handleInput({ type: 'char', char: 'K' });                              // type
 g.bezelHitRegions.pfd;            // HitRegion[] in canvas px: rects (softkeys, keys) and circles (knobs, rInner for dual rings)
 g.hitTest('pfd', x, y);           // → { control, ring } | null      (canvas px of that display)
 g.click('mfd', x, y); g.wheel('pfd', x, y, deltaY, { deltaMode, outer: e.shiftKey }); g.hover('pfd', x, y);  // tooltip + highlight
-g.wantsKeyboard; g.keyboard(e.key);   // while an ident field is open: letters/digits, Backspace, Enter = ENT, Escape = CLR
+g.wantsKeyboard; g.keyboard(e.key);   // while a window / page cursor takes keys: letters/digits, Backspace, Enter = ENT, Escape = CLR
 g.takeCommands();                 // requests queued when no onCommand callback is set
 const panel = new G1000Panel(g);  // one 2769×1008 texture: panel.compose() after g.update(); panel.click(uv.x, uv.y) …
 ```
@@ -101,9 +101,9 @@ side-by-side panel keeps the cockpit mesh's 0.96 × 0.35 m aspect.
 |---|---|---|
 | MFD page groups | MAP (navigation map) · FPL (active flight plan) · NRST (airports, VOR, NDB) | FMS outer = group, inner = page (cursor off); indicator bottom right |
 | D→ window (MFD popup / PFD window) | ident field with spell'n'find completion, nearest-match list (airports, VOR, NDB from `NavDb.searchIdents`), name, BRG/DIS, ACTIVATE? | inner = character, outer = cursor (or field), typing; ENT accept / ENT activate; duplicate idents → pick from the list; MENU → CANCEL DIRECT-TO NAV; prefilled from the FPL/NRST cursor |
-| FPL page / PFD FPL window | waypoints with DTK (mag), DIS, ETE; active leg magenta with leg arrow (its DTK is the planner's along-track DTK, as in the nav status bar), past grey; total | push = cursor; outer = row; inner/typing = insert before the row (last row appends); CLR → REMOVE?; MENU → ACTIVATE LEG / DELETE FLIGHT PLAN / CANCEL D→; ACT LEG softkey; D→ = direct to the row |
+| FPL page / PFD FPL window | waypoints with DTK (mag), DIS, ETE; active leg magenta with leg arrow (its DTK is the planner's along-track DTK, as in the nav status bar), past grey; total; without the cursor the list scrolls to keep the active leg (and its FROM waypoint) in view | push = cursor; outer = row; inner/typing = insert before the row (last row appends; inserted into the active leg it becomes the TO waypoint); CLR → REMOVE?; MENU → ACTIVATE LEG / DELETE FLIGHT PLAN / CANCEL D→; ACT LEG softkey; D→ = direct to that very row (also when its ident appears twice) |
 | NRST page / PFD NRST window | 25 nearest airports: BRG, DIS, longest runway, TWR/CTAF, ILS flag; selected airport's frequencies; VOR/NDB lists | inner = row, outer = frequency list; ENT = D→ (airport) / COM1 standby (frequency) / NAV1 standby (VOR) |
-| PROC window | SELECT APPROACH at the destination (else D→ airport, else nearest; re-spellable), ILS list, LOAD? / ACTIVATE? | LOAD: FFxx/RWxx fixes appended, LOC into NAV1 + course, CDI switches GPS → LOC on the final; ACTIVATE: also D→ FAF and CDI → NAV1 |
+| PROC window | SELECT APPROACH at the destination (else D→ airport, else nearest; re-spellable), ILS list, LOAD? / ACTIVATE? | LOAD: FFxx/RWxx fixes in front of the destination airport when it ends the plan (the leg into it then leads to the FAF), else appended; LOC into NAV1 + course, CDI switches GPS → LOC on the final; ACTIVATE: also D→ FAF and CDI → NAV1 |
 | PFD TMR/REF, ALERTS | timer START/STOP/RESET, V-speed bugs ON/OFF, BARO minimums (bug + box); active alerts | outer = field, inner = value, ENT |
 
 PFD softkeys: INSET (inset map, RANGE knob; OFF, DCLTR), PFD (DFLTS, WIND opt 1/2/off, DME, BRG1,
@@ -146,6 +146,10 @@ returns the MFD to the MAP page and re-announces the CDI source (`cdiSource`) on
 not zoom the camera). Pass `e.deltaY || e.deltaX` as the wheel delta (Chromium turns Shift+wheel
 into `deltaX` on Windows/Linux) and `outer: e.shiftKey`. While `g.wantsKeyboard`, offer each key
 to `g.keyboard(e.key)` before the key bindings (capture phase) and stop it when that returns true.
+Keys go to one window (`fms.keyDisplay()`): the top MFD popup, else the top PFD window, else the
+MFD page with its cursor on; Enter, Escape and typed characters always reach the same one. Windows
+that only display — an FPL or NRST window with its cursor off — take no keys, so Escape still opens
+the simulator menu while the PFD flight plan stays up.
 Wheel up = clockwise = increase; RANGE clockwise zooms out, as on the real unit.
 
 **Flight plan**: every edit goes through the `FlightPlanner` (`insert`, `remove`,
@@ -256,6 +260,13 @@ model it does not own, so the lags are not advanced twice).
   cockpit mode hides flight data but keeps flags and terrain loading, redraw cap and change
   skipping, hide/show, warnings and status hook, dispose; tape labels, flaps/gear text, scaling.
 
+* `g1000/review.test.ts` (adversarial review of the interactive G1000, each failed before its
+  fix): the PFD FPL window scrolls to the active leg without the cursor; D→ from the FPL cursor on
+  the second of two same-ident waypoints; `reset` clears the PFD FPL cursor; a cursor-less PFD FPL
+  window leaves Enter/Escape to the simulator; typed letters and Enter reach the same window; a
+  sub-detent wheel event forces no redraw; "D→ WPT" in the nav status box; GPS FROM flag past the
+  waypoint (OBS, last waypoint); Backspace in a prefilled ident erases its end; PROC LOAD routes
+  to the FAF instead of over the destination.
 * `review.test.ts` (adversarial review): FD cue banks toward the command; pitch ladder to ±80°;
   rolling digits continue the tape (larger values above); compass acceleration error (ANDS) and
   reversed wet-compass card; Euler heading rate for the trend vector; glass vs steam VSI lag;
@@ -266,6 +277,28 @@ model it does not own, so the lags are not advanced twice).
 The layout was also checked visually by rendering the PFD, MFD and HUD in headless Chrome.
 
 ## Known limitations
+
+G1000 interaction (review notes, not fixed):
+
+* `keyboard(key)` sees only `KeyboardEvent.key`, so NumpadEnter (`'Enter'`, bound to right rudder)
+  and numpad digits reach the G1000 while a window takes keys; the integrator should skip
+  `e.code` starting with `Numpad` (see the review's proposed `cockpitInteraction.ts` change).
+* Escape is CLR: with the FPL cursor on a waypoint it asks "REMOVE …?" (as CLR does), so Escape
+  only reaches the simulator menu once the cursor is off (FMS push).
+* PROC LOAD after a D→ to the destination airport (or with waypoints after it) appends the
+  approach behind the airport, so GPS NAV overflies the field before the FAF — use ACTIVATE then.
+  ACTIVATE switches the CDI to NAV1 at once (the real NXi stays on GPS until the LOC auto-switch).
+* PFD windows stack (NRST opened over TMR/REF keeps TMR/REF underneath); the real unit replaces
+  the window. The D→ window opened without a selection is empty (the NXi shows the active
+  waypoint), and the NRST page prefills D→ even with its cursor off.
+* NAV/COM inner rings carry into the MHz (117.95 → 108.00 wraps the band, 109.95 → 110.00) via
+  `stepNav`/`stepCom`; real Garmin/King radios roll the kHz over within the MHz.
+* Wheel detents are proportional to the pixel delta (100 px each): a browser or zoom level that
+  reports 125 px per notch turns 5 detents per 4 notches. No knob acceleration.
+* The FPL leg table cache is keyed by `planner.version` only; `setPlanner()` with another planner
+  at the same version shows the old table until the next edit.
+
+Displays:
 
 * FPL DTKs of all legs are converted to magnetic with the variation at the aircraft (the real unit
   uses each leg's own variation; ≤ 1–2° apart within a few hundred nm).

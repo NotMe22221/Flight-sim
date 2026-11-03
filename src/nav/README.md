@@ -150,11 +150,14 @@ along-track distance drops below the turn-anticipation distance (and the aircraf
 near the waypoint, not merely abeam from far off-track), or when the waypoint is passed. The
 last waypoint is never sequenced past; `complete` turns true once it is behind. Removing the
 active waypoint activates the next one and cancels a direct-to; removing any other waypoint
-keeps the direct-to origin. `eteS` is to the active waypoint; `eteTotalS`, `totalDistanceM`,
+keeps the direct-to origin. Inserting keeps the active waypoint, except that a waypoint inserted
+into the active leg (before the TO waypoint, no direct-to) becomes the new TO waypoint: A → X → B
+is flown A → X, not X → B from wherever the aircraft is. `eteS` is to the active waypoint; `eteTotalS`, `totalDistanceM`,
 `remainingDistanceM` cover the route.
 
-G1000 semantics: `directToWaypoint` goes direct to the plan's own waypoint when one has the same
-id within 2 km; otherwise, with a non-empty plan, it is an *off-route* direct-to — the stored plan
+G1000 semantics: `directToWaypoint` goes direct to the plan's own waypoint — the very object
+when it is one of the plan's (the FPL cursor), else one with the same id within 2 km, the first
+from the active leg on (a round trip's destination rather than its departure); otherwise, with a non-empty plan, it is an *off-route* direct-to — the stored plan
 stays in `waypoints` (editable, inactive) and the published `state.waypoints` is `[target]` with
 `offRoute: true`, so every consumer that only knows the core `FlightPlan` sees a plain direct-to.
 Emptying the stored plan during an off-route D→ adopts the target as the plan (the simulator only
@@ -243,6 +246,8 @@ review and every mutation fails the suite.
 * The glideslope uses the centreline reference point and ignores earth curvature (≈ 0.08° at
   10 nm), so the lateral antenna offset only matters for scenery placement.
 * No DME ground speed / ETE (`−d(slant)/dt`) yet; no ADF needle model beyond `bearingDeg`.
+* `stepNav` / `stepCom` (fine steps) carry into the MHz and wrap at the band edges; real radio
+  heads roll the kHz digits over within the MHz (the coarse step already keeps the kHz part).
 * Great-circle maths is spherical (R = 6 371 km; the spec's 6 371 008.8 m differs by 1.4 ppm);
   fine for displays and the CDI, not for survey work. `desiredTrackDeg` is the abeam-point
   course to first order in the cross-track offset.

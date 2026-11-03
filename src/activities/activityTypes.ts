@@ -13,6 +13,8 @@ export interface RunwaySpawnOptions {
   /** 0..1 of usable fuel */
   fuelFraction?: number;
   payloadKg?: number;
+  /** set the parking brake once positioned (lessons that teach releasing it); default: the simulator's normal spawn state */
+  parkingBrake?: boolean;
 }
 
 export interface AirSpawnOptions {
@@ -47,7 +49,7 @@ export interface ActivityHost {
 export type ActivitySetup =
   | {
     spawn: 'runway'; icao: string; runway: string;
-    coldAndDark?: boolean; fuelFraction?: number;
+    coldAndDark?: boolean; fuelFraction?: number; parkingBrake?: boolean;
     weather?: WeatherPresetId; time?: TimePreset; route?: Waypoint[];
     /** a point at the field (deg): a 'flight:reset' near it restarts the activity instead of aborting it */
     anchor?: { lat: number; lon: number };

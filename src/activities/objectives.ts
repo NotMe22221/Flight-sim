@@ -507,6 +507,12 @@ function readMetric(m: ProgressSpec['metric'], ctx: ObjectiveContext): number {
   }
 }
 
+/**
+ * Score loss for a normalised error (0 centre, 1 tolerance edge): flying within 40 % of the
+ * tolerance costs nothing, then the loss ramps to 1 at the edge. Pass/fail never uses this.
+ */
+export const scoreLoss = (err: number): number => clamp((err - 0.4) / 0.6, 0, 1);
+
 /** Shared progress-from-metric helper. */
 class MetricProgress {
   private from = 0;
@@ -530,7 +536,7 @@ class HoldObjective extends Objective {
   protected evaluate(ctx: ObjectiveContext): void {
     const ok = this.set.test(ctx);
     this.time += ctx.dt;
-    this.errSum += Math.min(this.set.maxErr, 1) * ctx.dt;
+    this.errSum += scoreLoss(this.set.maxErr) * ctx.dt;
     if (ok) { this.held += ctx.dt; this.broken = 0; }
     else { this.broken += ctx.dt; if (this.broken > (this.s.graceS ?? 1)) this.held = 0; }
     const v = this.view;
@@ -599,7 +605,7 @@ class MaintainObjective extends Objective {
     if (this.until.test(ctx)) { this.complete(this.time > 0 ? v.score : 1); return; }
     const ok = this.set.test(ctx);
     this.time += ctx.dt;
-    this.errSum += Math.min(this.set.maxErr, 1) * ctx.dt;
+    this.errSum += scoreLoss(this.set.maxErr) * ctx.dt;
     this.outFor = ok ? 0 : this.outFor + ctx.dt;
     v.hint = ok ? null : this.set.hint;
     v.score = 1 - this.errSum / Math.max(this.time, 1e-6);
