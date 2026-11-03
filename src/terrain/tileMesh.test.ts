@@ -80,6 +80,26 @@ describe('tileMesh', () => {
     expect(c[1]).toBeCloseTo(m.centerThree[1], 6);
   });
 
+  it('neighbouring tiles agree on their shared edge: no height step on a slope', () => {
+    // Each tile's DEM samples one global plane at its own pixel centres (as Terrarium tiles do);
+    // the edge vertices lie half a pixel beyond the outermost centres.
+    const W = 256, z = 15, y = 12684, slope = 0.5; // 0.5 m per tile-metre eastward and 0.2 southward
+    const tw = tileWidthMeters(37.6, z);
+    const demOf = (x: number): Float32Array => {
+      const h = new Float32Array(W * W);
+      for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) h[j * W + i] = 100 + slope * (x + (i + 0.5) / W) * tw - 0.2 * ((j + 0.5) / W) * tw - slope * 5246 * tw;
+      return h;
+    };
+    const N = 64, Wv = N + 1;
+    const a = buildTileMesh(z, 5246, y, demOf(5246), W, frame, N, 20);
+    const b = buildTileMesh(z, 5247, y, demOf(5247), W, frame, N, 20);
+    for (let j = 0; j <= N; j++) {
+      const ha = a.height[j * Wv + N], hb = b.height[j * Wv]; // A's east edge = B's west edge
+      expect(Math.abs(ha - hb)).toBeLessThan(1e-3);
+      expect(ha).toBeCloseTo(100 + slope * tw - 0.2 * (j / N) * tw, 2); // the plane at the edge itself
+    }
+  });
+
   it('skirt depth follows §3.3 clamp(0.05·width, 10, 400)', () => {
     expect(skirtDepthFor(15, 37.6)).toBeCloseTo(0.05 * tileWidthMeters(37.6, 15), 6);
     expect(skirtDepthFor(7, 37.6)).toBe(400);

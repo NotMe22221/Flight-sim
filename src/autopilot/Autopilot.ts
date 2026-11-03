@@ -443,6 +443,10 @@ export class GfcAutopilot implements Autopilot {
     this.rollCmd.ratePerS = s.lvl ? L.lvlRollCmdRateRadS : L.rollCmdRateRadS;
     this.pitchCmd.ratePerS = s.lvl ? loadFactorPitchRate(L.lvlLoadFactor, ac.aero.tas, L.pitchCmdRateRadS) : L.pitchCmdRateRadS;
 
+    // LVL wings-first unloading (inner loop below); on its end the pitch command restarts at θ
+    const unloading = s.engaged && s.lvl && wingsFirst(ac.euler[0], L.lvlWingsFirstBankRad);
+    if (this.lvlUnloading && !unloading) this.pitchCmd.reset(ac.euler[1]);
+
     // Outer loops → attitude commands (also the FD bars).
     const prevRollCmd = this.rollCmd.value, prevPitchCmd = this.pitchCmd.value;
     if (active && s.lateral !== 'OFF') this.rollCmd.update(this.lateralCommand(dt, ac, nav), dt);
@@ -463,7 +467,7 @@ export class GfcAutopilot implements Autopilot {
       const pitchFf = g.pitchFeedForward * scale * (this.pitchCmd.value - prevPitchCmd) / dt;
       const roll = this.rollPid.update(this.rollCmd.value, ac.euler[0], dt, rollRate) + rollFf;
       let pitch: number;
-      if (s.lvl && wingsFirst(ac.euler[0], L.lvlWingsFirstBankRad)) {
+      if (unloading) {
         // LVL upset recovery, wings first: unload instead of holding θ. An Euler-pitch loop reverses
         // beyond 90° of bank (pulling then lowers the nose) and needs 1/cos φ g to hold the nose in a
         // steep bank, so fly a load-factor law toward 1 g (blending to 0 g inverted) with body
@@ -477,7 +481,6 @@ export class GfcAutopilot implements Autopilot {
       } else {
         if (this.lvlUnloading) {
           this.lvlUnloading = false;
-          this.pitchCmd.reset(ac.euler[1]);
           this.pitchPid.resetToOutput(s.outPitch, this.pitchCmd.value, ac.euler[1], pitchRate);
         }
         pitch = this.pitchPid.update(this.pitchCmd.value, ac.euler[1], dt, pitchRate) + pitchFf;
