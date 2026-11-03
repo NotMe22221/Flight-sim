@@ -4,7 +4,7 @@ import { dirFromAzEl } from '../geo/solar';
 import {
   DEFAULT_EXPOSURE, acesFilmic, adaptExposure, ambientFloor, cloudCoverFraction, colorTemperatureK, encodeDisplayColor,
   fogBetaFromVisibility, fogExp2DensityFromVisibility, hazeScaleHeight, heightFogOpticalDepth, hemisphereIntensity, linearToSrgb, moonLightIntensity,
-  starVisibility, sunLightIntensity, targetExposure, turbidityFromVisibility,
+  SUN_INTENSITY_BASE, starVisibility, sunLightIntensity, targetExposure, turbidityFromVisibility,
 } from './lighting';
 import { DEFAULT_PREETHAM, PreethamSky } from './preetham';
 
@@ -38,7 +38,9 @@ describe('solar-driven lighting curves', () => {
     expect(sunLightIntensity(-5, T, 0)).toBe(0);
     expect(sunLightIntensity(45, T, 0)).toBeGreaterThan(sunLightIntensity(45, T, 1));
     expect(sunLightIntensity(45, T, 1)).toBeGreaterThan(0);
-    expect(sunLightIntensity(45, T, 0)).toBeCloseTo(3, 6);
+    // a clear 45° sun through a lossless atmosphere gives exactly the zenith base (default: the calibrated one)
+    expect(sunLightIntensity(45, T, 0)).toBeCloseTo(SUN_INTENSITY_BASE, 6);
+    expect(sunLightIntensity(45, T, 0, 7)).toBeCloseTo(7, 6);
   });
 
   it('exposure target is bounded, monotonically decreasing with elevation and adapts smoothly', () => {
@@ -51,7 +53,7 @@ describe('solar-driven lighting curves', () => {
       expect(e).toBeLessThanOrEqual(prev + 1e-9);
       prev = e;
     }
-    expect(targetExposure(60, 0, 1)).toBeCloseTo(0.6, 6);
+    expect(targetExposure(60, 0, 1)).toBeCloseTo(o.day, 6);
     expect(targetExposure(-30, 0, 1)).toBeCloseTo(1.5, 6);
     expect(targetExposure(-30, 0, 0)).toBeGreaterThan(targetExposure(-30, 0, 1)); // moonless darker → more exposure
     expect(targetExposure(60, 1, 1)).toBeGreaterThan(targetExposure(60, 0, 1)); // overcast

@@ -147,31 +147,49 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
     challenge started while an activity runs ends it quietly first (`endActivity`).
 - **Activities in flight** (`flight/ObjectivesPanel.ts`, `flight/InstructorSubtitle.ts`,
   `flight/DebriefCard.ts`, wired in `FlightUi`): `activity:started` opens the *Objectives* panel (top
-  left, a FloatingPanel whose toolbar button exists only while there is an activity): activity title,
+  left, a FloatingPanel whose toolbar button exists only while there is an activity; brought to the
+  front at each start even when it was already open, and a checklist the pilot has not placed opens
+  beside it instead of exactly on top): activity title,
   "Step 2 of 7 · Climb 500 ft", the current step's objectives with status icons (optional ones
   dimmed and tagged), a thin progress bar each, "Next: …", and the live hint
   (`activityRunner.liveHint`, held 1 s after it clears so it does not flicker). Rows are rebuilt only
   on `activity:progress`; between events the panel reads the runner's live objective views at most
   10 Hz and writes a bar only when its whole percent changes. Instructor lines
   (`activity:instruction`) show at the bottom centre, just above the instruments HUD's controls
-  strip (its height is mirrored in CSS from the HUD's scale formula): ~6 s, 9 s when important,
+  strip (its height is mirrored in CSS from the HUD's scale formula); in the cockpit view on screens
+  wider than a phone they move to the top centre, below the toolbar and clear of the objectives
+  panel's default column, because the instrument panel fills the bottom of the screen. They sit in
+  the flight layer above the floating panels (an open checklist or VFR map never hides them) and
+  under the toolbar (z-index 5, so its camera menu drops over the panels): ~6 s, 9 s when important,
   60 ms per character for long lines, at most 25 s; bursts are queued (`subtitleQueue.ts`: each line
   readable ≥ 2.5 s, paused time and time off the flight view not counted, so the first instruction is
-  still there after the loading screen). Toasts move above the subtitle while it shows.
+  still there after the loading screen). Toasts move above the subtitle while it shows at the bottom.
   `activity:finished` shows the *debrief* 1.8 s later (after the closing line): outcome, score /100
   and grade, the reason when failed, summary, time, landing score, every step with its objectives
   and notes ('Missed' optional ones dimmed, 'Not reached'), and Retry (`restartActivity`), Next leg
   (bush trips, when the next leg exists and is unlocked), Landing report (re-opens the full report
-  of the activity's landing) and Close. During an activity a full-stop landing is a toast (the pilot
+  of the activity's landing) and Close. The debrief clears the subtitle (its summary carries the
+  closing line, which would otherwise come back once the card closes). Retry and Next leg hand the
+  pause the debrief holds to the pause menu, as "Restart activity" keeps the menu's: a respawn that
+  fails comes back to the pause menu (its error toast reads above the backdrop), a successful one
+  releases it (the spawn unpauses the simulator). Back in the flight, an activity whose (re)start
+  failed is cleared from the panel and toolbar (`activityRunner.phase === 'idle'`). During an activity a full-stop landing is a toast (the pilot
   may still have to stop; the debrief carries the score). After a crash the debrief replaces the
-  crash menu; closing it opens the menu ('Crashed'). An abort from the pause menu, or a flight
+  crash menu; closing it opens the menu ('Crashed'), which takes over the pause, so its Resume
+  resumes (the host's snapshot still reads 'paused' until the next frame). An abort from the pause menu, or a flight
   changed under the activity, is a toast; a replaced activity (Retry, another Start) shows nothing.
-- **Pause menu during an activity**: a line with the activity and step, "Restart step"
-  (`restartActivityStep`, resumes), "Restart activity" (instead of "Restart flight") and "Abort
-  activity" (stays paused, noted "Activity aborted · you are in free flight").
+- **Pause menu during an activity**: a line with the activity and step (refreshed whenever the menu
+  shows, also when a menu screen returns to it), "Restart step" (`restartActivityStep`, resumes; the
+  subtitle is cleared first, so the step's instruction shows at once instead of after a stale hint), "Restart activity" (instead of "Restart flight") and "Abort
+  activity" (stays paused, noted "Activity aborted · you are in free flight"; "Restart activity"
+  becomes "Restart flight" and Restart step / Abort stay in place greyed out until the menu closes,
+  so the rows do not move under the pointer, and the keyboard focus goes back to "Resume flight").
 - **In flight** (`flight/FlightUi.ts`, `flight/FlightPanels.ts`): toolbar revealed at the top edge
   (Camera · Objectives (during an activity) · ATC · Checklist · Nav log · VFR map · Weather · Controls · Menu), draggable /
-  resizable panels with persisted positions (`flightsim.ui.layout.v1`), status bar, info strip,
+  resizable panels with persisted positions (`flightsim.ui.layout.v1`; the top-row panels' default
+  places start just under the instruments HUD's flight strip when they would reach it, `topRowY`:
+  y 101 instead of 70 at 1280×720, where the IAS / heading / ALT boxes end at y 91 in the external
+  views), status bar, info strip,
   ATC subtitles, toasts (also in menus). The Weather panel highlights the preset the simulator is
   actually flying (a challenge sets its own) and its time card follows the simulator clock at the
   aircraft (`flightTimeMode` in `timeOfDay.ts`: 'Dusk' for a dusk challenge, nothing highlighted
@@ -239,6 +257,17 @@ baseline/rebase, alerter), settings version-2 migrations (FOV, anti-stall), plus
 assist presets and checklist tests. `importSafety.test.ts` imports every module (including all
 DOM classes and the CSS-importing barrel) in Node to prove nothing touches the DOM at load.
 
+The activities UI is also driven end to end (`activityFlow.test.ts`): the whole `UiManager` runs
+over a small in-memory DOM (`testing/fakeDom.ts`: elements, classes, inline styles, attributes,
+bubbling events with capture, focus, a selector engine, permissive canvas contexts; no layout) with
+a fake simulator that runs the **real** `ActivityRunner` and `ProgressStore`
+(`testing/activityHarness.ts`: spawns emit `flight:reset` and unpause like the Simulator's, the
+cached snapshot follows `setPaused` only at the next frame, spawns can be made to fail). The tests
+click through what a player does: Start from Flight training / Bush trips, the pause menu (Restart
+step, Restart activity, Abort), a crash, the debrief (Close, Esc, Retry, Next leg), locked legs and
+double clicks, a flight changed under the activity, failed restarts, panel z-order and placement,
+and `dispose()` leaving no window/document listeners. Files under `testing/` are test-only.
+
 ## Known limitations
 
 - No coastline/imagery layer on the World Map canvas (graticule + airports only); dots of
@@ -246,8 +275,9 @@ DOM classes and the CSS-importing barrel) in Node to prove nothing touches the D
 - The local clock is longitude-based (no timezone database).
 - "Set as arrival" adds a direct GPS leg only (no SID/STAR/approach selection).
 - Binding conflicts are detected per device by identical labels from `host.bindings()`.
-- DOM classes are not unit-tested (no DOM in the test environment); they are covered by
-  import-safety tests and manual/browser checks.
+- Most DOM classes are only covered by the import-safety tests and browser checks; the activities
+  flow runs over the fake DOM, which models no layout or CSS (overlaps and clipping are checked in
+  the browser).
 - Graphics settings are only as effective as the host's `setGraphics` (the current SimUiHost
   applies everything except Terrain detail).
 - Runway idents are shown as the nav data spells them ('1R/19L' for OurAirports' KSFO data).
@@ -259,10 +289,11 @@ DOM classes and the CSS-importing barrel) in Node to prove nothing touches the D
 - Settings › Controls and the help sheet list SimActions only: keyboard flight-control axes
   (pitch/roll/rudder/throttle keys) are not reported by `host.bindings()`.
 - Activities: the Objectives panel has no hotkey (there is no SimAction for it; toolbar only). The
-  instructor subtitle lives in the HUD layer, so an open floating panel (e.g. the VFR map at its
-  default bottom-right place on narrow windows) can cover part of it. In the cockpit view it sits
-  over the upper edge of the instrument panel (the HUD controls strip it clears is drawn in the
-  external views). The UI speaks nothing: TTS of instructor lines is the host's (`speakInstructor`).
+  instructor subtitle sits above the floating panels, so it covers a strip of a panel underneath
+  while it shows. On phones in the cockpit view it stays at the bottom, over the lower instruments
+  (the objectives panel takes the top of a portrait screen); on screens 721-1199 px wide its
+  cockpit-view place is centred right of the objectives panel's default column, so a panel the
+  pilot dragged elsewhere is not avoided. The UI speaks nothing: TTS of instructor lines is the host's (`speakInstructor`).
   Lesson cards show duration / level only when the lesson data carries them (the bundled lessons do
   not).
 

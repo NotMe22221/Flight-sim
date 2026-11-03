@@ -64,10 +64,26 @@ export class PauseMenu {
     this.activityEl.style.display = info ? '' : 'none';
     this.restartStepBtn.style.display = info?.canRestartStep ? '' : 'none';
     this.abortBtn.style.display = info?.canAbort ? '' : 'none';
+    this.restartStepBtn.disabled = false;
+    this.abortBtn.disabled = false;
     // during an activity "Restart flight" restarts it from step 1 (the runner sees the reset at its start)
     this.restartBtn.querySelector('.btn-label')!.textContent = info ? 'Restart activity' : 'Restart flight';
     this.restartBtn.title = info ? 'Start the activity again from its first step' : 'Start again from the same position (runway, parking or challenge final)';
   }
+  /**
+   * The activity ended while the menu is open (Abort): its line goes, "Restart activity" becomes
+   * "Restart flight", and Restart step / Abort stay in place greyed out until the menu closes, so the
+   * rows do not move under the pointer (a double click on Abort used to land on "World map").
+   */
+  endActivity(): void {
+    this.activityEl.style.display = 'none';
+    this.restartStepBtn.disabled = true;
+    this.abortBtn.disabled = true;
+    this.restartBtn.querySelector('.btn-label')!.textContent = 'Restart flight';
+    this.restartBtn.title = 'Start again from the same position (runway, parking or challenge final)';
+  }
   show(): void { this.el.classList.add('visible'); this.first.focus(); }
+  /** Keyboard focus back on "Resume flight" (after an item disappeared under it). */
+  focusFirst(): void { if (this.visible) this.first.focus(); }
   hide(): void { this.el.classList.remove('visible'); }
 }

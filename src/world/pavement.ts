@@ -211,3 +211,62 @@ export class PavementRegistry {
     return true;
   }
 }
+
+/**
+ * Point lookup "on airport pavement" over a set of specs (for tyre friction): a coarse lon/lat
+ * grid of candidate areas, then an even-odd test over the rings (holes are not pavement) or the
+ * distance to a centre line within its half width.
+ */
+export class PavementIndex {
+  private readonly cells = new Map<number, PavementFlatteningSpec[]>();
+  private static readonly CELL_DEG = 0.004;
+
+  constructor(specs: readonly PavementFlatteningSpec[]) {
+    const c = PavementIndex.CELL_DEG;
+    for (const s of specs) {
+      const padLat = s.halfWidthM / M_PER_DEG, padLon = s.halfWidthM / (M_PER_DEG * Math.max(0.01, Math.cos(s.north * D2R)));
+      const i0 = Math.floor((s.west - padLon) / c), i1 = Math.floor((s.east + padLon) / c);
+      const j0 = Math.floor((s.south - padLat) / c), j1 = Math.floor((s.north + padLat) / c);
+      if ((i1 - i0 + 1) * (j1 - j0 + 1) > 400) continue; // degenerate (> 8 km): ignore
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const k = PavementIndex.key(i, j);
+        const list = this.cells.get(k);
+        if (list) list.push(s); else this.cells.set(k, [s]);
+      }
+    }
+  }
+
+  private static key(i: number, j: number): number { return (j + 50_000) * 100_000 + (i + 50_000); }
+
+  get empty(): boolean { return this.cells.size === 0; }
+
+  /** Is (lat, lon) on pavement (inside an area's rings, or within half width of a centre line)? */
+  contains(lat: number, lon: number): boolean {
+    const c = PavementIndex.CELL_DEG;
+    const list = this.cells.get(PavementIndex.key(Math.floor(lon / c), Math.floor(lat / c)));
+    if (!list) return false;
+    for (const s of list) {
+      if (s.rings.length > 0) {
+        if (lon < s.west || lon > s.east || lat < s.south || lat > s.north) continue;
+        let inside = false;
+        for (const r of s.rings) {
+          for (let a = 0, b = r.length - 2; a < r.length; b = a, a += 2) {
+            const ya = r[a + 1], yb = r[b + 1];
+            if ((ya > lat) !== (yb > lat) && lon < r[a] + ((lat - ya) * (r[b] - r[a])) / (yb - ya)) inside = !inside;
+          }
+        }
+        if (inside) return true;
+      } else {
+        const kx = M_PER_DEG * Math.cos(lat * D2R), l = s.line, hw2 = s.halfWidthM * s.halfWidthM;
+        for (let a = 0; a + 3 < l.length; a += 2) {
+          const ax = (l[a] - lon) * kx, ay = (l[a + 1] - lat) * M_PER_DEG, bx = (l[a + 2] - lon) * kx, by = (l[a + 3] - lat) * M_PER_DEG;
+          const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+          const t = l2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+          const ex = ax + t * dx, ey = ay + t * dy;
+          if (ex * ex + ey * ey <= hw2) return true;
+        }
+      }
+    }
+    return false;
+  }
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Airport, Runway } from '../core/types';
 import { planeHeightAt } from '../terrain/pavement';
-import { PavementRegistry, airportPavementPlane, type PavementArea, type PavementSource } from './pavement';
+import { PavementIndex, PavementRegistry, airportPavementPlane, type PavementArea, type PavementSource } from './pavement';
 
 const rw = (ident: string, a: [number, number, number], b: [number, number, number]): Runway => ({
   ident, threshold: { lat: a[0], lon: a[1], alt: a[2] }, end: { lat: b[0], lon: b[1], alt: b[2] },
@@ -88,5 +88,18 @@ describe('PavementRegistry', () => {
     expect(reg.sync(src, [KSFO])).toHaveLength(3);
     expect(reg.full).toBe(true);
     expect(reg.sync(null, [KSFO], true)).toBeNull();
+  });
+
+  it('PavementIndex: inside an apron (not its hole) and within half width of a taxiway line is pavement', () => {
+    const holed: PavementArea = { key: 'h', kind: 'apron', rings: [rect(-1600, -1100, -1000, -300), rect(-1400, -800, -1250, -650)], line: [], widthM: 0 };
+    const specs = new PavementRegistry().sync(new Source([holed, line('l')]), [KSFO])!;
+    const idx = new PavementIndex(specs);
+    const on = (e: number, n: number) => { const [lon, lat] = ll(e, n); return idx.contains(lat, lon); };
+    expect(on(-1100, -400)).toBe(true);
+    expect(on(-1325, -725)).toBe(false); // the grass island
+    expect(on(-950, -400)).toBe(false);
+    expect(on(-350, -892)).toBe(true); // 8 m beside the 18 m wide line
+    expect(on(-350, -880)).toBe(false);
+    expect(new PavementIndex([]).empty).toBe(true);
   });
 });

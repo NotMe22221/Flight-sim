@@ -37,6 +37,21 @@ export function cloudCoverFraction(layers: readonly CloudLayer[]): number {
 }
 
 /**
+ * Cloud cover (as `cloudCoverFraction`) of the layers above `altMslM` only, a layer fading out from its base to
+ * its top: the cover that dims the sun where the camera is. Above an overcast deck it is 0 (the scene there is
+ * lit like clear air), below every layer it equals `cloudCoverFraction`.
+ */
+export function cloudCoverAbove(layers: readonly CloudLayer[], altMslM: number): number {
+  if (!Number.isFinite(altMslM)) return cloudCoverFraction(layers);
+  let clear = 1;
+  for (const l of layers) {
+    const above = 1 - smoothstep(l.baseM, Math.max(l.topM, l.baseM + 1), altMslM);
+    clear *= 1 - clamp(l.coverage, 0, 1) * clamp(l.density, 0, 1) * above;
+  }
+  return 1 - clear;
+}
+
+/**
  * Deterministic auto-exposure target from sun elevation (deg) and cloud cover.
  * Monotonically decreasing in elevation; bounded by [day, night·(1 + 0.15)] (moonless night).
  */

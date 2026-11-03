@@ -20,6 +20,7 @@ import { bodyVecToThreeLocal } from './frames';
 import type { AirfoilSpec, WingSection } from './airfoil';
 import type { LoftStation } from './loft';
 import type { SideXY, SkinOutline } from './skin';
+import type { PaintScheme } from './materials';
 import type {
   AircraftModelConfig, FuselageDetails, FuselageLayout, GearLayout, GlareshieldLayout, LightLayout, PanelLayout, PropLayout,
 } from './layoutTypes';
@@ -31,6 +32,25 @@ const D2R = Math.PI / 180;
  * 4-digit thickness form the lower surface stays within 1.5 % of the chord line.
  */
 export const USA35B: AirfoilSpec = { thickness: 0.117, camber: 0.055, camberPos: 0.3 };
+
+/**
+ * Our own Cub scheme (not a copy of any operator's or game's livery): cream-yellow fabric with
+ * a dark-red cheat line and pinstripe that sweep up toward the tail, dark-red registration and
+ * spinner.
+ */
+export const CUB_PAINT: PaintScheme = {
+  livery: {
+    base: '#f0d68c',
+    bands: [],
+    // a straight cheat line and pinstripe from the spinner, sweeping gently up to the tail
+    lines: [
+      { y0: 0.07, y1: 0.14, slope: 0.035, color: '#7c1d24', from: 0.3 },
+      { y0: 0.025, y1: 0.04, slope: 0.035, color: '#7c1d24', from: 0.3 },
+    ],
+    regColor: '#5a1419', regF: 0.7, capF: 0.3,
+  },
+  plain: 0xf0d68c, trim: 0x7c1d24, fallback: 0xf0d68c,
+};
 
 /** Stand-alone Super Cub model config (also the unit-test fixture). Body frame FRD, metres. */
 export function cubModelConfig(): AircraftModelConfig {
@@ -230,11 +250,13 @@ export function resolveCubLayout(cfg: AircraftModelConfig): CubLayout {
     ({ z, width, height: top - bottom, yCenter: (top + bottom) / 2, n });
   const hy = hub.y, hz = hub.z;
   const stations: LoftStation[] = [
+    // blunt Cub nose: a near-vertical bowl face with the spinner low on it, then an almost flat
+    // cowl top (visible over the deck from the front seat)
     st(hz + 0.085, 0.215, hy + 0.108, hy - 0.108, 2.0), // ring behind the spinner
-    st(hz + 0.13, 0.56, hy + 0.235, hy - 0.26, 2.5),    // nose bowl face with the two inlets
-    st(hz + 0.32, 0.665, hy + 0.315, hy - 0.335, 2.9),
-    st(-1.22, 0.7, deckY - 0.04, bellyY + 0.035, 3.2),
-    st(firewallZ, 0.715, deckY - 0.012, bellyY + 0.01, 3.6),
+    st(hz + 0.115, 0.56, hy + 0.32, hy - 0.235, 3.0),   // nose bowl face with the two inlets
+    st(hz + 0.24, 0.66, hy + 0.37, hy - 0.3, 3.3),
+    st(-1.22, 0.7, deckY - 0.02, bellyY + 0.015, 3.5),
+    st(firewallZ, 0.715, deckY - 0.008, bellyY + 0.005, 3.7),
     st(zW0, 0.72, deckY, bellyY, 3.8),                 // windshield base
     st(-0.8, 0.735, deckY + 0.17, bellyY, 4.2),
     st(-0.62, 0.75, deckY + 0.4, bellyY, 4.6),
@@ -250,10 +272,10 @@ export function resolveCubLayout(cfg: AircraftModelConfig): CubLayout {
 
   // ── windows (side view (z, y), counter-clockwise; the skylight in the top view (z, x)) ──
   // The windshield's side edge runs from the base corner to the wing leading edge; the side
-  // windows' front edges are parallel to it, 4.5 cm aft (the frame tube).
+  // windows' front edges are parallel to it, 3.2 cm aft (the frame tube).
   const aY0 = deckY - 0.06, aY1 = winTopY - 0.01;
   const zA = (y: number) => zW0 + 0.02 + ((y - aY0) * (zW1 - zW0 - 0.04)) / (aY1 - aY0);
-  const zF = (y: number) => zA(y) + 0.045;
+  const zF = (y: number) => zA(y) + 0.032;
   const sideWin = (z1: number): SideXY[] => [[zF(sillY), sillY], [z1, sillY], [z1, winTopY], [zF(winTopY), winTopY]];
   const windows: SkinOutline[] = [
     { name: 'windscreen', side: 'both', radius: 0.03, outline: [[zW0 - 0.08, aY0], [zA(aY0), aY0], [zA(aY1), aY1], [zA(aY1), roofY + 0.4], [zW0 - 0.08, roofY + 0.4]] },
@@ -329,7 +351,7 @@ export function resolveCubLayout(cfg: AircraftModelConfig): CubLayout {
     return {
       index, name: g.name, contact, tyreRadius: g.tyreRadius, maxSteerRad: g.maxSteerDeg * D2R, width: 0.2,
       attach, rearAttach: v(s * 0.335, bellyY + 0.05, -0.1), axleHinge: v(s * 0.04, bellyY - 0.05, axle.z),
-      bungee: { center: attach.clone().addScaledVector(dir, 0.13), length: 0.3, width: 0.1, depth: 0.15 },
+      bungee: { center: attach.clone().addScaledVector(dir, 0.15), length: 0.34, width: 0.085, depth: 0.12 },
     };
   });
   // three-point attitude: the ground line through a main contact and the tail contact
@@ -369,13 +391,11 @@ export function resolveCubLayout(cfg: AircraftModelConfig): CubLayout {
     throttle: { pivot: v(-0.335, 0.06, ez - 0.25), length: 0.2, travelRad: 0.7 },
     trimCrank: { center: v(-0.345, 0.02, ez + 0.06), radius: 0.055 },
     flapHandle: { pivot: v(-0.29, -0.14, ez + 0.14), length: 0.3, fullRad: 0.9 },
-    fuelGauge: { center: v(0.31, roofY - 0.05, 0.06), radius: 0.035 },
+    fuelGauge: { center: v(0.285, roofY - 0.1, 0.06), radius: 0.035 },
     seats: { front: { y: ey - 0.8, z: ez + 0.08 }, rear: { y: floorY + 0.24, z: Math.max(0.64, ez + 0.69) } },
     tubes: [
-      ...[1, -1].flatMap((s): TubeLayout[] => [
-        [v(s * 0.338, aY0 + 0.01, zA(aY0) + 0.03), v(s * 0.348, aY1 + 0.02, zA(aY1) + 0.03)], // windshield side (A-pillar) tube
-        [v(s * 0.345, winTopY + 0.03, zW1 + 0.02), v(s * 0.335, winTopY + 0.02, 1.12)],       // upper longeron
-      ]),
+      // (the windshield-side frame is the lining strip between the cut-outs, with dark channels)
+      ...[1, -1].map((s): TubeLayout => [v(s * 0.345, winTopY + 0.03, zW1 + 0.02), v(s * 0.335, winTopY + 0.02, 1.12)]), // upper longerons
       [v(-0.34, roofY - 0.045, zW1 + 0.03), v(0.34, roofY - 0.045, zW1 + 0.03)],            // front-spar carry-through
       [v(-0.34, roofY - 0.045, 0.64), v(0.34, roofY - 0.045, 0.64)],                         // rear-spar carry-through
       [v(0.335, sillY - 0.03, 0.63), v(0.345, winTopY + 0.02, 0.63)],                       // right: door rear post
@@ -403,10 +423,10 @@ export function resolveCubLayout(cfg: AircraftModelConfig): CubLayout {
     eye,
     panel, glareshield, lights,
     details: {
-      noseInlets: { x: 0.19, y: hy + 0.03, r: 0.07, squash: 1.2 },
+      noseInlets: { x: 0.18, y: hy + 0.11, r: 0.068, squash: 1.1 },
       exhaust: { x: 0.13, z: -1.12, length: 0.22, radius: 0.026, dir: v(0, -0.85, 0.53).normalize() },
       antenna: { z: 1.75, length: 0.5, radius: 0.006, dir: v(0, Math.cos(30 * D2R), Math.sin(30 * D2R)) },
-      carbScoop: { center: v(0, hy - 0.335 - 0.02, hz + 0.36), size: v(0.17, 0.07, 0.24) },
+      carbScoop: { center: v(0, hy - 0.3 - 0.025, hz + 0.33), size: v(0.17, 0.07, 0.24) },
       fuelCap: v(capX, yAt(capX) + airfoilUpper(USA35B, (capZ - leZ) / chord) * chord, capZ),
       pitot: { tip: v(-3.6, yAt(3.6) - 0.1, leZ - 0.2), length: 0.45 },
     },

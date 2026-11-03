@@ -19,7 +19,7 @@ import { CloudLayers, type CloudLayersOptions } from './clouds';
 import { installBuiltinHeightFog, setBuiltinHeightFog } from './builtinFog';
 import {
   DEFAULT_EXPOSURE, type ExposureOptions, GROUND_ALBEDO, MIN_FOG_INV_H, NIGHT_AMBIENT_COLOR, SKYLIGHT_SATURATION, SUN_INTENSITY_BASE, adaptExposure,
-  ambientFloor, capBySky, cloudCoverFraction, encodeDisplayColor, exposureForIlluminance, fogBetaFromVisibility, hazeColor, hazeScaleHeight,
+  ambientFloor, capBySky, cloudCoverAbove, cloudCoverFraction, encodeDisplayColor, exposureForIlluminance, fogBetaFromVisibility, hazeColor, hazeScaleHeight,
   hemisphereIntensity, luminance, mieFromVisibility, mixVec3, moonLightIntensity, normalizeColor, saturateColor, skylightBalance, skylightIrradiance,
   starVisibility, sunLightIntensity, surfaceIlluminance, turbidityFromVisibility,
 } from './lighting';
@@ -39,6 +39,8 @@ import { windAt } from './wind';
  * brighter than the dome.
  */
 const HEMI_SHARE_WITH_ENV = 0;
+/** share of the skylight kept on the hemisphere light when someone else's environment map (unknown scale) is bound */
+const HEMI_SHARE_FOREIGN_ENV = 0.25;
 /**
  * Upper bound of scene.environmentIntensity for the baked sky: the intensity itself follows the terrain's
  * skylight (`skylightBalance`), but reflections are never brighter than the sky they mirror.
@@ -175,11 +177,13 @@ export class SkySystem {
   private readonly skyBalance = { envIntensity: 0, hemiShare: 1 };
   /** the clear dome's irradiance on an up-facing surface (CPU twin, recomputed when the sun or the air changes) */
   private readonly domeIrradiance: Vec3 = [0, 0, 0];
-  private readonly domeKey = { x: NaN, y: NaN, z: NaN, turbidity: NaN, mie: NaN, glow: NaN };
+  private readonly domeKey = { x: NaN, y: NaN, z: NaN, turbidity: NaN, mie: NaN };
   /** the frame's skylight on an up-facing surface (linear RGB, without the night floor) */
   private readonly skyIrradiance: Vec3 = [0, 0, 0];
   /** irradiance a down-facing surface gets from the lit ground (linear RGB) */
   private readonly groundIrradiance: Vec3 = [0, 0, 0];
+  /** saturation the dome is baked with into the environment (the skylight's, `SKYLIGHT_SATURATION` greyed by cloud) */
+  private envSaturation = SKYLIGHT_SATURATION;
   private readonly tmpD: Vec3 = [0, 0, 0];
   private lastShadowFar = -1;
   /** external drifts (from a WeatherSystem) so cloud visuals and FDM density share one field */
@@ -447,7 +451,9 @@ export class SkySystem {
     // ── lights (before the haze, which they light) ──
     normalizeColor(this.transmittance, this.tmpC);
     L.sunColor.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
-    L.sunIntensity = sunLightIntensity(el, this.transmittance, cloudCover, this.opts.sunIntensity) * (1 - 0.9 * inCloud);
+    /** the sun under the cloud cover, before the camera's own cloud dims it (lights the ground below) */
+    const sunUnderCover = sunLightIntensity(el, this.transmittance, cloudCover, this.opts.sunIntensity);
+    L.sunIntensity = sunUnderCover * (1 - 0.9 * inCloud);
     this.sunLight.color.copy(L.sunColor);
     // built-in materials share one sun light: shadow it by the clouds over the aircraft (the terrain
     // shadows itself per pixel from the same layers)
@@ -465,8 +471,10 @@ export class SkySystem {
       this.lastShadowFar = shadowFar;
     }
 
-    // skylight: the whole dome lights the ground (zenith blue and the brighter, whiter horizon),
-    // turning neutral grey under a cloud deck
+    // skylight (up-facing irradiance, in the dome's radiance scale like the sun): by day the dome's own
+    // irradiance — the sky you see is the sky that lights the ground — desaturated to real skylight's hue
+    // (SKYLIGHT_SATURATION); from sunset down the twilight curve (zenith/horizon hue × hemisphereIntensity),
+    // which keeps dusk readable where the Preetham dome is nearly black; greyer and brighter under a deck.
     normalizeColor(this.zenith, this.tmpA);
     normalizeColor(this.horizon, this.tmpB);
     // (a low sun's horizon average is mostly its own glow, which lights the ground directionally: keep
@@ -474,18 +482,34 @@ export class SkySystem {
     mixVec3(this.tmpA, this.tmpB, SKYLIGHT_HORIZON_SHARE * lerp(0.4, 1, smoothstep(2, 20, el)), this.tmpC);
     mixVec3(this.tmpC, WHITE, 0.8 * cloudCover, this.tmpC);
     normalizeColor(this.tmpC, this.tmpC);
-    this.hemiLight.color.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
-    this.hemiLight.groundColor.setRGB(this.tmpB[0] * 0.35, this.tmpB[1] * 0.35, this.tmpB[2] * 0.35);
     const hi = hemisphereIntensity(el, cloudCover);
-    // (the hemisphere intensity of built-in materials is set after the environment bake below; the terrain
-    // shades from ambientIrradiance, which keeps the full skylight)
-    this.hemiLight.intensity = hi;
+    this.tmpD[0] = this.tmpC[0] * hi; this.tmpD[1] = this.tmpC[1] * hi; this.tmpD[2] = this.tmpC[2] * hi;
+    this.updateDomeIrradiance();
+    this.envSaturation = SKYLIGHT_SATURATION * (1 - 0.8 * clamp(cloudCover, 0, 1));
+    saturateColor(this.domeIrradiance, this.envSaturation, this.tmpA);
+    const dayK = smoothstep(DOME_SKYLIGHT_FADE_DEG[0], DOME_SKYLIGHT_FADE_DEG[1], el) * (1 + 0.3 * clamp(cloudCover, 0, 1));
+    this.tmpA[0] *= dayK; this.tmpA[1] *= dayK; this.tmpA[2] *= dayK;
+    const sky = skylightIrradiance(this.tmpA, this.tmpD, this.skyIrradiance);
+    const skyLum = luminance(sky);
+    normalizeColor(sky, this.tmpC);
+    this.hemiLight.color.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
+    /** hemisphere intensity that carries the whole skylight (built-ins without an environment map) */
+    const hemiFull = skyLum / Math.max(luminance(this.tmpC), 1e-6);
+    // (the hemisphere intensity and ground colour of built-in materials are set after the environment bake
+    // below; the terrain shades from ambientIrradiance, which keeps the full skylight)
+    this.hemiLight.intensity = hemiFull;
+    // the lit ground (GROUND_ALBEDO) lights down-facing surfaces: the environment's lower hemisphere and the
+    // hemisphere light's ground colour (the sun under the cover; the camera's own cloud does not darken it)
+    const sunGround = sunUnderCover * Math.max(Math.sin(el * D2R), 0);
+    const gi = this.groundIrradiance, sc = L.sunColor;
+    gi[0] = GROUND_ALBEDO[0] * (sunGround * sc.r + Math.max(sky[0], 0));
+    gi[1] = GROUND_ALBEDO[1] * (sunGround * sc.g + Math.max(sky[1], 0));
+    gi[2] = GROUND_ALBEDO[2] * (sunGround * sc.b + Math.max(sky[2], 0));
     this.ambientLight.color.setRGB(NIGHT_AMBIENT_COLOR[0], NIGHT_AMBIENT_COLOR[1], NIGHT_AMBIENT_COLOR[2]);
     this.ambientLight.intensity = ambientFloor(el, mp.illuminatedFraction, mp.elevation);
-    L.ambientIntensity = hi + this.ambientLight.intensity;
+    L.ambientIntensity = hemiFull + this.ambientLight.intensity;
     const ai = this.ambientLight.intensity;
-    L.ambientIrradiance.setRGB(
-      this.tmpC[0] * hi + NIGHT_AMBIENT_COLOR[0] * ai, this.tmpC[1] * hi + NIGHT_AMBIENT_COLOR[1] * ai, this.tmpC[2] * hi + NIGHT_AMBIENT_COLOR[2] * ai);
+    L.ambientIrradiance.setRGB(sky[0] + NIGHT_AMBIENT_COLOR[0] * ai, sky[1] + NIGHT_AMBIENT_COLOR[1] * ai, sky[2] + NIGHT_AMBIENT_COLOR[2] * ai);
 
     L.moonIntensity = moonLightIntensity(mp.elevation, mp.illuminatedFraction, cloudCover, el);
     this.moonLight.intensity = L.moonIntensity;
@@ -526,9 +550,12 @@ export class SkySystem {
     L.skyFogColor.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
     this.clouds.setFog(L);
 
-    // ── exposure: partial eye adaptation to the light on the ground ──
+    // ── exposure: partial eye adaptation to the light where the camera is ──
+    // Only the layers above the camera dim its sun: above an overcast deck the aircraft and the cloud tops are
+    // in full sun, and adapting to the overcast below left the eye ≈ 2 × too open (sunlit paint clipped).
     const ambLum = 0.2126 * L.ambientIrradiance.r + 0.7152 * L.ambientIrradiance.g + 0.0722 * L.ambientIrradiance.b;
-    const target = exposureForIlluminance(surfaceIlluminance(L.sunIntensity, el, ambLum), mp.illuminatedFraction, this.exposureOptions);
+    const sunAtCamera = sunLightIntensity(el, this.transmittance, cloudCoverAbove(w.clouds, camPos.y + alt0), this.opts.sunIntensity) * (1 - 0.9 * inCloud);
+    const target = exposureForIlluminance(surfaceIlluminance(sunAtCamera, el, ambLum), mp.illuminatedFraction, this.exposureOptions);
     this.exposure = this.adapted && Number.isFinite(this.exposure) ? adaptExposure(this.exposure, target, dt, this.exposureOptions.adaptTimeS) : target;
     this.adapted = true;
     this.renderer.toneMappingExposure = this.exposure;
@@ -582,6 +609,8 @@ export class SkySystem {
     this.envOvercast.material.color.setRGB(envGrey, envGrey, envGrey);
     this.envOvercast.material.opacity = 0.9 * smoothstep(0.3, 1, cloudCover);
     this.envOvercast.visible = this.envOvercast.material.opacity > 0.01;
+    // the lower hemisphere: the lit ground's radiance (albedo/π · irradiance; the environment runs at ≈ intensity 1)
+    this.envGround.material.color.setRGB(gi[0] / Math.PI, gi[1] / Math.PI, gi[2] / Math.PI);
     this.sinceBakeS += dt;
     if (this.opts.environmentMap) this.maybeBakeEnvironment(turbidity, mie, cloudCover, time.timeScale);
 
@@ -589,25 +618,40 @@ export class SkySystem {
     // They receive the sky's light from the baked environment map (image-based lighting) AND the hemisphere
     // light; together these must give the terrain's skylight (ambientIrradiance), or the aircraft and runway
     // paint tint sky-blue at noon (both at full strength) or go dark at dusk (one constant environment scale:
-    // the dome dims ≈ 27× toward sunset, the skylight curve ≈ 2×). See `skylightBalance`.
+    // the dome dims ≈ 27× toward sunset, the skylight curve ≈ 2×). See `skylightBalance`. The environment's
+    // lower hemisphere is the lit ground; the hemisphere light's ground colour carries what it does not.
     const env = this.scene.environment;
+    let envShare = 0;
     if (env && this.envTarget && env === this.envTarget.texture) {
-      const hc = this.hemiLight.color;
-      const hemiLum = 0.2126 * hc.r + 0.7152 * hc.g + 0.0722 * hc.b;
-      skylightBalance(hi * hemiLum, this.envIrradianceLum, HEMI_SHARE_WITH_ENV, ENV_MAP_INTENSITY_MAX, this.skyBalance);
+      skylightBalance(skyLum, this.envIrradianceLum, HEMI_SHARE_WITH_ENV, ENV_MAP_INTENSITY_MAX, this.skyBalance);
       this.scene.environmentIntensity = this.skyBalance.envIntensity;
-      this.hemiLight.intensity = hi * this.skyBalance.hemiShare;
+      this.hemiLight.intensity = hemiFull * this.skyBalance.hemiShare;
+      envShare = this.skyBalance.envIntensity;
     } else if (env) {
-      this.hemiLight.intensity = hi * HEMI_SHARE_WITH_ENV; // someone else's environment map: its scale is unknown
+      this.hemiLight.intensity = hemiFull * HEMI_SHARE_FOREIGN_ENV; // someone else's environment map: its scale is unknown
+      envShare = 1 - HEMI_SHARE_FOREIGN_ENV;
     }
+    const hemiI = this.hemiLight.intensity;
+    const k = hemiI > 1e-4 ? Math.max(1 - envShare, 0) / hemiI : 0;
+    this.hemiLight.groundColor.setRGB(gi[0] * k, gi[1] * k, gi[2] * k);
+  }
+
+  /** Integrates the clear dome's up-facing irradiance when the sun moved ≈ 0.25° or the air changed (≈ 512 samples). */
+  private updateDomeIrradiance(): void {
+    const key = this.domeKey, d = this.preetham.sunDir, p = this.params;
+    if (Math.abs(d[0] - key.x) + Math.abs(d[1] - key.y) + Math.abs(d[2] - key.z) < 0.004
+      && Math.abs(p.turbidity - key.turbidity) < 0.05 && Math.abs(p.mieCoefficient - key.mie) < 2e-4) return;
+    key.x = d[0]; key.y = d[1]; key.z = d[2]; key.turbidity = p.turbidity; key.mie = p.mieCoefficient;
+    this.preetham.irradianceUp(this.domeIrradiance);
   }
 
   /**
-   * Irradiance the baked environment gives an up-facing surface (the dome as baked, with the overcast shell
-   * blended over it), measured from the CPU twin at each bake.
+   * Irradiance the baked environment gives an up-facing surface (the dome as baked — desaturated, same
+   * luminance — with the overcast shell blended over it), from the CPU twin at each bake.
    */
   private measureEnvironment(): void {
-    const E = this.preetham.irradianceUp(this.envIrradiance);
+    this.updateDomeIrradiance();
+    const E = saturateColor(this.domeIrradiance, this.envSaturation, this.envIrradiance);
     const shell = this.envOvercast.visible ? this.envOvercast.material.opacity : 0;
     const grey = this.envOvercast.material.color.r;
     this.envIrradianceLum = (1 - shell) * luminance(E) + shell * Math.PI * grey;
@@ -633,6 +677,9 @@ export class SkySystem {
     const u = this.sky.material.uniforms;
     const disc = u.showSunDisc.value as number;
     u.showSunDisc.value = 0;
+    // the dome lights surfaces with real skylight's hue (the dome you see keeps its saturation)
+    const sat = u.skySaturation as { value: number } | undefined;
+    if (sat) sat.value = this.envSaturation;
     let rt: THREE.WebGLRenderTarget | null = null;
     try {
       rt = this.pmrem.fromScene(this.envScene, 0, 0.1, 1000);
@@ -640,13 +687,13 @@ export class SkySystem {
       console.warn('[sky] environment bake failed', e);
     }
     u.showSunDisc.value = disc;
+    if (sat) sat.value = 1;
     if (!rt) return;
     if (this.envTarget) this.envTarget.dispose();
     this.envTarget = rt;
     this.scene.environment = rt.texture;
-    // The baked dome is in the sky's radiance scale, which overpowers the sun light on built-in materials
-    // at full strength (white paint read light blue, asphalt navy): `update` scales it to the terrain's
-    // skylight from this measurement (`skylightBalance`).
+    // The baked dome is in the light units (the sun is calibrated against it); `update` balances it against
+    // the skylight curve, which is brighter than the dome at twilight (`skylightBalance`).
     this.measureEnvironment();
   }
 
@@ -664,6 +711,9 @@ export class SkySystem {
     this.envOvercast.geometry.dispose();
     this.envOvercast.material.dispose();
     this.envOvercast.removeFromParent();
+    this.envGround.geometry.dispose();
+    this.envGround.material.dispose();
+    this.envGround.removeFromParent();
     this.sunLight.target.removeFromParent();
     this.sunLight.dispose();
     this.sunLight.removeFromParent();
@@ -699,9 +749,12 @@ export function patchSkyDome(material: THREE.ShaderMaterial): void {
   if (fs.includes('gl_FragColor = vec4( texColor, 1.0 );') && fs.includes('void main()')) {
     material.uniforms.nightGlowHorizon = { value: new THREE.Vector3() };
     material.uniforms.nightGlowZenith = { value: new THREE.Vector3() };
+    // luminance-preserving saturation, 1 on screen; the environment bake lowers it to the skylight's
+    material.uniforms.skySaturation = { value: 1 };
     fs = fs
-      .replace('void main()', `${NIGHT_GLOW_GLSL}\n\t\tvoid main()`)
-      .replace('gl_FragColor = vec4( texColor, 1.0 );', 'texColor += skyNightGlow( direction );\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );');
+      .replace('void main()', `${NIGHT_GLOW_GLSL}\nuniform float skySaturation;\n\t\tvoid main()`)
+      .replace('gl_FragColor = vec4( texColor, 1.0 );',
+        'texColor += skyNightGlow( direction );\n\t\t\ttexColor = mix( vec3( dot( texColor, vec3( 0.2126, 0.7152, 0.0722 ) ) ), texColor, skySaturation );\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );');
   }
   material.fragmentShader = fs;
   material.needsUpdate = true;

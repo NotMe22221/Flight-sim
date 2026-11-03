@@ -181,39 +181,84 @@ interface Pass {
   range: Int32Array;
 }
 
-/** Splat one segment (local metres): pixels within `reach` get d = |p − seg| − offset if smaller. */
-function splatSegment(P: Pass, k: number, ax: number, ay: number, bx: number, by: number, offset: number, reach: number): void {
-  const len = Math.hypot(bx - ax, by - ay);
-  const pieces = Math.max(1, Math.ceil(len / PIECE_M));
+/** Pixels per side of a block in the distance search. */
+const BLOCK = 8;
+
+/** Segments of one plane anchor in its local metres: `[ax, ay, bx, by, offset, reach]` per piece, and the owning spec. */
+class Segments {
+  readonly data: number[] = [];
+  readonly owner: number[] = [];
+  /** add a segment, split into pieces of at most PIECE_M (tight per-block bounds) */
+  add(ax: number, ay: number, bx: number, by: number, offset: number, reach: number, k: number): void {
+    const pieces = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / PIECE_M));
+    for (let q = 0; q < pieces; q++) {
+      this.data.push(ax + ((bx - ax) * q) / pieces, ay + ((by - ay) * q) / pieces, ax + ((bx - ax) * (q + 1)) / pieces, ay + ((by - ay) * (q + 1)) / pieces, offset, reach);
+      this.owner.push(k);
+    }
+  }
+}
+
+/**
+ * Distance field of a set of segments: every pixel gets d = |p − seg| − offset of its nearest
+ * segment (if that beats what it has). Segments are bucketed into 8×8-pixel blocks within their
+ * reach; per block the candidates are sorted by a lower bound (the gap between their bounding box
+ * and the block's) and each pixel stops at the first candidate whose bound cannot beat its best.
+ */
+function distanceField(P: Pass, S: Segments): void {
+  const w = P.width, nb = Math.ceil(w / BLOCK), D = S.data, count = S.owner.length;
+  if (count === 0) return;
+  const buckets: (number[] | undefined)[] = new Array(nb * nb);
   const r = P.range;
-  for (let q = 0; q < pieces; q++) {
-    const x0 = ax + ((bx - ax) * q) / pieces, y0 = ay + ((by - ay) * q) / pieces;
-    const x1 = ax + ((bx - ax) * (q + 1)) / pieces, y1 = ay + ((by - ay) * (q + 1)) / pieces;
-    rangeAsc(P.px, Math.min(x0, x1) - reach, Math.max(x0, x1) + reach, r);
-    const i0 = r[0], i1 = r[1];
-    if (i0 > i1) continue;
-    rangeDesc(P.py, Math.min(y0, y1) - reach, Math.max(y0, y1) + reach, r);
-    const j0 = r[0], j1 = r[1];
-    if (j0 > j1) continue;
-    const dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy;
-    const reach2 = reach * reach; // raw distances beyond `reach` are past the widest feather
-    for (let j = j0; j <= j1; j++) {
-      const yy = P.py[j];
-      const row = j * P.width;
-      for (let i = i0; i <= i1; i++) {
-        const p = row + i;
-        const cur = P.dflat[p];
-        if (cur <= -offset) continue; // d − offset ≥ −offset cannot beat it
-        const xx = P.px[i];
-        let t = l2 > 0 ? ((xx - x0) * dx + (yy - y0) * dy) / l2 : 0;
-        t = t < 0 ? 0 : t > 1 ? 1 : t;
-        const ex = xx - (x0 + t * dx), ey = yy - (y0 + t * dy);
-        const d2 = ex * ex + ey * ey;
-        if (d2 > reach2) continue;
-        const lim = cur + offset; // raw distance to beat (+∞ when untouched)
-        if (lim < Infinity && d2 >= lim * lim) continue;
-        const v = Math.sqrt(d2) - offset;
-        if (v < cur) { P.dflat[p] = v; P.owner[p] = k; }
+  for (let q = 0; q < count; q++) {
+    const o = q * 6, reach = D[o + 5];
+    rangeAsc(P.px, Math.min(D[o], D[o + 2]) - reach, Math.max(D[o], D[o + 2]) + reach, r);
+    if (r[0] > r[1]) continue;
+    const bi0 = (r[0] / BLOCK) | 0, bi1 = (r[1] / BLOCK) | 0;
+    rangeDesc(P.py, Math.min(D[o + 1], D[o + 3]) - reach, Math.max(D[o + 1], D[o + 3]) + reach, r);
+    if (r[0] > r[1]) continue;
+    const bj0 = (r[0] / BLOCK) | 0, bj1 = (r[1] / BLOCK) | 0;
+    for (let bj = bj0; bj <= bj1; bj++) {
+      for (let bi = bi0; bi <= bi1; bi++) {
+        const b = bj * nb + bi;
+        const list = buckets[b];
+        if (list) list.push(q); else buckets[b] = [q];
+      }
+    }
+  }
+  const lb = new Float64Array(count);
+  const byBound = (a: number, b: number): number => lb[a] - lb[b];
+  for (let bj = 0; bj < nb; bj++) {
+    for (let bi = 0; bi < nb; bi++) {
+      const list = buckets[bj * nb + bi];
+      if (!list) continue;
+      const i0 = bi * BLOCK, i1 = Math.min(w, i0 + BLOCK) - 1, j0 = bj * BLOCK, j1 = Math.min(w, j0 + BLOCK) - 1;
+      const rx0 = P.px[i0], rx1 = P.px[i1], ry0 = P.py[j1], ry1 = P.py[j0];
+      for (const q of list) {
+        const o = q * 6;
+        const gx = Math.max(0, Math.min(D[o], D[o + 2]) - rx1, rx0 - Math.max(D[o], D[o + 2]));
+        const gy = Math.max(0, Math.min(D[o + 1], D[o + 3]) - ry1, ry0 - Math.max(D[o + 1], D[o + 3]));
+        lb[q] = Math.sqrt(gx * gx + gy * gy) - D[o + 4];
+      }
+      list.sort(byBound);
+      const n = list.length;
+      for (let j = j0; j <= j1; j++) {
+        const yy = P.py[j], row = j * w;
+        for (let i = i0; i <= i1; i++) {
+          const p = row + i, xx = P.px[i];
+          let best = P.dflat[p], who = P.owner[p];
+          for (let c = 0; c < n; c++) {
+            const q = list[c];
+            if (lb[q] >= best) break;
+            const o = q * 6;
+            const x0 = D[o], y0 = D[o + 1], dx = D[o + 2] - x0, dy = D[o + 3] - y0, l2 = dx * dx + dy * dy;
+            let t = l2 > 0 ? ((xx - x0) * dx + (yy - y0) * dy) / l2 : 0;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const ex = xx - (x0 + t * dx), ey = yy - (y0 + t * dy);
+            const v = Math.sqrt(ex * ex + ey * ey) - D[o + 4];
+            if (v < best) { best = v; who = S.owner[q]; }
+          }
+          if (who !== P.owner[p] || best < P.dflat[p]) { P.dflat[p] = best; P.owner[p] = who; }
+        }
       }
     }
   }
@@ -273,28 +318,40 @@ export function applyPavementFlattening(
     width, px: new Float64Array(width), py: new Float64Array(width),
     dflat: new Float32Array(n).fill(Infinity), owner: new Int32Array(n).fill(-1), range: new Int32Array(2),
   };
+  // specs sharing a plane anchor share a local frame: their segments go through one distance search
+  const groups = new Map<string, number[]>();
   for (let k = 0; k < active.length; k++) {
-    const s = active[k];
-    const kx = M_PER_DEG * Math.cos(s.plane.lat0 * D2R), ky = M_PER_DEG;
-    for (let i = 0; i < width; i++) { P.px[i] = (lons[i] - s.plane.lon0) * kx; P.py[i] = (lats[i] - s.plane.lat0) * ky; }
+    const g = `${active[k].plane.lat0},${active[k].plane.lon0}`;
+    const list = groups.get(g);
+    if (list) list.push(k); else groups.set(g, [k]);
+  }
+  for (const members of groups.values()) {
+    const pl = active[members[0]].plane;
+    const kx = M_PER_DEG * Math.cos(pl.lat0 * D2R), ky = M_PER_DEG;
+    for (let i = 0; i < width; i++) { P.px[i] = (lons[i] - pl.lon0) * kx; P.py[i] = (lats[i] - pl.lat0) * ky; }
     const local = (pts: readonly number[]): Float64Array => {
       const out = new Float64Array(pts.length);
-      for (let i = 0; i + 1 < pts.length; i += 2) { out[i] = (pts[i] - s.plane.lon0) * kx; out[i + 1] = (pts[i + 1] - s.plane.lat0) * ky; }
+      for (let i = 0; i + 1 < pts.length; i += 2) { out[i] = (pts[i] - pl.lon0) * kx; out[i + 1] = (pts[i + 1] - pl.lat0) * ky; }
       return out;
     };
-    const reach = s.shoulderM + s.featherMaxM;
-    if (s.rings.length > 0) {
-      const rings = s.rings.map(local);
-      fillPolygon(P, k, rings, s.shoulderM);
-      for (const ring of rings) {
-        const m = ring.length;
-        for (let a = 0, b = m - 2; a < m; b = a, a += 2) splatSegment(P, k, ring[b], ring[b + 1], ring[a], ring[a + 1], s.shoulderM, reach);
+    const segs = new Segments();
+    for (const k of members) {
+      const s = active[k];
+      if (s.rings.length > 0) {
+        const rings = s.rings.map(local);
+        fillPolygon(P, k, rings, s.shoulderM);
+        const reach = s.shoulderM + s.featherMaxM;
+        for (const ring of rings) {
+          const m = ring.length;
+          for (let a = 0, b = m - 2; a < m; b = a, a += 2) segs.add(ring[b], ring[b + 1], ring[a], ring[a + 1], s.shoulderM, reach, k);
+        }
+      } else {
+        const l = local(s.line);
+        const off = s.halfWidthM + s.shoulderM;
+        for (let a = 0; a + 3 < l.length; a += 2) segs.add(l[a], l[a + 1], l[a + 2], l[a + 3], off, off + s.featherMaxM, k);
       }
-    } else {
-      const l = local(s.line);
-      const off = s.halfWidthM + s.shoulderM;
-      for (let a = 0; a + 3 < l.length; a += 2) splatSegment(P, k, l[a], l[a + 1], l[a + 2], l[a + 3], off, off + s.featherMaxM);
     }
+    distanceField(P, segs);
   }
   let modified = 0;
   const kxs = active.map((s) => M_PER_DEG * Math.cos(s.plane.lat0 * D2R));

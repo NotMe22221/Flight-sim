@@ -214,6 +214,15 @@ export class TileObject {
     return Number.isFinite(prev) ? Math.abs(y - prev) > PROBE_EPS_M : true;
   }
 
+  /**
+   * The terrain under this tile changed (the terrain's change signal named it): re-sample every
+   * layer with priority, as when a probe notices a change. A tile still on its first pass needs
+   * nothing (its pass reads the current ground).
+   */
+  terrainChanged(): void {
+    if (this.layers.length > 0 && this.layers.some((l) => l.groundedCount > 0)) this.markHot();
+  }
+
   private markHot(): void {
     if (this.hotSamples <= 0) {
       // buildings first; already hot: keep going (restarting again could starve a layer's tail)

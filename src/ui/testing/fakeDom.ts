@@ -13,6 +13,12 @@
 
 type Listener = { fn: (e: FakeEvent) => void; capture: boolean };
 
+/**
+ * DOM write calls since the last reset (text, HTML, class, attributes, inline styles, dataset,
+ * inserted / removed nodes; same-value writes count too): tests check that steady frames write nothing.
+ */
+export const domWrites = { count: 0 };
+
 export class FakeEvent {
   readonly type: string;
   readonly bubbles: boolean;
@@ -94,11 +100,13 @@ export class FakeNode extends FakeEventTarget {
   }
   get textContent(): string { return this.childNodes.map((c) => c.textContent).join(''); }
   set textContent(v: string) {
+    domWrites.count++;
     for (const c of [...this.childNodes]) this.removeChild(c);
     if (v !== '' && v !== null && v !== undefined) this.appendChild(new FakeText(String(v)));
   }
   appendChild<T extends FakeNode>(c: T): T { return this.insertBefore(c, null); }
   insertBefore<T extends FakeNode>(c: T, ref: FakeNode | null): T {
+    domWrites.count++;
     if ((c as FakeNode) === this) throw new Error('cannot append a node to itself');
     c.remove();
     const i = ref ? this.childNodes.indexOf(ref) : -1;
@@ -107,6 +115,7 @@ export class FakeNode extends FakeEventTarget {
     return c;
   }
   removeChild<T extends FakeNode>(c: T): T {
+    domWrites.count++;
     const i = this.childNodes.indexOf(c);
     if (i < 0) throw new Error('not a child');
     this.childNodes.splice(i, 1);
@@ -131,11 +140,10 @@ export class FakeNode extends FakeEventTarget {
 export class FakeText extends FakeNode {
   constructor(public data: string) { super(); }
   override get textContent(): string { return this.data; }
-  override set textContent(v: string) { this.data = String(v); }
+  override set textContent(v: string) { domWrites.count++; this.data = String(v); }
 }
 
 const camel = (k: string): string => k.trim().replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-const kebab = (k: string): string => k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
 class FakeStyle {
   [k: string]: unknown;
@@ -170,9 +178,11 @@ function permissiveContext(canvas: FakeElement): unknown {
 
 export class FakeElement extends FakeNode {
   readonly tagName: string;
-  className = '';
-  readonly style = new FakeStyle();
-  readonly dataset: Record<string, string> = {};
+  private cls = '';
+  get className(): string { return this.cls; }
+  set className(v: string) { domWrites.count++; this.cls = String(v); }
+  readonly style: FakeStyle = new Proxy(new FakeStyle(), { set: (t, k, v) => { domWrites.count++; (t as unknown as Record<string | symbol, unknown>)[k] = v; return true; } });
+  readonly dataset: Record<string, string> = new Proxy({} as Record<string, string>, { set: (t, k, v) => { domWrites.count++; t[k as string] = String(v); return true; } });
   readonly classList = new FakeClassList(this);
   private attrs = new Map<string, string>();
   private html = '';
@@ -180,13 +190,13 @@ export class FakeElement extends FakeNode {
   constructor(tag: string) { super(); this.tagName = tag.toUpperCase(); }
 
   get id(): string { return this.attrs.get('id') ?? ''; }
-  set id(v: string) { this.attrs.set('id', String(v)); }
+  set id(v: string) { domWrites.count++; this.attrs.set('id', String(v)); }
   get tabIndex(): number { const v = this.attrs.get('tabindex'); return v === undefined ? (['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'A'].includes(this.tagName) ? 0 : -1) : Number(v); }
-  set tabIndex(v: number) { this.attrs.set('tabindex', String(v)); }
+  set tabIndex(v: number) { domWrites.count++; this.attrs.set('tabindex', String(v)); }
   get disabled(): boolean { return this.attrs.has('disabled'); }
-  set disabled(v: boolean) { if (v) this.attrs.set('disabled', ''); else this.attrs.delete('disabled'); }
+  set disabled(v: boolean) { domWrites.count++; if (v) this.attrs.set('disabled', ''); else this.attrs.delete('disabled'); }
   get title(): string { return this.attrs.get('title') ?? ''; }
-  set title(v: string) { this.attrs.set('title', String(v)); }
+  set title(v: string) { domWrites.count++; this.attrs.set('title', String(v)); }
   get innerHTML(): string { return this.childNodes.length ? this.textContent : this.html; }
   set innerHTML(v: string) { this.textContent = ''; this.html = String(v); }
   override get textContent(): string { return super.textContent; }
@@ -203,6 +213,7 @@ export class FakeElement extends FakeNode {
   get previousElementSibling(): FakeElement | null { return this.sibling(-1); }
 
   setAttribute(k: string, v: string): void {
+    domWrites.count++;
     const key = k.toLowerCase();
     if (key === 'class') { this.className = String(v); return; }
     if (key === 'style') { for (const part of String(v).split(';')) { const i = part.indexOf(':'); if (i > 0) this.style.setProperty(part.slice(0, i).trim(), part.slice(i + 1).trim()); } return; }
@@ -217,6 +228,7 @@ export class FakeElement extends FakeNode {
   }
   hasAttribute(k: string): boolean { return this.getAttribute(k) !== null; }
   removeAttribute(k: string): void {
+    domWrites.count++;
     const key = k.toLowerCase();
     if (key === 'class') this.className = '';
     else if (key.startsWith('data-')) delete this.dataset[camel(key.slice(5))];

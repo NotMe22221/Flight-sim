@@ -4,8 +4,8 @@
  * player can take (start, pause menu, restart, abort, crash, debrief, next leg) and checks what is
  * left on screen and whether the simulator is left paused.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buttonByText, type FakeElement } from './testing/fakeDom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buttonByText, domWrites, type FakeElement } from './testing/fakeDom';
 import { makeHarness, quickLeg, quickLesson, type Harness } from './testing/activityHarness';
 
 let t: Harness;
@@ -261,6 +261,7 @@ describe('flows a player takes', () => {
     await t.run(0);
     expect(t.dom.window.listenerCount()).toBe(0);
     expect(t.dom.document.listenerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
@@ -323,5 +324,77 @@ describe('review: z-order and placement in flight', () => {
     buttonByText(t.q('.pause-menu')!, 'Restart step').click();
     await t.run(100);
     expect(subtitle()!.textContent).toContain('Instruction 1');
+  });
+});
+
+describe('review: keyboard focus', () => {
+  it('after Abort activity the keyboard focus is on Resume flight, not on the hidden Abort button', async () => {
+    await startQuickLesson(60);
+    await esc();
+    const abort = buttonByText(t.q('.pause-menu')!, 'Abort activity');
+    abort.focus();
+    abort.click();
+    await t.run(50);
+    const active = t.dom.document.activeElement;
+    expect(active.tagName).toBe('BUTTON');
+    expect(active.rendered).toBe(true);
+    expect(active.textContent).toBe('Resume flight');
+  });
+});
+
+describe('review: per-frame cost', () => {
+  it('steady frames during an activity (objectives panel open, live bar polled) write almost nothing to the DOM', async () => {
+    await startQuickLesson(600); // the hold's progress creeps up by 1/600 per second
+    await t.run(8000); // the first instruction has gone
+    domWrites.count = 0;
+    await t.run(2000); // 40 frames
+    expect(domWrites.count).toBeLessThan(8);
+  });
+});
+
+describe('review: a new free flight replaces the activity', () => {
+  it('New flight from the main menu during a lesson: quiet end, nothing of the lesson left in flight', async () => {
+    await startQuickLesson(60);
+    await t.run(500);
+    await esc();
+    buttonByText(t.q('.pause-menu')!, 'Main menu').click();
+    await t.run(50);
+    buttonByText(t.q('.main-menu')!, 'New flight').click();
+    await t.run(3000);
+    expect(t.ui.current).toBe('flight');
+    expect(t.sim.runner.phase).toBe('finished');
+    expect(t.sim.runner.result?.reason).toBe('Aborted');
+    expect(t.sim.paused).toBe(false);
+    expect(visible(debrief())).toBe(false);
+    expect(visible(pauseMenu())).toBe(false);
+    expect(toastTexts().filter((x) => /lesson|aborted/i.test(x))).toEqual([]);
+    expect(objectivesButton().style.display).toBe('none');
+    expect(visible(objectivesPanel())).toBe(false);
+    expect(visible(subtitle())).toBe(false);
+  });
+});
+
+describe('review: the pause menu does not jump under the pointer', () => {
+  const items = () => t.root.querySelectorAll('.pause-menu .menu-list button').filter((b) => b.rendered).map((b) => b.textContent);
+  it('after Abort activity the rows stay where they were (Abort greyed out) until the menu closes', async () => {
+    await startQuickLesson(60);
+    await esc();
+    const before = items();
+    expect(before).toEqual(['Resume flight', 'Restart step', 'Restart activity', 'Abort activity', 'World map', 'Settings', 'Main menu']);
+    const abort = buttonByText(t.q('.pause-menu')!, 'Abort activity');
+    abort.click();
+    await t.run(50);
+    // same rows in the same places: a double click on Abort lands on a disabled Abort, not on World map
+    expect(items()).toEqual(['Resume flight', 'Restart step', 'Restart flight', 'Abort activity', 'World map', 'Settings', 'Main menu']);
+    expect(abort.disabled).toBe(true);
+    abort.click();
+    await t.run(50);
+    expect(t.ui.current).toBe('flight');
+    expect(visible(pauseMenu())).toBe(true);
+    // the next time the menu opens it is a plain one
+    buttonByText(t.q('.pause-menu')!, 'Resume flight').click();
+    await t.run(50);
+    await esc();
+    expect(items()).toEqual(['Resume flight', 'Restart flight', 'World map', 'Settings', 'Main menu']);
   });
 });

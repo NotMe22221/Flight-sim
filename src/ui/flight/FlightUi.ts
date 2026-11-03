@@ -385,9 +385,12 @@ export class FlightUi {
     this.abortRequested = true;
     try { this.d.host.abortActivity?.(); } catch (e) { console.warn('[ui] abortActivity failed', e); }
     this.abortRequested = false;
-    // stay paused in the menu, now without the activity items
-    this.pause.setActivity(null);
+    // stay paused in the menu, now without the activity (its items greyed out in place until it closes)
+    this.pause.endActivity();
     this.pause.setTitle('Paused', 'Activity aborted · you are in free flight');
+    // the focused Abort button just disappeared: the keyboard goes back to Resume (focus on the body
+    // would leave the menu's arrow keys and Tab trap behind, and Tab would reach the toolbar)
+    this.pause.focusFirst();
     this.d.onOverlayChange();
   }
 

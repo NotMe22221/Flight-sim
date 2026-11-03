@@ -4,6 +4,9 @@
  */
 import * as THREE from 'three';
 
+/** Fuselage section at livery u (0 nose … 1 tail): bottom and height (m), distance from the nose (m). */
+export type LiverySection = (u: number) => { bottom: number; height: number; zFromNose: number };
+
 /**
  * A fuselage paint scheme for {@link createLiveryTexture}. Band heights are fractions of the
  * local section height (0 bottom … 1 top), painted on both sides in order.
@@ -15,6 +18,12 @@ export interface LiveryScheme {
    * sweep up or down the fuselage; `uFrom`/`uTo` limit it along the length (default 0..1)
    */
   bands: { f0: number; f1: number; color: string; rise?: number; uFrom?: number; uTo?: number }[];
+  /**
+   * bands at absolute model heights (m) instead of section fractions: `y0..y1` at the nose,
+   * rising `slope` m per m toward the tail. Needs the `section` callback of
+   * {@link createLiveryTexture}; ignored without it.
+   */
+  lines?: { y0: number; y1: number; slope: number; color: string; /** start this far behind the nose (m) */ from?: number }[];
   /** registration colour, centre height and cap height (fractions of the section height) */
   regColor: string; regF: number; capF: number;
 }
@@ -43,7 +52,10 @@ export const C172_LIVERY: LiveryScheme = {
  * @param scale metres per texel along u and along v (one side spans v 0..0.5) at the
  *        registration, so the letters keep their proportions on the stretched texture
  */
-export function createLiveryTexture(registration: string, regUStart: number, regUEnd: number, scale: { uM: number; vM: number } = { uM: 8.4 / 2048, vM: 0.48 / 512 }, scheme: LiveryScheme = C172_LIVERY): THREE.CanvasTexture | null {
+export function createLiveryTexture(
+  registration: string, regUStart: number, regUEnd: number, scale: { uM: number; vM: number } = { uM: 8.4 / 2048, vM: 0.48 / 512 },
+  scheme: LiveryScheme = C172_LIVERY, section?: LiverySection,
+): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
   const W = 2048, H = 1024;
   const canvas = document.createElement('canvas');
@@ -76,6 +88,25 @@ export function createLiveryTexture(registration: string, regUStart: number, reg
   for (const b of scheme.bands) {
     if (b.rise || b.uFrom !== undefined || b.uTo !== undefined) sweep(b.f0, b.f1, b.rise ?? 0, b.uFrom ?? 0, b.uTo ?? 1, b.color);
     else side(b.f0, b.f1, b.color);
+  }
+  // straight lines in the side view: per texel column, convert the heights to section fractions
+  if (section && scheme.lines?.length) {
+    const cols = 512, colW = W / cols;
+    for (let i = 0; i < cols; i++) {
+      const u = (i + 0.5) / cols;
+      const { bottom, height, zFromNose } = section(u);
+      if (!(height > 1e-3)) continue;
+      for (const l of scheme.lines) {
+        if (zFromNose < (l.from ?? 0)) continue;
+        const f0 = (l.y0 + l.slope * zFromNose - bottom) / height, f1 = (l.y1 + l.slope * zFromNose - bottom) / height;
+        if (f1 <= 0 || f0 >= 1) continue;
+        ctx.fillStyle = l.color;
+        for (const v of [[0.5 * f0, 0.5 * f1], [1 - 0.5 * f1, 1 - 0.5 * f0]]) {
+          const y0 = yOf(Math.max(v[0], v[1])), y1 = yOf(Math.min(v[0], v[1]));
+          ctx.fillRect(i * colW - 0.5, y0, colW + 1, y1 - y0);
+        }
+      }
+    }
   }
   // registration: cap height ≈ 0.4 of the tailcone height, letters squeezed along u (texels
   // there are longer than along v)

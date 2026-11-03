@@ -16,6 +16,7 @@ const terrain = new TerrainSystem(world.frame, {
 });
 scene.add(terrain.group);
 terrain.setRunways(airports.flatteningSegments());       // before prefetch, so the spawn tiles load flattened
+terrain.setPavement(world.pavement.specs());              // airport aprons / taxiways (src/world/pavement.ts), likewise
 await terrain.prefetch(spawn.lat, spawn.lon, 1500);      // spawn tile ready (real, parent-derived or procedural)
 
 // Environment for the FDM (src/world/environment.ts EnvironmentSources)
@@ -57,6 +58,8 @@ receive its cloud shadows. Nothing to wire.
 | `whenIdle()` | Resolves when no request is outstanding (tests, loading screens). |
 | `setFrame(frame)` | Rebase: every tile object is re-placed from its float64 ECEF centre plus the rotation between its build frame and the new frame. No vertex is rebuilt. |
 | `setRunways(segments)` | `{ a, b: Geodetic (alt = threshold elevation), widthM }[]` — tiles touching added/removed runways reload; old data stays drawn meanwhile. Unchanged input is a no-op. |
+| `setPavement(specs)` | Airport pavement flattening (`PavementFlatteningSpec[]`, see below): aprons / taxiway areas (polygons with holes) and taxiway centre lines buffered to their width, each with its target plane. Diffed by `key` (a key names immutable content): tiles touching added/removed areas reload, old data stays drawn meanwhile, a pending `prefetch` waits for the new version. `pavementCount` = areas in use. |
+| `revision()` / `changesSince(rev)` | Change signal of the collision heights: `revision()` is bumped whenever a tile's heights arrive, are replaced by a reload or are evicted; `changesSince(rev)` lists the tiles `{ z, x, y }` changed after `rev` (oldest first, last 512 changes), or null when `rev` is older than that (treat everything as changed). The scenery re-grounds exactly the tiles under changed terrain with it; `World.groundShift` uses `revision()` to move a standing aircraft with a reloaded tile. |
 | `setImagery('satellite' \| 'procedural')` | Switch the imagery chain; resident tiles reload in the background. |
 | `setSun(dir, color, intensity, ambient)` / `setFog(color, density, heightFalloff, sunGlow?)` | Shared uniforms of every terrain/ocean material. |
 | `attribution()` | Credit lines for the providers whose data is on screen. |
@@ -78,7 +81,7 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
                               ▼
                tileJob: elevation  AWS z/x/y → AWS ancestors z−1…z−3 (sub-square upsampled) → procedural
                         imagery    EOX S2 2016 → GIBS (z ≤ 8) → procedural colours   (fetched concurrently)
-                        runway flattening → curved mesh + skirts + ocean patch (tilePipeline.ts)
+                        pavement + runway flattening → curved mesh + skirts + ocean patch (tilePipeline.ts)
                               ▼ transferables
          ◄─ onTile: mesh vertex lattice → HeightField immediately (collision, prefetch); mesh → upload queue
          ─► upload ≤ N/frame: BufferGeometry from the transferred buffers, shared Morton index,
@@ -94,6 +97,24 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   pixel of a tile the edge cell is extrapolated, so a tile's edge vertices take the surface value at
   the edge (not the edge pixel's centre value half a pixel inside): neighbours agree on their shared
   edge to first order instead of stepping by one pixel of slope (2 m on a 30° slope at z15, 17 m at z12).
+* **Pavement flattening** (`pavement.ts`): aprons, taxiway areas, helipads (polygons, holes kept
+  open) and taxiway / taxilane centre lines buffered to their width are flattened in the worker on
+  the DEM grid, *before* the runway strips (a runway wins where a taxiway reaches onto it, and its
+  150 m feather blends into the flattened pavement, so taxiways join the strips without a step).
+  Inside the flat zone (outline + 15 m shoulder: a z15 triangle touching the pavement and its
+  vertices' bilinear footprint lie entirely inside it) the height is the area's target plane in
+  geodetic height, `h0 + dhdE·east + dhdN·north` around an anchor: an analytic function of
+  (lon, lat), so neighbouring tiles, every LOD, the mesh and the HeightField agree exactly and the
+  surface never changes as tiles refine. Outside, the override feathers back into the DEM over
+  80 m for small differences, widening with the height difference up to 160 m so the bank stays
+  ≤ 25 % (`1.5·|Δ| / width`): a deep cut or fill on rough ground becomes an embankment, not a
+  cliff (the procedural fallback around KSFO differs from the airport by up to ±45 m).
+  Implementation: per area, a scanline even-odd fill marks the interior and every edge (split
+  into ≤ 64 m pieces) splats its distance into the pixels within its reach (bounding-box ranges
+  found by binary search); per pixel the nearest area wins, so pieces of one apron clipped to
+  neighbouring scenery tiles join without a seam (distance to a union = minimum distance).
+  Tiles coarser than z11 skip it (pavement is sub-pixel there). The planes come from
+  `src/world/pavement.ts` (one per airport, through its runway thresholds).
 * **Collision = drawn surface** (§8.1): the HeightField stores each tile's mesh vertex lattice
   (`mesh.height`, (N+1)²) and interpolates it on the mesh's own triangles (NE–SW diagonals, as in
   `gridIndex.ts`); the normal is the face normal. A bilinear sample of the 256² DEM differs from the
@@ -153,7 +174,7 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
 | `tileGpu.ts`, `textureCache.ts`, `materials.ts`, `tileRecord.ts` | Three.js objects, shared uniforms, per-tile bookkeeping. |
 | `drawPlan.ts`, `gridIndex.ts`, `quadtree.ts` | CDLOD selection, coverage planning, Morton index ranges. |
 | `heightfield.ts`, `groundQueries.ts`, `sampling.ts` | Collision heights (mesh lattice on its triangles), NED ground queries, bilinear/triangle sampling, parent sub-grid extraction. |
-| `tileMesh.ts`, `terrarium.ts`, `procedural.ts`, `noise.ts`, `runways.ts`, `imagery.ts`, `providers.ts` | Pure geometry, decoding, synthetic terrain, flattening, provider catalogue. |
+| `tileMesh.ts`, `terrarium.ts`, `procedural.ts`, `noise.ts`, `runways.ts`, `pavement.ts`, `imagery.ts`, `providers.ts` | Pure geometry, decoding, synthetic terrain, runway and pavement flattening, provider catalogue. |
 
 ## Tests (`npx vitest run src/terrain`, Node)
 
@@ -169,6 +190,16 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   an outage over a real z12 ancestor keeps the real ground (no synthetic patch) and recovers; `prefetch`
   after `setRunways` on resident tiles (and with runways changing mid-load) resolves on flattened
   ground; `prefetch` over resident tiles pins nothing (they are still evicted).
+* `pavement.test.ts` — pavement flattening on a bumpy synthetic DEM: an apron (with a 200 m hole) is
+  the plane inside and within the 15 m shoulder (Euclidean), the hole centre and everything beyond
+  the reach keep the DEM bit for bit; the feather has no step and stays below the bank limit; a
+  taxiway centre line is flat within half width + shoulder; two adjacent tiles' mesh lattices agree
+  on their shared edge inside an area (< 1 mm) and equal the plane; a runway strip wins over
+  pavement in the pipeline; coarse and far tiles are skipped; an apron split in two pieces gives the
+  same heights as the whole. `pavementSystem.test.ts` — `setPavement` reloads the touched tiles and
+  `heightAt` on the apron is the plane (< 1 cm), unchanged input is a no-op, removing it restores the
+  DEM, `prefetch` after `setPavement` (resident or cold) resolves on flattened ground, and
+  `revision` / `changesSince` report the reloaded tiles (null once the log is too short).
 * `tileMesh.test.ts` — also: neighbouring tiles agree on a sloped shared edge (< 1 mm); every
   sub-square down to depth 2 has outward-facing skirts, and a quadrant gets all four sides.
 * `sampling.test.ts` — `triangleSample` equals barycentric interpolation on the `gridIndex`
@@ -243,6 +274,12 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   softer edges than the clouds above) and are limited to `MAX_SHADOW_LAYERS` (4) layers; a layer counts
   only where its middle is above the ground point (peaks on top of a deck are in full sun), with a hard
   switch at the layer middle.
+* **Pavement flattening**: one plane per airport (through its runway thresholds) suits airfields
+  whose aprons lie within a few metres of the runway plane (the real KSFO DEM: ±0.7 m rms); an apron
+  terraced well above or below its runways is cut or filled to the plane with an embankment. Areas
+  of different airports overlapping within their feathers take the nearest area's plane (a slope
+  break where two airports' pavement nearly touch). The work is O(edges × reach²) per tile (a few
+  ms for the synthetic KSFO, tens of ms for a dense real airport tile in the worker).
 * **Runway pavement vs. flattened terrain**: the flattened strip follows the curved earth at the
   interpolated threshold elevations, while `src/world` draws each runway as one flat quad between its
   corners lifted 0.12 m. On long runways the chord sags below the curve (s²/8R ≈ 0.26 m mid-runway for

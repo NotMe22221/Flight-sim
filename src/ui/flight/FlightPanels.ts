@@ -29,6 +29,23 @@ export interface FlightPanelsDeps {
 
 const ATC_INTERVAL_MS = 1000;
 
+/** Default top of the panels in the top row (below the toolbar strip). */
+const TOP_ROW_Y = 70;
+
+/**
+ * Top of a panel placed in the top row by default: 70 px, or just under the instruments HUD's flight
+ * strip when the panel reaches it horizontally. The strip (src/instruments/hud, drawn in the
+ * external views) is 620·k px wide, centred, from 12·k to 76·k px, k = clamp(min(h/600, (w−24)/620),
+ * 0.45, 1.6); a panel at 70 px covered the bottom of its IAS / heading / ALT boxes on laptop-sized
+ * windows (the objectives panel opens by itself at every activity start).
+ */
+export function topRowY(x: number, width: number, viewW: number, viewH: number): number {
+  const k = Math.min(1.6, Math.max(0.45, Math.min(viewH / 600, (viewW - 24) / 620)));
+  const left = viewW / 2 - 310 * k, right = viewW / 2 + 310 * k;
+  if (x + width + 8 <= left || x - 8 >= right) return TOP_ROW_Y;
+  return Math.max(TOP_ROW_Y, Math.round(76 * k + 10));
+}
+
 export class FlightPanels {
   readonly toolbar: Toolbar;
   readonly atc: AtcWindow;
@@ -41,6 +58,8 @@ export class FlightPanels {
   private weather: WeatherPanel;
   private lastAtc = -Infinity;
   private lastCamera = '';
+  /** window size the default places were computed for */
+  private view = { W: 1280, H: 800 };
 
   constructor(private readonly d: FlightPanelsDeps) {
     const W = typeof window !== 'undefined' ? window.innerWidth : 1280;
@@ -50,13 +69,16 @@ export class FlightPanels {
       this.panels.set(id, p);
       return p;
     };
-    const atcP = mk('atc', 'ATC', 'headset', 380, 420, Math.max(16, W - 396), 70);
-    const clP = mk('checklist', 'Checklist', 'checklist', 400, 480, 16, 70);
+    const top = (x: number, w: number) => topRowY(x, w, W, H);
+    const atcX = Math.max(16, W - 396), wxX = Math.max(16, Math.round(W / 2 - 210));
+    const atcP = mk('atc', 'ATC', 'headset', 380, 420, atcX, top(atcX, 380));
+    const clP = mk('checklist', 'Checklist', 'checklist', 400, 480, 16, top(16, 400));
     const nlP = mk('navlog', 'Nav log', 'list', 460, 260, 16, Math.max(80, H - 330));
     const vfrP = mk('vfrmap', 'VFR map', 'map', 420, 420, Math.max(16, W - 436), Math.max(80, H - 500), true);
-    const wxP = mk('weather', 'Weather & time', 'cloudSun', 420, 560, Math.max(16, Math.round(W / 2 - 210)), 70);
+    const wxP = mk('weather', 'Weather & time', 'cloudSun', 420, 560, wxX, top(wxX, 420));
     // top-left like MSFS's objectives; height follows the content (no fixed height)
-    const objP = mk('objectives', 'Objectives', 'target', 340, undefined, 16, 70);
+    const objP = mk('objectives', 'Objectives', 'target', 340, undefined, 16, top(16, 340));
+    this.view = { W, H };
     objP.el.classList.add('objectives-panel');
     this.atc = new AtcWindow(atcP.body, d.host);
     this.checklist = new Checklist(clP.body);
@@ -104,7 +126,8 @@ export class FlightPanels {
     const beside = id === 'objectives' || obj.visible;
     const o = obj.userPlaced ? null : obj.defaultRect;
     const d = cl.defaultRect;
-    cl.placeAt(beside && o ? o.x + (o.w ?? 340) + 12 : d.x, d.y);
+    const x = beside && o ? o.x + (o.w ?? 340) + 12 : d.x;
+    cl.placeAt(x, x === d.x ? d.y : topRowY(x, d.w ?? 400, this.view.W, this.view.H));
   }
 
   /** Settings › Reset window layout: every panel back to its default place now (not only after a reload). */

@@ -8,7 +8,7 @@ import { LocalFrame } from '../geo/wgs84';
 import type { TerrainSystem } from '../terrain/TerrainSystem';
 import { AirportsLayer } from './AirportsLayer';
 import { SimEnvironment } from './environment';
-import { PavementRegistry, type PavementSource } from './pavement';
+import { PavementIndex, PavementRegistry, type PavementSource } from './pavement';
 import { makeRebase, needsRebase, type RebaseTransform } from './rebase';
 
 const EARTH_R = 6371000;
@@ -31,6 +31,8 @@ export class World {
   /** airport pavement (scenery aprons / taxiways) flattened into the terrain, see pavement.ts */
   readonly pavement = new PavementRegistry();
   private pavementSource: (() => PavementSource | null) | null = null;
+  private pavementIndex = new PavementIndex([]);
+  private readonly geoScratch = { lat: 0, lon: 0, alt: 0 };
   /** ground under the aircraft at the last `groundShift` call, and the terrain revision it was sampled in */
   private shiftN = 0;
   private shiftE = 0;
@@ -91,9 +93,13 @@ export class World {
     return false;
   }
 
-  /** Surface type at a NED point for tyre friction and water detection. */
+  /** Surface type at a NED point for tyre friction and water detection (runways, aprons and taxiways are paved). */
   surfaceAt(n: number, e: number): Environment['surface'] {
     if (this.onRunway(n, e)) return 'paved';
+    if (!this.pavementIndex.empty) {
+      const g = this.frame.nedToGeodetic(n, e, 0, this.geoScratch);
+      if (this.pavementIndex.contains(g.lat, g.lon)) return 'paved';
+    }
     const h = this.terrain?.heightAtLocalNED(n, e) ?? null;
     if (h !== null && h < this.seaLevelUp(n, e) - 0.3) return 'water';
     return 'grass';
@@ -150,7 +156,9 @@ export class World {
   syncPavement(force = false): void {
     const src = this.pavementSource ? this.pavementSource() : null;
     const specs = this.pavement.sync(src, this.airports.builtAirports(), force);
-    if (specs) this.terrain?.setPavement?.(specs);
+    if (!specs) return;
+    this.terrain?.setPavement?.(specs);
+    this.pavementIndex = new PavementIndex(specs);
   }
 
   /**

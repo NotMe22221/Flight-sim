@@ -1,8 +1,17 @@
-# aircraft3d — procedural Cessna 172 for the render scene
+# aircraft3d — procedural aircraft for the render scene
 
-Low-poly, fully procedural C172 (no asset files) with animated control surfaces, propeller,
-gear and lights, a cockpit interior with moving controls and an instrument-panel plane for the
-instruments module. Also home of the FDM ↔ Three.js frame conversions (`frames.ts`).
+Low-poly, fully procedural airframes (no asset files) with animated control surfaces,
+propeller, gear and lights, a cockpit interior with moving controls and an instrument-panel
+plane for the instruments module. Also home of the FDM ↔ Three.js frame conversions
+(`frames.ts`).
+
+| `AircraftConfig.airframe` | Airframe | Layout | Builders |
+|---|---|---|---|
+| `'c172'` (default, also when absent) | Cessna 172S, tricycle gear, side-by-side cockpit (steam or G1000 panel) | `c172Layout.ts` | `fuselage.ts`, `wings.ts`, `tail.ts`, `gear.ts`, `interior.ts` |
+| `'cub'` | Piper PA-18-150 Super Cub class tail-dragger, tandem cockpit flown from the front seat (`'cub-steam'` panel) | `cubLayout.ts` | `fuselage.ts`, `cubWings.ts`, `cubTail.ts`, `cubGear.ts`, `cubInterior.ts` |
+
+Both share the loft / skin / airfoil / hinge builders, `Propeller`, `AircraftLights` and the
+materials; `layoutTypes.ts` holds the shared layout types and `toModelConfig`.
 
 ## Frames (docs/DESIGN.md, non-negotiable)
 
@@ -22,7 +31,7 @@ the same permutation `(a, b, c) → (b, −c, −a)`, a proper rotation (det +1)
 ```ts
 import { AircraftModel, bodyQuatToThree, nedToThreeVec } from './aircraft3d';
 
-const model = new AircraftModel(fdm.config /* or c172ModelConfig() */, { registration: 'N172FS' });
+const model = new AircraftModel(fdm.config /* or c172ModelConfig() / cubModelConfig() */, { registration: 'N172FS' });
 scene.add(model.root);
 model.panelMesh.material.map = panelCanvasTexture;       // from the instruments module
 
@@ -36,17 +45,18 @@ camera.update(dtReal, state, pos, quat, input, model.eyePointLocal);
 
 | Member | Purpose |
 |---|---|
+| `airframe` | `'c172'` or `'cub'` (from `config.airframe`) |
 | `root` | add to the scene; driven by `setPose(posThree, qThree)` |
 | `exterior`, `interior`, `cabinShell` | groups; the cabin skin + exterior glass hide in the cockpit view, the interior shows |
-| `panelMesh` / `panelMeshG1000` | `Mesh<PlaneGeometry, MeshBasicMaterial>`: steam 0.96 × 0.48 m (2:1 like its 1024 × 512 texture), G1000 0.96 × 0.35 m. Assign the instruments texture to `material.map`: a dark placeholder map is bound from the start, so no `needsUpdate` is required. The material colour is the light on the gauges (white by day, see *Cockpit*); never set it to a dark tint. `setPanelVariant('steam' \| 'g1000')` picks which is visible |
+| `panelMesh` / `panelMeshG1000` | `Mesh<PlaneGeometry, MeshBasicMaterial>`: steam 0.96 × 0.48 m (C172) or 0.60 × 0.30 m (Cub), both 2:1 like the 1024 × 512 texture, G1000 0.96 × 0.35 m. Assign the instruments texture to `material.map`: a dark placeholder map is bound from the start, so no `needsUpdate` is required. The material colour is the light on the gauges (white by day, see *Cockpit*); never set it to a dark tint. `setPanelVariant('steam' \| 'g1000')` picks which is visible; the Cub has no glass cockpit, so it keeps its panel and `panelMeshG1000` stays a hidden stand-in |
 | `eyePointLocal` | pilot eye in model coordinates (from `config.geometry.eyePoint`); pass it to `CameraController.update` |
 | `update(state, inputs, dt, cameraIsCockpit)` | surfaces, prop, gear, lights, yoke/pedals/knobs, cockpit/exterior switch; allocation-free |
 | `setVisibility(exterior, interior)` | master switches (e.g. hide the airframe for a "no aircraft" view) |
 | `setSunElevation(rad)` | below `nightSunElevationRad` (−3°) the spotlights also light the cockpit view; the cabin bounce light and the instrument lighting follow the daylight (sun −6° … +15°) |
-| `surfaces`, `propeller`, `gear`, `lights`, `cockpit`, `materials`, `layout` | sub-assemblies (read-only use) |
+| `surfaces`, `propeller`, `gear`, `lights`, `cockpit`, `materials`, `layout` | sub-assemblies (read-only use). `gear` is a `GearAssembly` (`noseRoot` / `tailRoot` steering pivots, `carrierFor(i)`, `wheelFor(i)`), `cockpit` a `CockpitAssembly` (`yokeGroups`: the C172's yokes or the Cub's front and rear sticks), `layout` a `C172Layout \| CubLayout` (narrow with `layout.airframe`) |
 | `dispose()` | geometries, materials, textures, light shadows; idempotent; removes `root` from its parent |
 | `frames.ts` | `bodyQuatToThree`, `threeQuatToBody`, `bodyVecToThreeLocal`, `threeLocalToBodyVec`, `nedToThreeVec`, `threeVecToNed` (all write into `out`) |
-| `c172ModelConfig()` | stand-alone config (also the test fixture); `resolveC172Layout(cfg)` gives every placement |
+| `c172ModelConfig()` / `cubModelConfig()` | stand-alone configs (also the test fixtures); `resolveC172Layout(cfg)` / `resolveCubLayout(cfg)` give every placement |
 
 ## How it works
 
@@ -107,6 +117,73 @@ camera.update(dtReal, state, pos, quat, input, model.eyePointLocal);
 - **Materials**: built-in three.js materials only (Standard/Physical/Basic/Sprite), so the
   logarithmic-depth fallback works without custom shader chunks.
 
+## Super Cub (`airframe: 'cub'`)
+
+- **Fuselage**: the same loft/skin machinery as the C172 (`buildFuselage` takes any
+  `FuselageLayout`): a blunt nose bowl with two round cooling inlets above the small spinner and
+  an almost flat cowl top (it shows over the deck from the front seat), a tall narrow boxy cabin
+  (superellipse n 5, 0.76 m wide, roof on the wing chord plane) and a turtle-deck tail cone to
+  the tail post. Windows: the windshield, the **skylight** (a top-view outline,
+  `SkinOutline.view: 'top'` with `minY` so the belly is never cut), the right **split door**
+  (one big upper window, upper/lower door seams, handle on the lower half) with a small window
+  behind it, the left front and rear windows. The carburettor air box under the nose
+  (`details.carbScoop`), the exhaust stack under the cowl and a whip antenna on the turtle deck.
+- **Wing** (`cubWings.ts`): constant 1.60 m chord flat-bottomed USA 35B-like section
+  (`USA35B`: NACA 4-digit thickness with 5.5 % camber at 30 %) sitting on the cabin roof with the
+  root ribs at ±0.26 m (the skylight between them), 1° dihedral, elliptical **tip bows** whose
+  outermost point sits at ≈ 40 % chord; plain flaps inboard and ailerons out to the bow, hinged at
+  76 % chord. **V lift struts**: front- and rear-spar struts converge on the lower longeron and
+  spread to the spars at 55 % semi-span (streamlined tubes), with jury struts and a diagonal.
+  Fuel caps over the wing-root tanks, pitot tube under the left wing.
+- **Tail** (`cubTail.ts`): stabiliser and elevator are one planform with rounded tips, so the
+  halves meet flush at the hinge (`aftPart`: the elevator is the aft part of a virtual section);
+  the elevator's inboard trailing corners are cut away so the rudder can swing ±25° between them.
+  A small fin and the tall rounded rudder on the tail post (the rudder is the aft 70 % of a thin
+  symmetric section, thickest at the post), flying wires two above to the fin and two below to the
+  tail-post bottom.
+- **Gear** (`cubGear.ts`): per side a V of two legs (front leg under the bungee shock-cord
+  fairing) meeting at a knuckle inboard of the fat 8.00-6 tyre, and the split axle hinged under
+  the belly. `compressionM` lifts the axle; every member is re-aimed at it each frame
+  (allocation-free), the fairing stays on the fuselage. The tail wheel hangs on a leaf spring:
+  the fork steers about the swivel axis with 4 cm caster trail (`steerRad`, + = right, not
+  clamped: the FDM's full-swivel castering angle is shown as is) and the spring flexes so the
+  wheel rises by `compressionM`. Lathe-turned tyres (`buildTyreGeometry`).
+- **Propeller**: the shared `Propeller` with `PropLayout.spinner` / `bladeZ`: blades in the hub
+  plane, a small dark-red spinner from 8 cm behind it to its tip 12 cm ahead (x +1.92).
+- **Cockpit** (`cubInterior.ts`, tandem, flown from the front seat): lining with the same
+  cut-outs as the skin (fabric above the sill, upholstery below, dark window channels), the
+  steel-tube frame (upper longerons, spar carry-throughs, door / window posts), a 0.60 × 0.30 m
+  panel plane 0.70 m ahead of the eye with its top 0.17 m below it (2:1 like the 1024 × 512
+  `cub-steam` texture; the instruments module draws into it exactly as for the C172), a padded
+  lip, a short deck up to the windshield with the compass, front and rear sticks (pivot on the
+  floor, ±0.2 rad with `pitch` / `roll`: the grip moves aft for nose up, right for roll right),
+  rudder pedals (±5 cm), throttle (black), mixture (red) and carb heat (grey) levers on the left
+  wall, the elevator trim crank (three turns over `pitchTrim` −1…+1) and the flap handle (up with
+  `state.surfaces.flapDeg` / 50°) on the left, the wing-root fuel gauges overhead left and right
+  (`state.fuelKg[i]` / tank capacity from `config.mass.tanks`), front sling seat and rear bench.
+  Seat and stick follow the configured eye point; the panel, deck and windows are fixed airframe.
+  Over the nose: the deck edge is ≈ 9° below the eye and the cowl top ≈ 6.5°, so in the
+  three-point attitude (≈ 11°) the cowl hides the horizon; in flight it sits well below it.
+- **Livery**: our own scheme (`CUB_PAINT`): cream-yellow fabric, a straight dark-red cheat line
+  and pinstripe sweeping gently up to the tail (`LiveryScheme.lines`: heights in metres converted
+  per texel column with the loft section, so the line stays straight across the cowl / cabin step),
+  dark-red registration N18FS on the aft fuselage and spinner.
+- **Lights**: nav lights on the tip bows' leading edges, strobes at the tips, white tail light at
+  the tail-post bottom, beacon on the fin top, landing light in the left wing leading edge and the
+  taxi light in the right one.
+
+## Super Cub numbers (shared with src/fdm/aircraft/cub.ts; PA-18-150 owner's handbook / TCDS)
+
+Body FRD relative to the empty CG: span 10.73 m (35 ft 2.5 in), S 16.58 m² (178.5 ft²), chord
+1.60 m (63 in), wing LE x +0.42 / TE −1.18, chord plane z −1.02, dihedral 1°; length 6.88 m
+(spinner tip +1.92, rudder TE −4.96); prop 74 in (1.88 m), hub (1.80, 0, −0.05), 2 blades,
+clockwise from the cockpit; mains (0.50, ±0.92, 1.12) r 0.28 (8.00-6), tail wheel
+(−4.40, 0, 0.15) r 0.08 (three-point attitude 11.2°, CG 1.0 m above the ground); eye
+(0.05, 0, −0.60); tanks 2 × 18 US gal at (−0.20, ±0.80, −1.00). The V-strut fuselage fittings sit
+together on the lower longeron at x +0.06 / −0.12 (a V, as on the real airframe). With the
+quoted chord plane and the 11.7 % thick wing the three-point height is ≈ 2.27 m to the wing-tip
+top (the handbook's 6 ft 8.5 in is lower).
+
 ## C172 numbers (docs/research/02 §2.1, §4.7, §5.1, §6)
 
 Span 11.0 m, S 16.2 m², MAC 1.49 m, length 8.28 m, height 2.72 m, dihedral 1.7°; prop 76 in
@@ -119,6 +196,21 @@ and span come from it, so model and physics agree.
 ## Tests
 
 `npx vitest run src/aircraft3d`
+
+- `cubLayout.test.ts`: the shared PA-18-150 numbers; FRD → model mapping; length 6.88 m from the
+  spinner tip to the rudder TE; constant-chord wing on the roof with 1° dihedral and the tip bow at
+  the configured span; V struts converge on the longeron; elevator cut-out clears the rudder at 25°;
+  three-point attitude ≈ 11° with the CG ≈ 1 m up; eye inside the cabin behind the 2:1 panel;
+  over-the-nose angle below the three-point pitch; lights; gear placement; every number finite;
+  the eye and gear follow the config while the airframe stays put.
+- `cubModel.test.ts`: both airframes build and update without NaN (and the FDM's own Cub config
+  when it is in the tree); overall extents (span, length, three-point height and CG height);
+  tyres on the configured contacts, leg members reach the moving axle under compression, tail
+  spring follows; tail-wheel steering and wheel spin; surface signs and hinge lines; propeller
+  from the config with the spinner tip at x +1.92; ray casts from the eye: the whole panel is
+  visible, the view ahead is clear in level flight, the cowl hides the horizon in the three-point
+  attitude, the sky through the skylight; no G1000; sticks / pedals / flap handle / trim crank /
+  fuel gauges follow; lights; dispose frees every geometry and material.
 
 - `frames.test.ts`: identity; pitch up ⇒ nose +y; roll right ⇒ right wing −y; heading 090 ⇒
   nose +x; heading 180; equivalence with rotating body axes by `q_bn`; round trips.
@@ -139,7 +231,11 @@ and span come from it, so model and physics agree.
 
 ## Known limitations
 
-- The fuselage, wing and tail shapes are fixed C172 geometry; only the config-driven parts move.
+- The fuselage, wing and tail shapes are fixed C172 / Cub geometry; only the config-driven parts
+  move (eye, prop, gear contacts and tyres, span, tank capacities).
+- Cub: the fabric shows no rib-stitching; the door does not open; the trimmable stabiliser is not
+  animated (the trim crank turns); the prop has no painted tips; tail-wheel steering springs to the
+  rudder horns are not modelled; the instrument texture is drawn by the instruments module.
 - Counter-rotating props (`sense −1`) spin the right way but the blade twist is not mirrored.
 - Light halos are world-sized sprites (0.3–0.9 m), so nav lights fade out beyond a few km at
   night; a screen-space minimum size would need a custom shader.
@@ -152,8 +248,9 @@ and span come from it, so model and physics agree.
 
 ## Tuning knobs
 
-`AircraftModelOptions`: `registration`, `shadows`, `landingLightIntensity` (4000 cd),
+`AircraftModelOptions`: `registration` (default N172FS / N18FS), `shadows`, `landingLightIntensity` (4000 cd),
 `taxiLightIntensity` (2500 cd), `spotShadows` (false; a shadow pass whenever the switch is on),
-`nightSunElevationRad` (−3°). In code: `c172Layout.ts` (stations, windows, wing/tail planforms,
-light positions), `materials.ts` (colours, roughness, glass opacity), `propeller.ts`
+`nightSunElevationRad` (−3°). In code: `c172Layout.ts` / `cubLayout.ts` (stations, windows,
+wing/tail planforms, light positions, cockpit placements, `CUB_PAINT`), `materials.ts` (colours,
+roughness, glass opacity; `PaintScheme`), `textures.ts` (`LiveryScheme`), `propeller.ts`
 (330–520 rpm blur ramp, 450 rpm blade cut-off), `lights.ts` (flash timing).

@@ -76,6 +76,13 @@ tile's own vertical (one fixed-point step from the previous value). Buildings st
 (zero-area triangles) until their ground exists; draped meshes, lights and trees appear when
 their first pass is done.
 
+**Terrain change signal** (when the host passes `terrainRevision()` / `terrainChangesSince(rev)`,
+which `src/app/plugins.ts` does from `TerrainSystem.revision()` / `changesSince()`): every frame
+the manager asks for the terrain tiles whose heights changed since its last look and marks exactly
+the resident scenery tiles under them hot (all of them when the terrain's log no longer reaches
+back); the probe grids below then stay idle. Without the signal (tests, other hosts) the probes
+watch the terrain as follows.
+
 Terrain refinements are caught in two ways. Every wanted tile has an 8 × 8 probe grid (about
 240 m apart) that is re-sampled round-robin over the wanted tiles, about 2000 probes per second
 (32 per frame at 60 fps, more per frame when frames are slow); when a probe's
@@ -95,26 +102,37 @@ GPU uploads use one persistent update range per attribute (no per-frame allocati
 
 ### Airport surfaces
 
-Aprons (0.20 m), taxiway areas (0.22 m) and taxiway ribbons (0.24 m, 18 m wide or the OSM
+The terrain is **flattened under airport pavement** (src/terrain/pavement.ts): every tile result
+carries `pavement` — its aprons, taxiway areas and helipads (with holes) and taxiway / taxilane
+centre lines with their width, in lon/lat, clipped to the tile, from full and parking-only builds
+alike — and the manager publishes them (`pavementAreas()`, `pavementRevision()`) for
+`src/world/pavement.ts`, which flattens those near the current airports to one plane per airport.
+So the ground under the pavement is exactly planar in every terrain LOD, and the drape (16 m grid)
+lies on it between its vertices too.
+
+Aprons (0.200 m), taxiway areas (0.202 m) and taxiway ribbons (0.204 m, 18 m wide or the OSM
 `width`) sit above the terrain in that order so overlaps never z-fight; yellow centre lines
-are 0.03 m above the ribbons. Where a taxiway or taxilane crosses an apron it is a lead-in line
+are 0.002 m above the ribbons. Where a taxiway or taxilane crosses an apron it is a lead-in line
 painted on the concrete: no asphalt ribbon there (triangles on the apron or its outline are
-dropped) and the yellow line sits 0.03 m above the apron (from one ribbon step inside the
+dropped) and the yellow line sits 0.002 m above the apron (from one ribbon step inside the
 apron edge; nearer the edge it keeps the ribbon height so it never dips under the asphalt
 triangles that still reach onto the apron there). Within the runway zone (OSM runway
 centre line ± half width (30 m default) + 12 m, or runway polygons + 12 m) every vertex drops
-to 0.03–0.05 m, i.e. **under** the runway slab that `src/world/AirportsLayer` draws 0.12 m up,
+to 6–10 mm (the flattened runway strip is planar there), i.e. **under** the runway slab that
+`src/world/AirportsLayer` draws 0.12 m up,
 and markings / taxiway lights stop. Draped materials carry a small relative depth bias (0.25 % of the view
 distance, injected after three's `project_vertex`, so both the logarithmic and the reversed
 depth buffer work) that wins over the coarser terrain mesh; it is zero next to runways.
 
 The aircraft stands on the terrain itself (`groundUp`), so a 0.2 m apron would swallow the
-lower half of its tyres. The surface materials therefore lower the non-runway tiers by up to
-0.14 m near the camera (full within 40 m, none beyond 400 m, computed in the vertex shader
-after `begin_vertex`): aprons, taxiway areas, ribbons and centre lines are 0.06 / 0.08 / 0.10 /
-0.13 m up around the aircraft and keep their full lift further out. The manager scales the
-drop with the camera's height above the ground (full below 20 m, none above 60 m), so views
-from the air keep the full lift.
+lower half of its tyres. The surface materials therefore lower the non-runway tiers by 0.196 m
+near the camera (full within 40 m, none beyond 400 m, computed in the vertex shader after
+`begin_vertex`): aprons, taxiway areas, ribbons and centre lines are 4 / 6 / 8 / 10 mm above the
+flattened ground around the aircraft (the tyres rest on the drawn pavement within 1 cm) and keep
+their full lift further out, where it guards against coarser terrain LODs at pavement edges and
+against pavement of airfields that are not in the navigation database (not flattened). The
+manager scales the drop with the camera's height above the ground (full below 20 m, none above
+60 m), so views from the air keep the full lift.
 Taxiway light sprites stand 0.30 m (centre line) and 0.35 m (edge) above the ground, above
 the draped layers, and the airport light points get the same relative depth bias as the
 pavement (seen from 300 m up the bias is worth ~0.75 m of height, which would otherwise hide
@@ -157,7 +175,10 @@ visible) and apron floodlight pools are additive decals; all fade with the sun f
 
 `createScenery(options: SceneryHostOptions): SceneryLike` returns a `SceneryManager`:
 `update`, `setFrame`, `setQuality`, `setVisible`, `parkingSpots(lat, lon, radiusM)` (gates and
-apron stands, nearest first; loads missing tiles on demand, parking data only), `attribution`,
+apron stands, nearest first; loads missing tiles on demand, parking data only),
+`pavementAreas()` / `pavementRevision()` (airport pavement of the tiles it has, in lon/lat with
+stable keys `<tile>/<a|t|h|l><index>`, the last 300 tiles; the array is reused until the revision
+changes), `attribution`,
 `stats` (`tilesLoaded`, `tilesPending`, `tilesFailed`, `tilesEmpty`, `buildings`, `trees`,
 `lights`, `triangles` drawn, `buildingsWaiting`, `tilesHot`, `inFlight`, `workerMode`, `updateMs`,
 `groundSamples`, `groundUsPerSample`) and `dispose`. For automation it is also exposed as
@@ -219,11 +240,19 @@ while one layer has no ground yet, probe baselines, pavement receives shadows), 
 than 4096, floodlights only along real apron edges, taxiways on aprons painted as lines, and
 the material patches
 (depth bias, near-camera drop and point size, with the logdepthbuf chunks kept).
+`pavement.test.ts`: a tile's pavement (aprons with holes, taxiway centre lines with width) in
+lon/lat inside the tile, identical from parking-only builds; the manager publishes the pavement of
+streamed and parking-only tiles once each with a revision, and the world registry keeps it near
+KSFO without duplicates. `terrainSignal.test.ts`: with the change signal the probe grids stay idle,
+a changed z15 terrain tile marks exactly the scenery tile above it, whose buildings follow within
+a few frames, and a log that no longer reaches back marks every tile.
 
 ## Integration (app side)
 
 `src/app/plugins.ts` already creates the plugin (`createScenery` with `parent`, `frame`,
-`groundUp`, `heightAt`, `depthMode`, `quality`, `tileUrl` from `?osm=`) and `Simulator` calls
+`groundUp`, `heightAt`, `depthMode`, `quality`, `tileUrl` from `?osm=`, and the terrain change
+signal `terrainRevision` / `terrainChangesSince`), `Simulator` hands `pavementAreas` to the world
+(`World.setPavementSource`; synced every 2 s and before every spawn's terrain prefetch) and calls
 `update` after the terrain and `setFrame` on a new flight / rebase. `SimUiHost` (`src/app/uiHost.ts`)
 appends `attribution()` to the data credits (ODbL / OpenMapTiles) and forwards the graphics
 quality through `setQuality` (same `'low' | 'medium' | 'high' | 'ultra'` names), and
@@ -240,23 +269,15 @@ Optional: a graphics toggle calling `setVisible(on)`.
 - Taxiway widths default to 18 m (OpenMapTiles carries no `width`); runway zones assume
   60 m wide runways unless OSM provides a polygon or width, so taxiways stay lowered slightly
   further from narrow runways than needed (still under or beside the slab, never above it).
-- Ground heights follow `groundUp` (the finest loaded terrain); where the rendered terrain LOD
-  is coarser than that (concave ground in the distance), the 0.2 m lift and the depth bias hide
-  small differences only. On the bumpy procedural terrain of the offline check, the draped
-  pavement matched `groundUp` to 4 cm, yet the terrain mesh still poked through aprons in a
-  few places 150–500 m from a camera at the gate (the depth bias is worth almost nothing at
-  such grazing angles). Flattening the terrain mesh under aprons and taxiways, as the terrain
-  module already does for runways (`TerrainSystem.setRunways`), would remove both this and the
-  remaining tyre sinking; the scenery has the polygons (`TileFeatures.aprons`,
-  `taxiwayPolys`, taxiway lines) if the lead wants to feed them to the terrain.
-- Near the camera aprons are only 0.06 m above the sampled ground (see Airport surfaces), so
-  rough terrain between two drape vertices (16 m grid on high) can show through right next to
-  the aircraft, and wheels still sink 0.06–0.13 m into aprons / taxiways.
-- Terrain refinements are noticed through probe grids about 240 m apart (see Ground): a change
-  confined between probe points waits until the background re-sampling meets one of its moved
-  items (a few seconds for a 90 m patch of buildings; a single small building can take a full
-  background cycle, tens of seconds at 60 fps). A change counter or per-tile load event from
-  the terrain module would let the scenery re-sample exactly where heights changed.
+- Pavement is flattened only near airports of the navigation database (src/world/pavement.ts):
+  aprons and taxiways of other airfields are draped on the natural ground, where rough terrain
+  between two drape vertices can show through near the camera (4–10 mm lift there).
+- Until a newly arrived tile's pavement has reached the terrain (the world syncs every 2 s, then
+  the touched terrain tiles reload) its pavement is draped on unflattened ground for a moment.
+- Without the terrain change signal (other hosts), refinements are noticed through probe grids
+  about 240 m apart (see Ground): a change confined between probe points waits until the
+  background re-sampling meets one of its moved items. The signal names whole terrain tiles, so a
+  reload of a coarse tile under finer resident ones re-grounds scenery that did not move.
 - No shadows cast by autogen (pavement receives the aircraft's shadow, nothing casts); trees
   are instanced low-poly meshes without impostors. Apron floodlights are sprites 22 m up
   without mast geometry.

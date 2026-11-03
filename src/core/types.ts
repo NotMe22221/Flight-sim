@@ -257,6 +257,12 @@ export interface AircraftConfig {
      * q∞ + immersion·(q_wake − q∞). Undefined = 1 (the whole surface in the fully developed wake).
      */
     slipstreamImmersion?: { elevator: number; rudder: number };
+    /**
+     * Share of Cm_q / Cn_r that comes from the horizontal / vertical tail. When set, those shares also
+     * see the immersed part of the propeller wake: extra damping ∝ (V_wake − V), so a fin in the wash
+     * still damps yaw at taxi speeds (it vanishes with the airspeed otherwise). Undefined = none.
+     */
+    slipstreamDamping?: { pitch: number; yaw: number };
     /** alpha (rad) beyond which the table blends into the flat-plate model */ blendStartRad: number; blendEndRad: number;
     /** stall-warning angle of attack (vane or reed), rad. Undefined = the C172S value in src/fdm/fdm.ts */
     stallWarnAlphaRad?: number;

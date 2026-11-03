@@ -65,11 +65,11 @@ describe('aerial perspective (haze) model', () => {
 
   it('exposure follows the light on the ground: day at midday, bounded by the night value', () => {
     expect(exposureForIlluminance(DAY_ILLUMINANCE, 1)).toBeCloseTo(DEFAULT_EXPOSURE.day, 9);
-    expect(exposureForIlluminance(10, 1)).toBe(DEFAULT_EXPOSURE.day);
+    expect(exposureForIlluminance(DAY_ILLUMINANCE * 1.2, 1)).toBe(DEFAULT_EXPOSURE.day);
     expect(exposureForIlluminance(1e-6, 1)).toBeCloseTo(DEFAULT_EXPOSURE.night, 9);
     expect(exposureForIlluminance(1e-6, 0)).toBeGreaterThan(exposureForIlluminance(1e-6, 1));
     let prev = Infinity;
-    for (const E of [0.01, 0.1, 0.3, 0.6, 1, 1.8, 3]) { const e = exposureForIlluminance(E, 0.5); expect(e).toBeLessThanOrEqual(prev); prev = e; }
+    for (const E of [0.01, 0.1, 0.3, 0.6, 1, 1.8, 3, 6, 11]) { const e = exposureForIlluminance(E, 0.5); expect(e).toBeLessThanOrEqual(prev); prev = e; }
     expect(surfaceIlluminance(2, 30, 0.5)).toBeCloseTo(1.5, 9);
     expect(surfaceIlluminance(2, -5, 0.5)).toBe(0.5);
   });

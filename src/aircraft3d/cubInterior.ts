@@ -58,15 +58,21 @@ export class CubCockpit implements CockpitAssembly {
     const F = layout.fuselage, C = layout.cabin, K = layout.cockpit;
     this.tankKg = layout.tankCapacityKg;
 
-    // --- lining with the window cut-outs: fabric above the sill, upholstery below ---
+    // --- lining with the window cut-outs: fabric above the sill, upholstery below, and dark
+    // window channels (a 2.5 cm band round every opening) so the frames read as thin tubes ---
     const winFields = layout.windows.map(outlineField);
     const lin = { dz: 0.035, radial: 84, offset: -0.03, inside: true, z0: F.firewallZ, z1: F.cabinEndZ - 0.05 } as const;
-    const splitY = C.sillY - 0.04;
-    const upper = buildSkin(cabinProfile, { ...lin, keep: [...winFields.map(outside), (_x, y) => y - splitY], reveal: { constraints: winFields.map((_, i) => i), to: -0.012 } });
+    const splitY = C.sillY - 0.04, frameW = 0.025;
+    const clear = winFields.map((f) => (x: number, y: number, z: number) => f(x, y, z) - frameW);
+    const upper = buildSkin(cabinProfile, { ...lin, keep: [...clear, (_x, y) => y - splitY] });
     add(upper.geometry, mats.interior, 'lining');
-    add(upper.reveal, mats.interior, 'reveals');
-    const lower = buildSkin(cabinProfile, { ...lin, keep: [...winFields.map(outside), (_x, y) => splitY - y] });
+    const lower = buildSkin(cabinProfile, { ...lin, keep: [...clear, (_x, y) => splitY - y] });
     add(lower.geometry, mats.doorPanel, 'sidewalls');
+    // the channels: outside every opening but within frameW of at least one of them
+    const near = (x: number, y: number, z: number) => frameW - Math.min(...winFields.map((f) => f(x, y, z)));
+    const frames = buildSkin(cabinProfile, { ...lin, keep: [...winFields.map(outside), near], reveal: { constraints: winFields.map((_, i) => i), to: -0.012 } });
+    add(frames.geometry, mats.panelFrame, 'windowFrames');
+    add(frames.reveal, mats.panelFrame, 'reveals');
     layout.windows.forEach((w, i) => {
       const glass = add(buildSkin(cabinProfile, { ...lin, z0: F.cowlEndZ, offset: -0.004, keep: [inside(winFields[i])] }).geometry, mats.glassInterior, `interiorGlass:${w.name}`);
       glass.renderOrder = 2;

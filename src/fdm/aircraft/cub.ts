@@ -90,7 +90,7 @@ export const CUB_GEAR: GearSpec[] = [
   { ...wheel('Right main', [G.mainGear[0], G.mainGear[1], G.mainGear[2]], 40_000, 1_500, 3_000, G.mainTyreRadiusM, 'right'), brakeMu: 0.4 },
   // Scott 3200-style tail wheel: steered by the rudder springs through ±25°, unlocks into full swivel
   // when the tyre is dragged sideways (brake-assisted pivots, ground loops), relocks near centre
-  { ...wheel('Tail', [...G.tailWheel] as Vec3, 25_000, 900, 1_400, G.tailTyreRadiusM, 'none'), maxSteerDeg: 25, casters: true, swivel: { breakoutN: 400, relockDeg: 4 } },
+  { ...wheel('Tail', [...G.tailWheel] as Vec3, 25_000, 900, 1_400, G.tailTyreRadiusM, 'none'), maxSteerDeg: 25, casters: true, swivel: { breakoutN: 400, relockDeg: 6 } },
   // lowest point of the 74 in propeller disc
   structure('Propeller', [G.propHub[0], 0, G.propHub[2] + G.propDiameterM / 2]),
   structure('Tail post', [-4.5, 0, -0.02]),
@@ -150,7 +150,7 @@ const CUB_AERO: AircraftConfig['aero'] = {
     CD90: 1.6,
   },
   CD: {
-    // zero-lift drag ≈ 7.9 ft² flat plate: fabric, struts and wires, 8.00-6 tyres, open tail bracing
+    // zero-lift drag ≈ 8 ft² flat plate: fabric, struts and wires, 8.00-6 tyres, open tail bracing
     CD0: 0.045,
     alphaFlapTable: { rows: CL_ALPHA, cols: FLAPS, data: CD_DATA },
     dFlap: { xs: FLAPS, ys: [0, 0.014, 0.05] },
@@ -160,7 +160,7 @@ const CUB_AERO: AircraftConfig['aero'] = {
     speedbrake: 0,
   },
   CY: { beta: -0.31, p: -0.05, r: 0.2, da: 0, dr: 0.17 },
-  // Cl_r and the α terms in aero.ts grow with lift; base values are at body α = 0 (CL ≈ 0.49)
+  // Cl_r, Cy_p/r and Cn_δa get α terms in aero.ts (they grow with lift); these are the zero-α values
   Cl: { beta: -0.075, p: -0.5, r: 0.11, da: 0.17, dr: 0.012 },
   Cm: {
     Cm0: -0.11,
@@ -172,8 +172,10 @@ const CUB_AERO: AircraftConfig['aero'] = {
     highAlphaScale: { xs: [0, 0.35, 0.44, 0.61, 0.79, 0.96, 1.13, 1.57], ys: [1, 1, 0.6, 0.4, 0.5, 0.4, 0.2, 0.1] },
     deHighAlphaScale: { xs: [0, 0.33, 0.44, 0.61, 0.79, 0.96], ys: [1, 1, 0.6, 0.3, 0.15, 0.1] },
   },
-  // plain (non-Frise, non-differential) ailerons: large adverse yaw, growing with lift in aero.ts
-  Cn: { beta: 0.05, p: -0.05, r: -0.085, da: -0.035, dr: -0.05, slipstream: -0.05 },
+  // plain (non-Frise, non-differential) ailerons: large adverse yaw, growing with lift in aero.ts.
+  // Spiralling slipstream: ≈ 7–8° of swirl at the immersed part of the 1.1 m² fin is ≈ 950 N·m nose-left
+  // at full static power (the C172's −0.05 would give twice that, as much as full rudder in the wash).
+  Cn: { beta: 0.05, p: -0.05, r: -0.085, da: -0.035, dr: -0.05, slipstream: -0.025 },
   groundEffect: {
     hOverB: [0, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1],
     kCL: [1.203, 1.127, 1.09, 1.073, 1.046, 1.028, 1.019, 1.013, 1.008, 1.006, 1.003, 1.002, 1.0],
@@ -183,6 +185,8 @@ const CUB_AERO: AircraftConfig['aero'] = {
   // The contracted wake (≈ 1.4 m) covers ≈ 40 % of the 3.2 m stabiliser; the fin and the big
   // rudder sit right behind the propeller, most of them in it.
   slipstreamImmersion: { elevator: 0.3, rudder: 0.65 },
+  // most of Cm_q and Cn_r comes from the tail, which keeps damping in the wash at taxi speeds
+  slipstreamDamping: { pitch: 0.85, yaw: 0.75 },
   blendStartRad: 0.36,
   blendEndRad: 0.55,
   // stall-warning vane on the left wing: ≈ 5 kt above the stall
@@ -274,8 +278,10 @@ export const PA18_150: AircraftConfig = {
   gear: CUB_GEAR,
   controls: {
     elevator: { minDeg: -30, maxDeg: 20, tauS: 0.06, rateDegPerS: 80 },
-    aileron: { upDeg: 20, downDeg: 18, tauS: 0.05, rateDegPerS: 100 },
-    rudder: { maxDeg: 25, tauS: 0.05, rateDegPerS: 100 },
+    // Rigged for hands-off cruise at ≈ 90 KCAS (wing washout at the rear-strut forks, fixed rudder
+    // tab): wings level, ball centred. Climb power needs right rudder, idle a little left.
+    aileron: { upDeg: 20, downDeg: 18, tauS: 0.05, rateDegPerS: 100, rigNorm: 0.0205 },
+    rudder: { maxDeg: 25, tauS: 0.05, rateDegPerS: 100, rigNorm: 0.004 },
     // manual flap handle: up / first notch / full
     flaps: { detentsDeg: FLAPS, transitS: [1, 1] },
     // stabiliser trim (jack screw) modelled as elevator trim

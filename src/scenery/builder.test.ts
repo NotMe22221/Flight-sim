@@ -208,9 +208,12 @@ describe('buildTile on synthetic OSM tiles', () => {
     expect(t1.trees!.count).toBeLessThanOrEqual(settings.maxTrees);
     const cf = extractFeatures(decodeTile(c.bytes), c.z, c.x, c.y, { minBuildingAreaM2: 0 });
     const all = [t1.trees!.conifer, t1.trees!.broadleaf];
+    // one assertion over all tree × building pairs (an expect per pair took minutes on a loaded machine)
+    let inBuilding = 0;
     for (const arr of all) for (let i = 0; i < arr.length; i += 4) {
-      for (const b of cf.buildings) expect(pointInPolygon(arr[i], arr[i + 1], b.outer, b.holes)).toBe(false);
+      for (const b of cf.buildings) if (pointInPolygon(arr[i], arr[i + 1], b.outer, b.holes)) inBuilding++;
     }
+    expect(inBuilding).toBe(0);
     const capped = buildTile(c.bytes, c.z, c.x, c.y, { ...settings, maxTrees: 100 });
     expect(capped.trees!.count).toBeLessThanOrEqual(100);
     expect(t1.streetlights!.count).toBeLessThanOrEqual(settings.maxStreetlights);

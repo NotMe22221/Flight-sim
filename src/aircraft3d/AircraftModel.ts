@@ -1,5 +1,6 @@
 /**
- * Procedural low-poly Cessna 172 for the render scene.
+ * Procedural low-poly aircraft for the render scene: the Cessna 172 (default) or the Piper
+ * PA-18 Super Cub, picked by `AircraftConfig.airframe` ('c172' | 'cub').
  *
  * - Authored nose −Z, up +Y, right wing +X, origin at the empty CG (see docs/DESIGN.md).
  * - `setPose()` takes the Three.js position and quaternion produced by the integrator from
@@ -13,16 +14,25 @@
 import * as THREE from 'three';
 import type { AircraftConfig, AircraftState, ControlInputs } from '../core/types';
 import { c172ModelConfig, resolveC172Layout, toModelConfig, type AircraftModelConfig, type C172Layout } from './c172Layout';
-import { buildFuselage } from './fuselage';
-import { buildWings } from './wings';
-import { buildTail } from './tail';
+import { CUB_PAINT, resolveCubLayout, type CubLayout } from './cubLayout';
+import { buildFuselage, type FuselageAssembly } from './fuselage';
+import { buildWings, type WingAssembly } from './wings';
+import { buildTail, type TailAssembly } from './tail';
+import { buildCubWings } from './cubWings';
+import { buildCubTail } from './cubTail';
 import { Propeller } from './propeller';
-import { LandingGear } from './gear';
-import { AircraftLights } from './lights';
-import { CockpitInterior, type PanelMesh, type PanelVariant } from './interior';
-import { createModelMaterials, type ModelMaterials } from './materials';
+import { LandingGear, type GearAssembly } from './gear';
+import { CubGear } from './cubGear';
+import { AircraftLights, type LightOptions } from './lights';
+import { CockpitInterior, type CockpitAssembly, type PanelMesh, type PanelVariant } from './interior';
+import { CubCockpit } from './cubInterior';
+import { createModelMaterials, type MaterialOptions, type ModelMaterials } from './materials';
 import { finiteOr, safeDt } from './finite';
-import { LoftProfile } from './loft';
+import { LoftProfile, type LoftStation } from './loft';
+import type { FuselageLayout } from './layoutTypes';
+
+/** The resolved placement of the airframe that was built (narrow with `layout.airframe`). */
+export type AirframeLayout = C172Layout | CubLayout;
 
 const D2R = Math.PI / 180;
 
@@ -50,6 +60,83 @@ export interface ControlSurfacePivots {
   rudder: THREE.Group;
 }
 
+/** Everything one airframe contributes to the model. */
+interface Airframe {
+  layout: AirframeLayout;
+  materials: ModelMaterials;
+  fuselage: FuselageAssembly;
+  wings: WingAssembly;
+  tail: TailAssembly;
+  propeller: Propeller;
+  gear: GearAssembly;
+  lights: AircraftLights;
+  cockpit: CockpitAssembly;
+}
+
+/** Material options with the registration placed on the fuselage between stations regZ. */
+function liveryOptions(L: FuselageLayout, regZ: [number, number], extra: MaterialOptions): MaterialOptions {
+  const len = L.zTail - L.zNose;
+  const regSection = new LoftProfile(L.fuselage.stations).sectionAt((regZ[0] + regZ[1]) / 2, { z: 0, width: 0, height: 0, yCenter: 0, n: 2 } as LoftStation);
+  const profile = new LoftProfile(L.fuselage.stations);
+  const sec = { z: 0, width: 0, height: 0, yCenter: 0, n: 2 } as LoftStation;
+  return {
+    ...extra,
+    regU: [(regZ[0] - L.zNose) / len, (regZ[1] - L.zNose) / len],
+    liveryScale: { uM: len / 2048, vM: regSection.height / 512 },
+    liverySection: (u) => {
+      profile.sectionAt(L.zNose + u * len, sec);
+      return { bottom: sec.yCenter - sec.height / 2, height: sec.height, zFromNose: u * len };
+    },
+  };
+}
+
+function buildC172(cfg: AircraftModelConfig, options: AircraftModelOptions, lightOpts: LightOptions): Airframe {
+  const layout = resolveC172Layout(cfg);
+  const materials = createModelMaterials(liveryOptions(layout, [2.45, 4.2], { registration: options.registration ?? 'N172FS' }));
+  const fuselage = buildFuselage(layout, materials);
+  const wings = buildWings(layout, materials);
+  const tail = buildTail(layout, materials);
+  const propeller = new Propeller(layout.prop, materials);
+  const gear = new LandingGear(layout.gear, materials);
+  const lights = new AircraftLights(layout.lights, materials, lightOpts);
+  const cockpit = new CockpitInterior(layout, fuselage.cabinProfile, materials);
+  return { layout, materials, fuselage, wings, tail, propeller, gear, lights, cockpit };
+}
+
+function buildCub(cfg: AircraftModelConfig, options: AircraftModelOptions, lightOpts: LightOptions): Airframe {
+  const layout = resolveCubLayout(cfg);
+  const materials = createModelMaterials(liveryOptions(layout, layout.livery.regZ, { scheme: CUB_PAINT, registration: options.registration ?? 'N18FS' }));
+  const fuselage = buildFuselage(layout, materials);
+  addCubFuselageDetails(layout, fuselage, materials);
+  const wings = buildCubWings(layout, materials);
+  const tail = buildCubTail(layout, materials);
+  const propeller = new Propeller(layout.prop, materials, materials.trim);
+  const gear = new CubGear(layout.gear, materials);
+  const lights = new AircraftLights(layout.lights, materials, lightOpts);
+  const cockpit = new CubCockpit(layout, fuselage.cabinProfile, materials);
+  return { layout, materials, fuselage, wings, tail, propeller, gear, lights, cockpit };
+}
+
+/** Cub-only skin details: the carburettor air box under the nose and the door handle. */
+function addCubFuselageDetails(L: CubLayout, fuselage: FuselageAssembly, mats: ModelMaterials): void {
+  const sc = L.details.carbScoop;
+  const scoop = new THREE.Mesh(new THREE.BoxGeometry(sc.size.x, sc.size.y, sc.size.z), mats.paintPlain);
+  scoop.position.copy(sc.center);
+  scoop.name = 'carbScoop';
+  const mouth = new THREE.Mesh(new THREE.PlaneGeometry(sc.size.x * 0.82, sc.size.y * 0.7), mats.gasket);
+  mouth.position.set(sc.center.x, sc.center.y, sc.center.z - sc.size.z / 2 - 0.002);
+  mouth.rotation.y = Math.PI;
+  fuselage.group.add(scoop, mouth);
+  // door handle on the lower half of the split door (right side), with the cabin shell
+  const sec: LoftStation = { z: 0, width: 0, height: 0, yCenter: 0, n: 2 };
+  const z = 0.5, y = L.cabin.sillY - 0.09;
+  fuselage.cabinProfile.sectionAt(z, sec);
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.025, 0.12), mats.metal);
+  handle.position.set(sec.width / 2 + 0.006, y, z);
+  handle.name = 'doorHandle';
+  fuselage.cabinShell.add(handle);
+}
+
 export class AircraftModel {
   /** add this to the scene; `setPose` drives it */
   readonly root = new THREE.Group();
@@ -57,18 +144,23 @@ export class AircraftModel {
   readonly exterior = new THREE.Group();
   /** cockpit shell, only shown in cockpit view */
   readonly interior: THREE.Group;
-  /** steam instrument panel plane (0.96 × 0.48 m, 2:1 like its texture); assign `material.map` */
+  /**
+   * steam instrument panel plane, 2:1 like its 1024 × 512 texture (C172 0.96 × 0.48 m, Cub
+   * 0.60 × 0.30 m); assign `material.map`
+   */
   readonly panelMesh: PanelMesh;
-  /** G1000 plane (0.96 × 0.35 m, PFD + MFD), hidden unless {@link setPanelVariant}('g1000') */
+  /** G1000 plane (0.96 × 0.35 m, PFD + MFD), hidden unless {@link setPanelVariant}('g1000'); the Cub has none (always hidden) */
   readonly panelMeshG1000: PanelMesh;
   /** pilot eye point in model-local coordinates (from config.geometry.eyePoint) */
   readonly eyePointLocal: THREE.Vector3;
-  readonly layout: C172Layout;
+  /** which airframe was built ('c172' unless the config says 'cub') */
+  readonly airframe: AirframeLayout['airframe'];
+  readonly layout: AirframeLayout;
   readonly materials: ModelMaterials;
   readonly propeller: Propeller;
-  readonly gear: LandingGear;
+  readonly gear: GearAssembly;
   readonly lights: AircraftLights;
-  readonly cockpit: CockpitInterior;
+  readonly cockpit: CockpitAssembly;
   readonly surfaces: ControlSurfacePivots;
   /** cabin skin + exterior glass; hidden while the camera is inside */
   readonly cabinShell: THREE.Group;
@@ -87,31 +179,25 @@ export class AircraftModel {
 
   constructor(config: AircraftConfig | AircraftModelConfig = c172ModelConfig(), options: AircraftModelOptions = {}) {
     const cfg = toModelConfig(config);
-    this.layout = resolveC172Layout(cfg);
+    const lightOpts: LightOptions = {
+      landingIntensity: options.landingLightIntensity,
+      taxiIntensity: options.taxiLightIntensity,
+      spotShadows: options.spotShadows,
+    };
+    const a = cfg.airframe === 'cub' ? buildCub(cfg, options, lightOpts) : buildC172(cfg, options, lightOpts);
+    this.layout = a.layout;
+    this.airframe = a.layout.airframe;
     const L = this.layout;
-    const len = L.zTail - L.zNose;
-    const regZ: [number, number] = [2.45, 4.2];
-    const regSection = new LoftProfile(L.fuselage.stations).sectionAt((regZ[0] + regZ[1]) / 2, { z: 0, width: 0, height: 0, yCenter: 0, n: 2 });
-    this.materials = createModelMaterials({
-      registration: options.registration ?? 'N172FS',
-      regU: [(regZ[0] - L.zNose) / len, (regZ[1] - L.zNose) / len],
-      liveryScale: { uM: len / 2048, vM: regSection.height / 512 },
-    });
+    this.materials = a.materials;
     this.nightElevation = options.nightSunElevationRad ?? -3 * D2R;
     this.root.name = 'aircraft';
     this.exterior.name = 'exterior';
 
-    const fuselage = buildFuselage(L, this.materials);
-    const wings = buildWings(L, this.materials);
-    const tail = buildTail(L, this.materials);
-    this.propeller = new Propeller(L.prop, this.materials);
-    this.gear = new LandingGear(L.gear, this.materials);
-    this.lights = new AircraftLights(L.lights, this.materials, {
-      landingIntensity: options.landingLightIntensity,
-      taxiIntensity: options.taxiLightIntensity,
-      spotShadows: options.spotShadows,
-    });
-    this.cockpit = new CockpitInterior(L, fuselage.cabinProfile, this.materials);
+    const { fuselage, wings, tail } = a;
+    this.propeller = a.propeller;
+    this.gear = a.gear;
+    this.lights = a.lights;
+    this.cockpit = a.cockpit;
     this.cabinShell = fuselage.cabinShell;
     this.surfaces = {
       aileronLeft: wings.aileronLeft, aileronRight: wings.aileronRight,
@@ -172,7 +258,7 @@ export class AircraftModel {
     this.propeller.update(finiteOr(state.engine.rpm), step, cameraIsCockpit);
     this.gear.update(state.gear, step);
     this.lights.update(step, inputs.lights, !cameraIsCockpit || this.night, this.nightLights);
-    this.cockpit.update(inputs);
+    this.cockpit.update(inputs, state);
     this.panelLight = inputs.lights?.panel ?? 0;
     this.cockpit.setPanelLighting(this.daylight, this.panelLight);
 

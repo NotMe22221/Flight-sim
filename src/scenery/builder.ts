@@ -28,7 +28,7 @@ import { OccupancyGrid, scatterTrees } from './vegetation';
 export const SURFACE_LIFT_M = 0.2;
 export const TAXIWAY_AREA_LIFT_M = 0.202;
 export const RIBBON_LIFT_M = 0.204;
-export const NEAR_RUNWAY_LIFT_M = 0.004;
+export const NEAR_RUNWAY_LIFT_M = 0.006;
 export const MARKING_LIFT_M = 0.002;
 export const POOL_LIFT_M = 0.4;
 /** Assumed runway half width when OSM gives no width (m), and the lowering margin around it. */

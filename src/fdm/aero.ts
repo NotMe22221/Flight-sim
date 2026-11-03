@@ -191,6 +191,17 @@ export class AeroModel {
     M[0] = qS * this.b * Cl;
     M[1] = qS * this.c * Cm;
     M[2] = qS * this.b * Cn;
+    // Tail damping in the propeller wake (dimensional, finite at zero airspeed): the immersed share
+    // of the tail's Cm_q / Cn_r sees the wake velocity instead of the free stream.
+    const sd = a.slipstreamDamping;
+    if (sd && i.qbarTail > 0) {
+      const dv = Math.sqrt((2 * i.qbarTail) / i.rho) - i.V;
+      if (dv > 0) {
+        const k = 0.25 * i.rho * this.S * dv;
+        M[1] += sd.pitch * (imm ? imm.elevator : 1) * a.Cm.q * this.c * this.c * k * i.q;
+        M[2] += sd.yaw * (imm ? imm.rudder : 1) * a.Cn.r * this.b * this.b * k * i.r;
+      }
+    }
     out.CL = CL; out.CD = CD; out.CY = CY; out.Cl = Cl; out.Cm = Cm; out.Cn = Cn; out.blend = w;
     return out;
   }

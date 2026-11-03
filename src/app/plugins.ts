@@ -36,6 +36,13 @@ export interface SceneryHostOptions {
   quality: 'low' | 'medium' | 'high' | 'ultra';
   /** vector tile URL template override from the page's `?osm=` query parameter (e.g. a local fixture server) */
   tileUrl?: string;
+  /**
+   * Terrain change signal (TerrainSystem.revision / changesSince): the revision of the ground
+   * heights, and the terrain tiles (z, x, y) changed after a revision (null: too old, assume all).
+   * With it the scenery re-grounds exactly the tiles under changed terrain instead of probing.
+   */
+  terrainRevision?(): number;
+  terrainChangesSince?(revision: number): { z: number; x: number; y: number }[] | null;
 }
 
 let host: SimUiHost | null = null;
@@ -67,6 +74,7 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
       depthMode: String(sim.gfx.depthMode),
       quality: sim.opts.quality ?? 'high',
       tileUrl: q?.get('osm') ?? undefined,
+      ...(sim.terrain ? { terrainRevision: () => sim.terrain!.revision(), terrainChangesSince: (r: number) => sim.terrain!.changesSince(r) } : {}),
     });
     return;
   }

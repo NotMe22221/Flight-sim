@@ -130,7 +130,9 @@ surface, = hemisphere sky colour × intensity + ambient floor), `moonDirThree`, 
   `mieFromVisibility`, `fogBetaFromVisibility`, `fogExp2DensityFromVisibility`, `hazeScaleHeight`,
   `heightFogOpticalDepth`), the haze model (`hazeColor`, `capBySky`, `hazeSunLobe`, `hgPhase`, `rayleighPhase`,
   `mieFraction`, `DEFAULT_HAZE`), the metered-free exposure (`exposureForIlluminance`, `surfaceIlluminance`,
-  `DAY_ILLUMINANCE`), `NIGHT_AMBIENT_COLOR`, ACES/sRGB ports (`acesFilmic`, `linearToSrgb`, `encodeDisplayColor`), helpers.
+  `DAY_ILLUMINANCE`, `cloudCoverAbove`), the calibration (`SUN_INTENSITY_BASE`, `SKYLIGHT_SATURATION`, `GROUND_ALBEDO`,
+  `skylightIrradiance`, `saturateColor`, `sunSkyRatio`, `skylightBalance`), `NIGHT_AMBIENT_COLOR`, ACES/sRGB ports
+  (`acesFilmic`, `linearToSrgb`, `encodeDisplayColor`), helpers.
 - `cloudMath.ts`: `cloudDensityAt(layers, x, yMsl, z, drifts?)`, `cloudLayerDensityAt`, `cloudTypeParams`,
   `coverageMask`, `verticalProfile`, `fbm2`/`valueNoise2`/`hash2`, `CLOUD_NOISE_GLSL` (GPU twin).
 - Renderables usable on their own: `CloudLayers`, `Precipitation`, `StarField` (+ `generateStarCatalog`,
@@ -159,22 +161,28 @@ brings it to ≈ 3.5 ×, keeps the hue and barely touches the zenith and twiligh
 (warm light-pollution band at the horizon, airglow at the zenith, a little brighter under a moon) that fades
 in through nautical twilight, so night skies have a gradient and hills silhouette against it.
 
-**Lights and exposure (§7).** Sun `DirectionalLight`: colour = normalised Preetham transmittance (≈ 5 800 K
-at the zenith, ≈ 3 000 K at 5°), intensity `3 · disc(el) · lum(T) · (1 − 0.85 cc)`, shadow camera a
-±200 m box following the aircraft. `HemisphereLight`: hue = the zenith and horizon hues mixed (the whole
-dome lights the ground; zenith-weighted at twilight for cool shadows, neutral grey as cloud cover closes),
-`lerp(0.02, 0.9, smoothstep(−12°, 10°, el)) · (1 + 0.3 cc)`. Moon `DirectionalLight` and a night-blue ambient
-floor (≈ 0.12 luminance moonless, ≈ 0.24 full moon) keep nights dark but readable after ACES's toe.
-`ambientIrradiance` = hemisphere sky colour × intensity + floor — what the terrain uses. Built-in objects get
-the same skylight magnitude from two sources (`skylightBalance`): the baked environment map (whose
-irradiance on an up-facing surface `PreethamSky.irradianceUp` measures at each bake) carries 75 % of it,
-with `scene.environmentIntensity` capped at 1 so reflections never outshine the sky they mirror, and the
-hemisphere light makes up the rest (≥ 25 %). The dome's irradiance falls ≈ 27× from noon to sunset while
-the skylight curve falls ≈ 2×, so the environment intensity runs ≈ 0.26 at a 75° sun, ≈ 0.37 at 40° and
-reaches the cap near sunset, where the hemisphere light takes over. Exposure is metered-free partial adaptation to the light on an
-up-facing surface, `day · (1.8 / E)^0.5` bounded by [day, night] (E = sun·sin el + ambient luminance): ≈ 1.0
-at dawn/dusk, ≈ 0.7 under a noon overcast, the night bound at night; it adapts with a 1.5 s first-order
-filter (frame-rate independent; the first frame snaps). `targetExposure` (elevation curve) remains exported.
+**Lights and exposure (§7).** One set of light units for everything: the sky dome's radiance scale (Sky.js,
+`SKY_RADIANCE_SCALE` included), so the sky you see is the sky that lights the ground (see "Calibration").
+Sun `DirectionalLight`: colour = normalised Preetham transmittance (≈ 5 800 K at the zenith, ≈ 3 000 K at
+5°), intensity `SUN_INTENSITY_BASE (12) · disc(el) · lum(T) · (1 − 0.85 cc)`, shadow camera a ±200 m box
+following the aircraft. Skylight (`ambientIrradiance`, up-facing): by day the dome's own irradiance
+(`PreethamSky.irradianceUp`, re-integrated when the sun moves ≈ 0.25° or the air changes, not per frame),
+desaturated to real skylight's hue (`SKYLIGHT_SATURATION` 0.3: Sky.js's irradiance is ≈ 30 000 K+, measured
+clear-sky diffuse light ≈ 10–15 000 K) and ×(1 + 0.3 cc), greyer under cloud; from sunset down the
+twilight curve (zenith/horizon hue × `lerp(0.02, 0.9, smoothstep(−12°, 10°, el)) · (1 + 0.3 cc)`, the
+pre-calibration skylight, which keeps dusk readable where the dome is nearly black); the two hand over by a
+smooth maximum (`skylightIrradiance`) around a 10° sun. Plus a night-blue ambient floor (≈ 0.12 luminance
+moonless, ≈ 0.24 full moon) and moonlight. Built-in objects get the same skylight from the baked environment
+map (intensity ≈ 1 by day, capped at 1 so reflections never outshine the sky they mirror) and the
+hemisphere light, which fills in where the twilight curve is brighter than the dome (`skylightBalance`);
+the environment's lower hemisphere is the lit ground (`GROUND_ALBEDO` · (sun + sky) / π), and the
+hemisphere light's ground colour carries whatever the environment does not. Exposure is metered-free
+partial adaptation to the light where the camera is, `day · (DAY_ILLUMINANCE / E)^0.5` bounded by
+[day 0.5, night 1.5 (+15 % moonless)], E = sun·sin el + skylight luminance with the sun dimmed only by the
+cloud layers ABOVE the camera (`cloudCoverAbove`) and by the cloud it is in: 0.5 at a clear noon, ≈ 0.63 at
+40°, ≈ 0.9 at 20°, the night bound from a ≈ 6° sun down, ≈ 0.85 under a noon overcast and back to ≈ 0.5
+on top of it. It adapts with a 1.5 s first-order filter (frame-rate independent, no overshoot; the first
+frame snaps). `targetExposure` (elevation curve) remains exported.
 
 **Fog / aerial perspective (§3).** Koschmieder β0 = 3.912 / visibility with an exponential height
 profile β(h) = β0·e^(−h/H) above the ground under the aircraft; H = 300–8000 m from visibility, or the
@@ -221,8 +229,10 @@ camera), so there is no per-frame CPU work. Rain streaks stretch along the relat
 15 mm/h, snow at 6 mm/h water equivalent).
 
 **Environment map (§1.2).** A second dome instance in a private scene is baked with `PMREMGenerator`
-into `scene.environment` (sun disc hidden) when the sun moved > 1° (3° at time-scale ≥ 60) or
-turbidity/Mie/cloud cover changed, at most every 0.5 s.
+into `scene.environment` (sun disc hidden, the dome desaturated to the skylight's hue by the
+`skySaturation` uniform `patchSkyDome` adds — 1 on screen —, a grey shell over it as cover closes, the lit
+ground below the horizon) when the sun moved > 1° (3° at time-scale ≥ 60) or turbidity/Mie/cloud cover
+changed, at most every 0.5 s.
 
 **Weather (§4.4, §6, §9, §11).** Presets are the §4.4 table (AGL at the departure airport → MSL).
 `WeatherSystem` cross-fades numeric fields (visibility in log space, wind direction through the shortest
@@ -233,6 +243,29 @@ Mean wind: FROM-direction layers converted to TO vectors, vector-interpolated be
 Open-Meteo: winds at 10 m + 850/700/500/250 hPa (geopotential heights), low/mid/high cloud placed from
 the lifted condensation level, precipitation as liquid-water equivalent (snowfall cm × 10/7, showers included).
 
+## Calibration
+
+Light units are the sky dome's radiance scale: a surface's radiance is albedo/π × irradiance in the same
+units the dome is drawn in, so lit surfaces and the sky they are seen against are exposed together. The
+sun (`SUN_INTENSITY_BASE` 12 at the zenith before extinction) is calibrated against the dome's own
+irradiance: the direct sun on a horizontal surface is ≈ 5 × the skylight at a 76° sun, ≈ 4.7 × at 40°,
+≈ 3 × at 20° (clear air; real clear skies ≈ 8 / 6 / 3). Before the calibration the sun was 3 and the
+skylight a hand-tuned curve ≈ 3 × below the dome's irradiance: the sky read brighter than sunlit white
+paint, and the environment map (the full-saturation dome) tinted shade sky-blue. The day exposure 0.5
+then puts sunlit white paint where a photograph does. Measured in the real app (look-calibration harness:
+KSFO 28R, 2026-06-21, low graphics, procedural imagery, chase camera broadside to the sun; sRGB 0–255
+medians, before → after):
+
+| Clear noon (sun 76°) | before | after | target |
+|---|---|---|---|
+| white paint, sunlit top | 190/194/201 (bluish) | 238/237/236 | 225–245, neutral |
+| white paint, shaded side | 71/99/121 (sky-blue) | 153/157/160 | 120–180, slightly blue |
+| runway asphalt (albedo ≈ 0.15) | 70/74/84 (bluish) | 156/155/155 (neutral) | 55–90: albedo ≈ 0.045 needed |
+| runway markings (0xf2f2ea) | 194/197/201 | 239/238/236 | near the paint |
+| procedural grass near the runway | 97/88/52 | 182/169/119 | mid green: albedo too high |
+| sky at the horizon / 20° / 45° | 197 / 177 / 160 | 187 / 164 / 147 | blue, brighter toward the horizon |
+| exposure | 0.60 | 0.50 | |
+
 ## Tests
 
 `npx vitest run src/sky` — 16 files, all Node (no WebGL):
@@ -242,6 +275,7 @@ the lifted condensation level, precipitation as liquid-water equivalent (snowfal
 | `SkySystem.test.ts` | stub-renderer `SkySystem`: scene graph, ACES + shadows, NOAA sun placement in the render frame, sun light/shadow box, Koschmieder fog, fog colour reaching the GPU encoded once, shared cloud field + floating-origin rebase (shared and self-integrated drift), MSL = y + alt0, ground-fog layer seen from above, in-cloud fog, `patchSkyDepth` output, no cloud-fog lag, first-frame exposure |
 | `haze.test.ts` | phase functions, aerosol share, noon haze between the lit ground and the horizon sky (ridge at 20 km still separable on screen), sun-ward glow, cap, exposure from illuminance, in-scatter knee (horizon ≈ 2–5 × zenith), night glow |
 | `skyShared.test.ts` | shared uniforms (ambient irradiance = hemisphere + floor, cloud-shadow layers, no shadows at night, `null` publishes nothing), noon haze darker than the horizon and blue-grey on screen, night glow and ambient floor, built-in height-fog chunks + uniforms shared through `UniformsUtils.clone`, `patchSkyDome` idempotent |
+| `calibration.test.ts` | sun vs sky calibration end to end: direct sun 3–8 × the dome's skylight (20°–76°), clear-noon white paint 225–245 and neutral, shade 120–180 and slightly blue, sky ≥ 2.5 × darker than the paint, golden hour warm and unclipped with bluish shade, dusk/night dark but readable; exposure on top of an overcast = clear air (was ≈ 2 × too open), settles without overshoot or pumping; the dome irradiance is not re-integrated per frame; the environment's lower hemisphere is the lit ground (was default white) |
 | `lookReview.test.ts` | review regressions: a deck below the point casts no shadow (CPU twin, GLSL guard, the aircraft's sun light on top of an overcast), cloud-type parameters are shared constants, `uSkyGroundY` published, `irradianceUp` vs a fine quadrature (noon → sunset), `skylightBalance` parity and caps, built-in skylight = terrain skylight at a 40° sun and at sunset |
 | `robustness.test.ts` | one running `SkySystem` fed zero / 50 m / 10⁹ m / NaN visibility, a ground-fog layer, 80 km altitude, in-cloud and storm, at noon, dusk and midnight: every `SkyLighting` number, shared uniform, built-in fog value and the fog optical depth stays finite (a NaN visibility used to latch NaN into the adapted exposure for good) |
 | `WeatherSystem.test.ts` | presets by reference, transitions (lerp, wrap through north, exact end state), `windNED`/`windAt` sign (FROM 270° 10 kt → +E 5.144 m/s), log profile, gusts, METAR/live application, cloud density + drift + rebase |
@@ -270,15 +304,13 @@ depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app
 
 ## Known limitations
 
-- **Sun vs sky balance on built-in materials.** The PMREM environment map is baked from the dome in the
-  sky's radiance scale; at full strength it overpowered the sun on MeshStandard materials (white runway
-  paint read light blue, asphalt navy). The interim fix (a constant environment intensity 0.4, hemisphere
-  light at 25 %) was right for a 40° sun only: at sunset built-ins got a third of the terrain's skylight
-  (aircraft and cabin ≈ 45 % darker and navy against the implementer's look-dev shots). The review made
-  the magnitude follow `ambientIrradiance` at every sun height (`skylightBalance`). Still open: the
-  environment's hue is the dome's (bluer than the terrain's normalised skylight hue at noon), one
-  `environmentIntensity` scales diffuse and specular alike, and white paint / asphalt neutrality under the
-  sun has not been re-metered against exposure.
+- **Albedos are not yet calibrated to the light.** Since the calibration (sun 12, the dome's skylight,
+  day exposure 0.5) white paint lands where a photograph puts it, but the albedos of other modules were
+  tuned against the old, ≈ 4 × too dim sun: the runway asphalt (≈ 0.15 linear, "aged") renders ≈ 150/255
+  sunlit at noon instead of 55–90, the procedural grass ≈ 160 (straw) instead of a mid green, the runway
+  markings (0xf2f2ea ≈ 0.89) at the paint's level. Proposed numbers are in the look-calibration review.
+  `environmentIntensity` still scales diffuse and specular alike, and the environment's lower hemisphere is
+  the lit ground even on top of a cloud deck (where it should be the bright deck).
 
 - Tier A planes are 2-D slabs: weak look at the layer altitude, no cumulus towers, no earth curvature
   (≈ 0.8 km drop at the 100 km plane edge). Inside a cloud the fog is global, so rays leaving the cloud stay
@@ -297,9 +329,9 @@ depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app
   extinction (distant terrain does not redden at sunset beyond the haze colour itself).
 - Preetham twilight is approximate (knee + glow on top of single scattering); the star field is synthetic
   (no BSC5, no precession); moon position from `geo/solar` is good to ≈ 1°.
-- Exposure follows the light on the ground under the clouds (the cover-dimmed sun), not the light where the
-  camera is: on top of a deck the aircraft (now in full sun, see cloud shadows) and the sunlit cloud tops read
-  bright. Metering the aircraft's own sun (`cloudShadowAt`) would fix it but makes exposure pump under broken cloud.
+- Exposure follows the light where the camera is through the cloud layers above it (`cloudCoverAbove`, a smooth
+  function of altitude) and the cloud it is in, not the cloud shadows on the ground: flying under broken cloud
+  the exposure does not pump with each shadow, so a sunlit gap reads bright and a shadow dark.
 - Exposure is a model, not metered. Night bound 1.5 (spec: 6–10) with a ≈ 10× brighter moonlight (0.08 vs
   0.0075·fraction) and a bright night ambient: same moonlit-surface brightness, but emissive lights stay
   coloured instead of clipping; raise `exposure.night` if the bloom/lights module wants more.
@@ -318,11 +350,11 @@ depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app
 
 | Where | Knob (default) |
 |---|---|
-| `SkySystemOptions` | `exposure` {day 0.6, twilight 1.0, night 1.5, overcastBoost 0.4, adaptTimeS 1.5}, `toneMapping` (ACES), `shadows` (true), `shadowMapSize` (2048), `shadowRadiusM` (200), `stars` (3000), `seed`, `environmentMap` (true), `envRebakeDeg` (1), `envRebakeMinS` (0.5), `sunIntensity` (3), `rayleigh` (1), `mieDirectionalG` (0.8), `inCloudBeta` (0.03 m⁻¹), `clouds`, `precipitation` |
+| `SkySystemOptions` | `exposure` {day 0.5, twilight 1.0, night 1.5, overcastBoost 0.4, adaptTimeS 1.5}, `toneMapping` (ACES), `shadows` (true), `shadowMapSize` (2048), `shadowRadiusM` (200), `stars` (3000), `seed`, `environmentMap` (true), `envRebakeDeg` (1), `envRebakeMinS` (0.5), `sunIntensity` (`SUN_INTENSITY_BASE` 12), `rayleigh` (1), `mieDirectionalG` (0.8), `inCloudBeta` (0.03 m⁻¹), `clouds`, `precipitation` |
 | `CloudLayersOptions` | `radiusM` (100 000), `octaves` (3; 5 = richer), `maxLayers` (4), `segments` (1) |
 | `cloudTypeParams` | feature size / σt / brightness / erosion: cumulus 2500 m, 0.006, 1.0, 0.4; stratus 3500 m, 0.004, 0.9, 0.2; cirrus 6000 m, 0.0006, 1.6, 0.6; `COVERAGE_SOFTNESS` 0.25, `VERTICAL_FEATHER` 0.12 |
 | `PrecipitationOptions` | `maxParticles` (4000), `boxM` (60), `fullRateRain` (15 mm/h), `fullRateSnow` (6 mm/h), `seed` |
 | `WeatherSystemOptions` | `airportElevationM`, `seed` (7), `z0` (0.03 m), `initial` ('clear'), `defaultTransitionS` (60), `gust` {meanIntervalS 40, minIntervalS 12, rampMinM 30, rampMaxM 120, magMin 0.5, magMax 1} |
-| `lighting.ts` | `DEFAULT_HAZE` {omega 0.9, multiScatter 2.6, groundAlbedo 0.15, maxOfSky 0.8}, `HAZE_G` 0.7, `DAY_ILLUMINANCE` 1.8, `NIGHT_AMBIENT_COLOR`, `ambientFloor` 0.22 + 0.22·moon |
+| `lighting.ts` | `DEFAULT_HAZE` {omega 0.9, multiScatter 2.6, groundAlbedo 0.15, maxOfSky 0.8}, `HAZE_G` 0.7, `DAY_ILLUMINANCE` 11, `SKYLIGHT_SATURATION` 0.3, `GROUND_ALBEDO` (0.15, 0.15, 0.13), `NIGHT_AMBIENT_COLOR`, `ambientFloor` 0.22 + 0.22·moon |
 | `preetham.ts` / `SkySystem.ts` | `INSCATTER_KNEE` 25, `NIGHT_GLOW_SCALE_HEIGHT` 0.18, `NIGHT_GLOW_HORIZON`/`_ZENITH`, `SKYLIGHT_HORIZON_SHARE` 0.5 |
 | runtime | `sky.stars.gain` (3.5), `sky.moon.brightness` (0.6), moon drawn at `MOON_APPARENT_DIAMETER_DEG` 1.0° (`SkySystem.ts`), `wind.ts` `LOG_PROFILE_MAX` (1.3), `lighting.ts` curves |

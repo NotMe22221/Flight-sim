@@ -4,7 +4,7 @@
  * pass, which would need a scene render-to-texture per frame).
  */
 import * as THREE from 'three';
-import { C172_LIVERY, createHaloTexture, createLiveryTexture, createPanelPlaceholderTexture, createPropBlurTexture, type LiveryScheme } from './textures';
+import { C172_LIVERY, createHaloTexture, createLiveryTexture, createPanelPlaceholderTexture, createPropBlurTexture, type LiveryScheme, type LiverySection } from './textures';
 
 export interface ModelMaterials {
   /** white livery paint with the cheat-line/registration map (fuselage) */
@@ -81,11 +81,13 @@ export interface MaterialOptions {
   regU?: [number, number];
   /** metres per livery texel along u / v at the registration (keeps the letters' shape) */
   liveryScale?: { uM: number; vM: number };
+  /** fuselage section along the livery u (for the scheme's straight `lines`) */
+  liverySection?: LiverySection;
 }
 
 export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials {
   const scheme = opts.scheme ?? C172_PAINT;
-  const livery = createLiveryTexture(opts.registration ?? 'N172FS', opts.regU?.[0] ?? 0.55, opts.regU?.[1] ?? 0.78, opts.liveryScale, scheme.livery);
+  const livery = createLiveryTexture(opts.registration ?? 'N172FS', opts.regU?.[0] ?? 0.55, opts.regU?.[1] ?? 0.78, opts.liveryScale, scheme.livery, opts.liverySection);
   const blur = createPropBlurTexture();
   const halo = createHaloTexture();
 

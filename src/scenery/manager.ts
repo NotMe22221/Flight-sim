@@ -93,6 +93,8 @@ export class SceneryManager implements SceneryLike {
   private pavementRev = 0;
   private pavementList: PavementArea[] = [];
   private pavementListRev = -1;
+  /** terrain revision the resident tiles were last checked against (change signal), −1 before the first look */
+  private terrainRev = -1;
   private wanted: TileDist[] = [];
   private nextId = 1;
   private frameNo = 0;
@@ -162,7 +164,8 @@ export class SceneryManager implements SceneryLike {
       this.issueRequests();
       this.processArrivals(t0);
       const calls0 = this.sampler.calls, tg = this.now();
-      this.groundTiles(t0);
+      const signalled = this.followTerrainChanges();
+      this.groundTiles(t0, !signalled);
       const used = this.sampler.calls - calls0;
       this.groundSamplesLast = used;
       if (used > 50) this.groundUsPerSample += (((this.now() - tg) * 1000) / used - this.groundUsPerSample) * 0.1;
@@ -414,7 +417,35 @@ export class SceneryManager implements SceneryLike {
 
   // ───────────────────────────── ground ─────────────────────────────
 
-  private groundTiles(t0: number): void {
+  /**
+   * Terrain change signal (host.terrainRevision / terrainChangesSince): every resident tile under
+   * a terrain tile that changed since the last look is marked for priority re-sampling, all of
+   * them when the log no longer reaches back. Returns false without a signal (then the probe
+   * grids watch the terrain instead).
+   */
+  private followTerrainChanges(): boolean {
+    const h = this.host;
+    if (!h.terrainRevision || !h.terrainChangesSince) return false;
+    const rev = h.terrainRevision();
+    if (!Number.isFinite(rev)) return false;
+    if (rev === this.terrainRev) return true;
+    const changes = this.terrainRev < 0 ? [] : h.terrainChangesSince(this.terrainRev);
+    this.terrainRev = rev;
+    if (changes !== null && changes.length === 0) return true;
+    for (let i = 0; i < this.ready.length; i++) {
+      const e = this.ready[i];
+      if (!e.obj) continue;
+      let hit = changes === null;
+      for (let k = 0; !hit && k < changes!.length; k++) {
+        const c = changes![k];
+        hit = c.z >= e.z ? (c.x >> (c.z - e.z)) === e.x && (c.y >> (c.z - e.z)) === e.y : (e.x >> (e.z - c.z)) === c.x && (e.y >> (e.z - c.z)) === c.y;
+      }
+      if (hit) e.obj.terrainChanged();
+    }
+    return true;
+  }
+
+  private groundTiles(t0: number, probe = true): void {
     const budgetMs = this.stream.frameBudgetMs;
     let left = this.stream.groundSamplesPerFrame;
     // 1) first passes, nearest tiles first (the wanted list is sorted by distance)
@@ -429,14 +460,15 @@ export class SceneryManager implements SceneryLike {
     //    ground moved ("hot": the terrain refined there) is re-sampled first, nearest first, with
     //    the rest of the budget, so its buildings, pavement, lights and trees follow within a second
     const n = this.ready.length, nw = this.wanted.length;
-    let probe = Math.min(left, Math.max(PROBES_MIN_PER_FRAME, Math.ceil(PROBES_PER_SECOND * this.dt)));
-    for (let k = 0; k < nw && probe > 0; k++) {
+    // (with the terrain's change signal the tiles under changed terrain are already marked hot)
+    let probes = probe ? Math.min(left, Math.max(PROBES_MIN_PER_FRAME, Math.ceil(PROBES_PER_SECOND * this.dt))) : 0;
+    for (let k = 0; k < nw && probes > 0; k++) {
       // wanted tiles only (LRU leftovers beyond the radius keep the background round-robin)
       this.probeCursor = (this.probeCursor + 1) % nw;
       const o = this.entries.get(this.wanted[this.probeCursor].key)?.obj;
       if (!o) continue;
-      const u = o.checkTerrain(this.sampler, Math.min(probe, PROBE_CHUNK));
-      probe -= u; left -= u;
+      const u = o.checkTerrain(this.sampler, Math.min(probes, PROBE_CHUNK));
+      probes -= u; left -= u;
     }
     for (let i = 0; i < this.wanted.length && left > 0; i++) {
       const o = this.entries.get(this.wanted[i].key)?.obj;

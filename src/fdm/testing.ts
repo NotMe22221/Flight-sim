@@ -1,6 +1,6 @@
 /** Shared helpers for flight-model tests: spawning, simple pilot controllers, unit shorthands. */
 import { defaultControlInputs, type ControlInputs, type Environment } from '../core/types';
-import { KT } from '../core/units';
+import { FPM as FPM_MS, KT } from '../core/units';
 import { LocalFrame } from '../geo/wgs84';
 import { C172S } from './aircraft/c172';
 import { Fdm } from './fdm';
@@ -88,4 +88,86 @@ export function levelWings(f: Fdm, u: ControlInputs, headingRad?: number, yawGai
   u.roll = Math.max(-1, Math.min(1, 2.0 * (bankCmd - s.euler[0]) - 0.4 * s.rates[0]));
   // sideslip to the right (β > 0) needs right rudder (yaw > 0)
   u.yaw = Math.max(-1, Math.min(1, yawGain * s.aero.beta));
+}
+
+const clamp1 = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
+
+/**
+ * Cascaded altitude hold for light aircraft: altitude error → vertical-speed command → pitch-
+ * attitude command (integrating the vertical-speed error) → stick (PI on attitude with pitch-rate
+ * damping, on top of the trim stick). Gentler than the C172 tests' integrating stick loop, which
+ * pilot-induces an oscillation in a lighter aircraft with a more powerful elevator.
+ */
+export class AltitudeHold {
+  private stick: number;
+  private theta: number;
+  constructor(private readonly f: Fdm, private readonly targetM: number, baseStick: number) {
+    this.stick = baseStick;
+    this.theta = f.state.euler[1];
+  }
+  update(u: ControlInputs, dt: number): void {
+    const s = this.f.state;
+    const vsErr = clamp1(0.12 * (this.targetM - s.altitudeMslM), -2.5, 2.5) - s.verticalSpeedMs;
+    this.theta = clamp1(this.theta + 0.024 * vsErr * dt, -0.35, 0.45);
+    const e = clamp1(this.theta + 0.012 * vsErr, -0.35, 0.45) - s.euler[1];
+    this.stick = clamp1(this.stick + 0.6 * e * dt, -1, 1);
+    u.pitch = clamp1(this.stick + 1.2 * e - 0.25 * s.rates[1], -1, 1);
+  }
+}
+
+/** White-box view of the flight-model internals the arrival set-up needs. */
+interface FdmInternals {
+  y: Float64Array;
+  k1: Float64Array;
+  specF: Float64Array;
+  hyst: number;
+  env: Environment;
+  gearOut: { wheelsOnGround: number };
+  deriv(s: Float64Array, out: Float64Array): void;
+  sampleEnvironment(): void;
+}
+
+/**
+ * A steady, power-idle arrival 2 cm above the runway (heading north) in a given pitch attitude and
+ * sink rate: the airspeed is solved so that lift supports the weight (1 g, ground effect included)
+ * and the stick so that the pitching moment balances. Returns the inputs holding that state.
+ */
+export function touchdownArrival(f: Fdm, env: Environment, o: { sinkFpm: number; pitchDeg: number; flapsIndex: number; rollDeg?: number }): ControlInputs {
+  f.reset({ geo: { lat: KSFO.lat, lon: KSFO.lon, alt: KSFO.elev + 30 }, headingRad: 0, speedMs: 25, onGround: false, engineRunning: true }, env);
+  const I = f as unknown as FdmInternals;
+  const u = defaultControlInputs();
+  u.parkingBrake = false; u.magnetos = 3; u.mixture = 1; u.throttle = 0; u.flapsIndex = o.flapsIndex;
+  f.snapControls(u);
+  const y = I.y;
+  const th = (o.pitchDeg * Math.PI) / 180, ph = ((o.rollDeg ?? 0) * Math.PI) / 180;
+  // attitude (roll then pitch, heading 0)
+  y[6] = Math.cos(ph / 2) * Math.cos(th / 2); y[7] = Math.sin(ph / 2) * Math.cos(th / 2);
+  y[8] = Math.cos(ph / 2) * Math.sin(th / 2); y[9] = -Math.sin(ph / 2) * Math.sin(th / 2);
+  y[10] = y[11] = y[12] = 0;
+  const vd = o.sinkFpm * FPM_MS, c = Math.cos(th), s = Math.sin(th);
+  const place = (V: number): void => {
+    y[3] = V * c - vd * s; y[4] = 0; y[5] = V * s + vd * c;
+    y[2] = -I.env.groundHeight(y[0], y[1]) - 3;
+    I.sampleEnvironment(); I.deriv(y, I.k1);
+    for (let k = 0; k < 4000 && I.gearOut.wheelsOnGround === 0; k++) { y[2] += 0.001; I.deriv(y, I.k1); }
+    y[2] -= 0.02;
+  };
+  const balanceStick = (): void => {
+    const qdot = (p: number): number => { u.pitch = p; f.snapControls(u); I.deriv(y, I.k1); return I.k1[11]; };
+    let lo = -1, hi = 1;
+    if (qdot(lo) > 0) u.pitch = lo;
+    else if (qdot(hi) < 0) u.pitch = hi;
+    else { for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (qdot(m) > 0) hi = m; else lo = m; } u.pitch = (lo + hi) / 2; }
+    f.snapControls(u); I.deriv(y, I.k1);
+  };
+  let lo = 8, hi = 45;
+  for (let k = 0; k < 40; k++) {
+    const V = (lo + hi) / 2;
+    place(V); balanceStick();
+    // upward non-gravitational specific force (pitch-only attitude) against g
+    if (I.specF[0] * s - I.specF[2] * c > 9.80665) hi = V; else lo = V;
+  }
+  place((lo + hi) / 2); balanceStick();
+  I.hyst = 0;
+  return u;
 }
