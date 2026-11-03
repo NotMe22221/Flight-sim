@@ -160,6 +160,10 @@ export const C172S: AircraftConfig = {
       kCD: [0.48, 0.515, 0.629, 0.709, 0.815, 0.882, 0.928, 0.962, 0.988, 1.0, 1.0, 1.0, 1.0],
     },
     controlsUseSlipstreamQ: { elevator: true, rudder: true },
+    // The contracted wake (~1.3 m) covers ~40 % of the 3.4 m stabilator span and mixes before it gets
+    // there; the fin sits more in it. With full immersion 20 % back pressure lifted the nosewheel at
+    // 5 kt at full power, where a real 172 needs most of its elevator until about 30 kt.
+    slipstreamImmersion: { elevator: 0.25, rudder: 0.5 },
     blendStartRad: 0.36,
     blendEndRad: 0.55,
   },
@@ -224,8 +228,8 @@ export const C172S: AircraftConfig = {
     elevator: { minDeg: -28, maxDeg: 23, tauS: 0.06, rateDegPerS: 80 },
     // Rigged (as on the real aircraft, with bent tabs) so that 105 KCAS cruise is hands-off: wings
     // level with the ball centred. Climb power still needs right rudder; idle needs a little left.
-    aileron: { upDeg: 20, downDeg: 15, tauS: 0.05, rateDegPerS: 100, rigNorm: 0.037 },
-    rudder: { maxDeg: 16, tauS: 0.05, rateDegPerS: 100, rigNorm: 0.027 },
+    aileron: { upDeg: 20, downDeg: 15, tauS: 0.05, rateDegPerS: 100, rigNorm: 0.0372 },
+    rudder: { maxDeg: 16, tauS: 0.05, rateDegPerS: 100, rigNorm: 0.0288 },
     flaps: { detentsDeg: [0, 10, 20, 30], transitS: [2.9, 2.9, 2.9] },
     trim: { elevatorFraction: [0.43, 0.39], rateNormPerS: 0.15 },
     nosewheelSteerDeg: 10,

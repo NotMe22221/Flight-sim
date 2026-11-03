@@ -238,7 +238,8 @@ describe('Fdm — numerics', () => {
     const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     for (const [roll, pitch] of [[Math.PI, 0], [0, 1.4], [0, -1.4], [2, 0.5]]) {
       const f = makeFdm(MTOW, 3);
-      const u = airborne(f, env, 3000, 95);
+      // 90 KCAS: at MTOW and 3,000 m, 95 KCAS level sits right at the power limit
+      const u = airborne(f, env, 3000, 90);
       const q = (f as unknown as { y: Float64Array }).y;
       // overwrite attitude
       const cr = Math.cos(roll / 2), sr = Math.sin(roll / 2), cp = Math.cos(pitch / 2), sp = Math.sin(pitch / 2);

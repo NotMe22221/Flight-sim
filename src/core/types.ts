@@ -222,6 +222,11 @@ export interface AircraftConfig {
     Cn: { beta: number; p: number; r: number; da: number; dr: number; slipstream: number };
     groundEffect: { hOverB: number[]; kCL: number[]; kCD: number[] };
     controlsUseSlipstreamQ: { elevator: boolean; rudder: boolean };
+    /**
+     * Fraction of each tail surface immersed in the propeller wake (0..1): the surface sees
+     * q∞ + immersion·(q_wake − q∞). Undefined = 1 (the whole surface in the fully developed wake).
+     */
+    slipstreamImmersion?: { elevator: number; rudder: number };
     /** alpha (rad) beyond which the table blends into the flat-plate model */ blendStartRad: number; blendEndRad: number;
   };
   propulsion: {

@@ -139,7 +139,11 @@ export class AeroModel {
     const adh = (i.alphaDot * this.c) / (2 * V);
     const qbar = i.qbar > 1e-9 ? i.qbar : 1e-9;
     const uwRatio = i.qbarUW / qbar;
-    const tailRatio = i.qbarTail / qbar;
+    // tail surfaces see the free stream plus their immersed share of the wake's extra dynamic pressure
+    const imm = a.slipstreamImmersion;
+    const wakeExtra = (i.qbarTail > qbar ? i.qbarTail - qbar : 0) / qbar;
+    const tailRatioE = 1 + (imm ? imm.elevator : 1) * wakeExtra;
+    const tailRatioR = 1 + (imm ? imm.rudder : 1) * wakeExtra;
 
     // ── Lift ────────────────────────────────────────────────────────────────
     const flapFade = cosA * cosA * (1 - smoothstep(0.6, 0.785, absA));
@@ -164,16 +168,16 @@ export class AeroModel {
 
     // ── Roll ────────────────────────────────────────────────────────────────
     const clR = a.Cl.r + 1.14 * acl + 0.0448 * flapFrac;
-    const Cl = a.Cl.beta * sinB * this.clBetaGain.at(absA) + a.Cl.p * ph * this.clpScale.at(absA) + clR * rh + a.Cl.da * i.da * this.clDaScale.at(absA) + a.Cl.dr * i.dr * tailRatio;
+    const Cl = a.Cl.beta * sinB * this.clBetaGain.at(absA) + a.Cl.p * ph * this.clpScale.at(absA) + clR * rh + a.Cl.da * i.da * this.clDaScale.at(absA) + a.Cl.dr * i.dr * tailRatioR;
 
     // ── Pitch ───────────────────────────────────────────────────────────────
     const cmStatic = a.Cm.Cm0 + a.Cm.alpha * ac * this.cmAlphaScale.at(absA) + this.cmFlap.at(flap);
     const cmFlat = -0.25 * cn90 * sinA * (cosA >= 0 ? 1 : -1);
-    const Cm = (1 - w) * cmStatic + w * cmFlat + a.Cm.q * qh + a.Cm.adot * adh * uwRatio + a.Cm.de * i.de * deScale * (a.controlsUseSlipstreamQ.elevator ? tailRatio : 1);
+    const Cm = (1 - w) * cmStatic + w * cmFlat + a.Cm.q * qh + a.Cm.adot * adh * uwRatio + a.Cm.de * i.de * deScale * (a.controlsUseSlipstreamQ.elevator ? tailRatioE : 1);
 
     // ── Yaw ─────────────────────────────────────────────────────────────────
     const cnDa = a.Cn.da - 0.6 * acl;
-    let Cn = a.Cn.beta * sinB + a.Cn.p * ph + a.Cn.r * rh * this.cnrScale.at(absA) + cnDa * i.da + a.Cn.dr * i.dr * (a.controlsUseSlipstreamQ.rudder ? tailRatio : 1);
+    let Cn = a.Cn.beta * sinB + a.Cn.p * ph + a.Cn.r * rh * this.cnrScale.at(absA) + cnDa * i.da + a.Cn.dr * i.dr * (a.controlsUseSlipstreamQ.rudder ? tailRatioR : 1);
     // Spiralling slipstream striking the fin (nose-left for a clockwise propeller)
     Cn += (a.Cn.slipstream * i.propSense * i.qbarInduced) / qbar;
 

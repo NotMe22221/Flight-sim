@@ -92,7 +92,8 @@ export interface AssistsConfig {
 export const defaultAssistsConfig = (): AssistsConfig => ({
   autoRudder: { betaKp: 3, betaKi: 2, iLim: 0.3, aileronFf: 0.3, authority: 0.6, minIasMs: 35 * KT, pilotYawFreeze: 0.05 },
   takeoff: {
-    headingKp: 4.0, yawRateKd: 1.5, headingKi: 1.5, iLim: 0.3, authority: 0.8,
+    // re-tuned on the real C172 model after its rudder got 50 % slipstream immersion (src/fdm c172.ts)
+    headingKp: 8.0, yawRateKd: 3.0, headingKi: 3.0, iLim: 0.3, authority: 0.8,
     refSpeedMs: 15, scaleMin: 0.3, scaleMax: 3, brakeOn: 0.5,
     takeoffThrottle: 0.6, releaseMaxTravelM: 30, idleThrottle: 0.2, releaseSpeedMs: 15 * KT, liftoffBlendS: 3,
   },
