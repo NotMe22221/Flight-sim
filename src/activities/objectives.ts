@@ -440,8 +440,12 @@ export type ObjectiveSpec =
   | (ObjectiveBase & { type: 'rotate'; minKt: number; maxKt: number; targetKt?: number; strict?: boolean; pitchDeg?: number })
   /** on the ground, stopped (≤ maxKt, default 1) for stopS (default 2 s) within radiusM (default 2 500 m) of the airport, after flying */
   | (ObjectiveBase & { type: 'stopAt'; icao: string; name?: string; lat: number; lon: number; radiusM?: number; maxKt?: number; stopS?: number })
-  /** the next 'landing:scored' must reach minScore (0..10 000), on `runway` ("KHAF 30") or `airport`, touching down within `zone` (m past the pavement threshold) */
-  | (ObjectiveBase & { type: 'landing'; minScore: number; runway?: string; airport?: string; zone?: { fromM: number; toM: number } })
+  /**
+   * the next 'landing:scored' must reach minScore (0..10 000), on `runway` ("KHAF 30") or `airport`, touching down within
+   * `zone` (m past the pavement threshold). A landing elsewhere fails it, or with `elsewhere: 'ignore'` (bush legs) is
+   * skipped so the landing at the destination still counts.
+   */
+  | (ObjectiveBase & { type: 'landing'; minScore: number; runway?: string; airport?: string; zone?: { fromM: number; toM: number }; elsewhere?: 'fail' | 'ignore' })
   /** pass within radiusM (default 1 nm) of a point */
   | (ObjectiveBase & { type: 'waypoint'; name: string; lat: number; lon: number; radiusM?: number });
 
@@ -750,8 +754,11 @@ class LandingObjective extends Objective {
     if (ctx.landingSeq === this.seq || !L) return;
     this.seq = ctx.landingSeq;
     const s = this.s;
-    if (s.runway && L.runway !== s.runway) { this.fail(`Landed on ${L.runway ?? 'an unidentified surface'}, not ${s.runway}`); return; }
-    if (s.airport && !(L.runway ?? '').startsWith(`${s.airport} `)) { this.fail(`Landed away from ${s.airport}`); return; }
+    const wrongRunway = !!s.runway && L.runway !== s.runway;
+    const wrongAirport = !!s.airport && !(L.runway ?? '').startsWith(`${s.airport} `);
+    if ((wrongRunway || wrongAirport) && s.elsewhere === 'ignore') return;
+    if (wrongRunway) { this.fail(`Landed on ${L.runway ?? 'an unidentified surface'}, not ${s.runway}`); return; }
+    if (wrongAirport) { this.fail(`Landed away from ${s.airport}`); return; }
     if (s.zone) {
       const x = L.touchdownFromThresholdM;
       if (x === null || x < s.zone.fromM || x > s.zone.toM) {

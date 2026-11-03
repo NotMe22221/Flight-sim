@@ -14,7 +14,7 @@ import type { LocalFrame } from '../geo/wgs84';
 import { ATTRIBUTION, nightFactor, qualityProfile, type BuildSettings, type SceneryQuality, type StreamSettings } from './config';
 import { GroundSampler } from './grounding';
 import { SceneryLoader, type LoaderMode, type WorkerLike } from './loader';
-import { SceneryMaterials, makeTreeGeometries } from './materials';
+import { SceneryMaterials, makeTreeGeometries, nearDropForCameraHeight } from './materials';
 import { selectParking, type ParkingSpot } from './parking';
 import type { BuildRequest, ParkingSpotLocal, WorkerResponse } from './protocol';
 import { TileSource, type FetchJson } from './source';
@@ -133,6 +133,9 @@ export class SceneryManager implements SceneryLike {
       this.frameNo++;
       this.night = nightFactor(sunElevationRad);
       this.materials.setNight(this.night);
+      // airport surfaces come down near the camera only while it is near the ground
+      const groundUnderCam = this.host.groundUp(-cam.z, cam.x);
+      if (groundUnderCam !== null && Number.isFinite(groundUnderCam)) this.materials.nearDrop.value = nearDropForCameraHeight(cam.y - groundUnderCam);
       this.sinceSelect += Math.max(0, Number.isFinite(_dt) ? _dt : 0);
       const moved = Number.isNaN(this.lastSelect.x) || this.lastSelect.distanceToSquared(cam) > MOVE_RESELECT_M * MOVE_RESELECT_M;
       if (moved || this.sinceSelect >= RESELECT_S) this.select(cam);

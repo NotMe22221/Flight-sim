@@ -74,20 +74,34 @@ footprints longer than 18 m; the base is the lowest sample and walls reach 2 m b
 per draped vertex, per light and per tree, and converted back to tile-local y along the
 tile's own vertical (one fixed-point step from the previous value). Buildings stay collapsed
 (zero-area triangles) until their ground exists; draped meshes, lights and trees appear when
-their first pass is done. Sampling continues forever at a reduced share of the budget, so
-buildings follow terrain refinements within a few seconds. GPU uploads use one persistent
-update range per attribute (no per-frame allocations).
+their first pass is done. Sampling continues forever at a reduced share of the budget (30 %):
+half of it goes to the tile under the camera, the rest round-robin over all resident tiles, and
+inside a tile the layers take turns (one full pass each: buildings, pavement, markings, light
+pools, lights, trees), so everything follows terrain refinements, not only buildings. GPU
+uploads use one persistent update range per attribute (no per-frame allocations).
 
 ### Airport surfaces
 
 Aprons (0.20 m), taxiway areas (0.22 m) and taxiway ribbons (0.24 m, 18 m wide or the OSM
 `width`) sit above the terrain in that order so overlaps never z-fight; yellow centre lines
-are 0.05 m above. Within the runway zone (OSM runway centre line ± half width (30 m default)
-+ 12 m, or runway polygons + 12 m) every vertex drops to 0.03–0.05 m, i.e. **under** the
-runway slab that `src/world/AirportsLayer` draws 0.12 m up, and markings / taxiway lights stop.
-Draped materials carry a small relative depth bias (0.25 % of the view distance, injected
-after three's `project_vertex`, so both the logarithmic and the reversed depth buffer work)
-that wins over the coarser terrain mesh; it is zero next to runways.
+are 0.03 m above the ribbons. Within the runway zone (OSM runway centre line ± half width
+(30 m default) + 12 m, or runway polygons + 12 m) every vertex drops to 0.03–0.05 m, i.e.
+**under** the runway slab that `src/world/AirportsLayer` draws 0.12 m up, and markings /
+taxiway lights stop. Draped materials carry a small relative depth bias (0.25 % of the view
+distance, injected after three's `project_vertex`, so both the logarithmic and the reversed
+depth buffer work) that wins over the coarser terrain mesh; it is zero next to runways.
+
+The aircraft stands on the terrain itself (`groundUp`), so a 0.2 m apron would swallow the
+lower half of its tyres. The surface materials therefore lower the non-runway tiers by up to
+0.14 m near the camera (full within 40 m, none beyond 400 m, computed in the vertex shader
+after `begin_vertex`): aprons, taxiway areas, ribbons and centre lines are 0.06 / 0.08 / 0.10 /
+0.13 m up around the aircraft and keep their full lift further out. The manager scales the
+drop with the camera's height above the ground (full below 20 m, none above 60 m), so views
+from the air keep the full lift.
+Taxiway light sprites stand 0.30 m (centre line) and 0.35 m (edge) above the ground, above
+the draped layers, and the airport light points get the same relative depth bias as the
+pavement (seen from 300 m up the bias is worth ~0.75 m of height, which would otherwise hide
+every light standing on pavement).
 
 ### Lighting
 
@@ -165,7 +179,24 @@ placement, clipping), ground sampling and re-sampling (buildings collapsed until
 following a terrain change), the worker protocol on the sync path (transfer lists, failure
 kinds, gzip, failover, cancellation), the manager (grounding through `groundUp`, `setFrame`
 re-expression to the centimetre, LRU eviction and dispose, TileJSON success / failure,
-404 / network retries, parking on demand, night fade and LOD) and the material patches.
+404 / network retries, parking on demand, night fade and LOD), the tile object (every ground
+layer follows a terrain change, layers take turns in re-sampling) and the material patches
+(depth bias, near-camera drop and point size, with the logdepthbuf chunks kept).
+
+## Integration (app side)
+
+`src/app/plugins.ts` already creates the plugin (`createScenery` with `parent`, `frame`,
+`groundUp`, `heightAt`, `depthMode`, `quality`, `tileUrl` from `?osm=`) and `Simulator` calls
+`update` after the terrain and `setFrame` on a new flight / rebase. Still to wire in the app:
+
+- **Credits**: `SimUiHost.dataCredits()` (`src/app/uiHost.ts`) should append
+  `this.sim.plugins.scenery?.attribution?.() ?? []` (ODbL / OpenMapTiles attribution).
+- **Quality**: `SimUiHost.setGraphics(g)` should call
+  `this.sim.plugins.scenery?.setQuality?.(g.quality)` (same `'low' | 'medium' | 'high' |
+  'ultra'` names).
+- Optional: a graphics toggle calling `setVisible(on)`, and a "spawn at gate" option using
+  `parkingSpots(lat, lon, radiusM)` (gates first, then apron stands, each with `headingDeg`
+  facing the nearest taxiway).
 
 ## Known limitations
 
@@ -176,7 +207,14 @@ re-expression to the centimetre, LRU eviction and dispose, TileJSON success / fa
   60 m wide runways unless OSM provides a polygon or width, so taxiways stay lowered slightly
   further from narrow runways than needed (still under or beside the slab, never above it).
 - Ground heights follow `groundUp` (the finest loaded terrain); where the rendered terrain LOD
-  is coarser than that, the depth bias hides small differences only.
+  is coarser than that (concave ground in the distance), the 0.2 m lift and the depth bias hide
+  small differences only. Flattening the terrain mesh under aprons and taxiways, as the
+  terrain module already does for runways (`TerrainSystem.setRunways`), would remove both
+  this and the remaining tyre sinking; the scenery has the polygons (`TileFeatures.aprons`,
+  `taxiwayPolys`, taxiway lines) if the lead wants to feed them to the terrain.
+- Near the camera aprons are only 0.06 m above the sampled ground (see Airport surfaces), so
+  rough terrain between two drape vertices (16 m grid on high) can show through right next to
+  the aircraft, and wheels still sink 0.06–0.13 m into aprons / taxiways.
 - No shadows from autogen; trees are instanced low-poly meshes without impostors.
 - The headless visual check ran in SwiftShader at a few fps with procedural terrain and
   imagery (no network), not representative of performance on a GPU.

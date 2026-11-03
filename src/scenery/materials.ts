@@ -30,6 +30,20 @@ export const AMBIENT_SATURATION = 0.35;
 export const NEAR_DROP_M = 0.14;
 export const NEAR_DROP_FULL_M = 40;
 export const NEAR_DROP_END_M = 400;
+/**
+ * The drop only matters with the camera near the ground (chase, cockpit, tower on the ground):
+ * the manager scales it from full below NEAR_DROP_CAM_LOW_M of camera height above the ground
+ * to none above NEAR_DROP_CAM_HIGH_M, so views from the air keep the full lift.
+ */
+export const NEAR_DROP_CAM_LOW_M = 20;
+export const NEAR_DROP_CAM_HIGH_M = 60;
+
+/** Near-drop uniform value for a camera `h` metres above the ground (see NEAR_DROP_M). */
+export function nearDropForCameraHeight(h: number): number {
+  if (!Number.isFinite(h)) return 0;
+  const t = Math.min(1, Math.max(0, (h - NEAR_DROP_CAM_LOW_M) / (NEAR_DROP_CAM_HIGH_M - NEAR_DROP_CAM_LOW_M)));
+  return NEAR_DROP_M * (1 - t * t * (3 - 2 * t));
+}
 
 export interface MaterialPatch {
   /** relative depth bias uniform; the geometry carries an `aBias` weight attribute */
@@ -135,8 +149,10 @@ export class SceneryMaterials {
     patchMaterial(this.markings, { depthBias: this.depthBias, nearDrop: this.nearDrop, ambientSat: this.ambientSat }, 'scenery-markings-2');
     this.trees = new THREE.MeshLambertMaterial({ name: 'scenery-trees', vertexColors: true });
     patchMaterial(this.trees, { ambientSat: this.ambientSat }, 'scenery-trees-1');
-    this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 16);
-    this.airportLights = this.pointsMaterial('scenery-airport-lights', sprite, 9);
+    this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 16, false);
+    // airport lights stand on draped pavement, which is depth-biased toward the camera: the
+    // same bias keeps them in front of it (seen from 300 m up the bias is worth ~0.75 m)
+    this.airportLights = this.pointsMaterial('scenery-airport-lights', sprite, 9, true);
     this.pools = new THREE.MeshBasicMaterial({
       name: 'scenery-light-pools', map: pool, color: 0xffe2b8, transparent: true, opacity: 0, depthWrite: false,
       blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, toneMapped: true,
@@ -144,7 +160,7 @@ export class SceneryMaterials {
     patchMaterial(this.pools, { depthBias: this.depthBias, nearDrop: this.nearDrop }, 'scenery-pools-2');
   }
 
-  private pointsMaterial(name: string, sprite: THREE.Texture, size: number): THREE.PointsMaterial {
+  private pointsMaterial(name: string, sprite: THREE.Texture, size: number, biased: boolean): THREE.PointsMaterial {
     const m = new THREE.PointsMaterial({
       name, size, map: sprite, vertexColors: true, transparent: true, opacity: 0, depthWrite: false,
       blending: THREE.AdditiveBlending, sizeAttenuation: true, alphaTest: 0.002,
@@ -152,13 +168,19 @@ export class SceneryMaterials {
       toneMapped: false,
     });
     const minPx = this.minPointPx;
+    const bias = this.depthBias;
     m.onBeforeCompile = (shader) => {
       shader.uniforms.sceneryMinPointPx = minPx;
-      shader.vertexShader = shader.vertexShader
-        .replace('void main() {', 'uniform float sceneryMinPointPx;\nvoid main() {')
+      let vs = shader.vertexShader
+        .replace('void main() {', `uniform float sceneryMinPointPx;\n${biased ? 'uniform float sceneryDepthBias;\n' : ''}void main() {`)
         .replace('#include <fog_vertex>', '#include <fog_vertex>\n\tgl_PointSize = max( gl_PointSize, sceneryMinPointPx );');
+      if (biased) {
+        shader.uniforms.sceneryDepthBias = bias;
+        vs = vs.replace('#include <project_vertex>', '#include <project_vertex>\n\tmvPosition.xyz *= 1.0 - sceneryDepthBias;\n\tgl_Position = projectionMatrix * mvPosition;');
+      }
+      shader.vertexShader = vs;
     };
-    m.customProgramCacheKey = () => 'scenery-points-minpx-1';
+    m.customProgramCacheKey = () => (biased ? 'scenery-points-minpx-bias-1' : 'scenery-points-minpx-1');
     return m;
   }
 

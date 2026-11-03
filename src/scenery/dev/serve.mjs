@@ -5,9 +5,11 @@
 // /planet (like https://tiles.openfreemap.org/planet) and 204 for /empty/... paths.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, normalize, resolve } from 'node:path';
 
-const root = resolve(process.argv[2] ?? '/tmp/claude-0/-home-user-Flight-sim/7bee71d5-9f1f-55ef-9ffc-73df5cf9c113/scratchpad/osm-fixtures');
+// rootDir defaults to $OSM_FIXTURES, else <os tmpdir>/osm-fixtures (generateFixtures.ts writes there too)
+const root = resolve(process.argv[2] ?? process.env.OSM_FIXTURES ?? join(tmpdir(), 'osm-fixtures'));
 const port = Number(process.argv[3] ?? 8790);
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Access-Control-Allow-Headers': '*' };
 

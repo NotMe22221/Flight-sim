@@ -116,9 +116,15 @@ const BLUE: readonly [number, number, number] = [0.12, 0.3, 1];
 const GREEN: readonly [number, number, number] = [0.1, 1, 0.32];
 const FLOOD: readonly [number, number, number] = [1, 0.88, 0.68];
 
+/** Height of light points above the ground (m): above the draped ribbon + centre line (0.27 m). */
+export const TAXI_EDGE_LIGHT_H = 0.35;
+export const TAXI_CENTRE_LIGHT_H = 0.3;
+
 /**
  * Taxiway edge (blue, 30 m) and centre-line (green, 15 m) lights, skipped on runways
  * (`onRunway`) and inside aprons (`onApron`), plus floodlight masts along apron edges.
+ * Real centre-line lights are flush with the pavement; the sprites stand just above the draped
+ * surfaces so the depth test keeps them.
  */
 export function buildAirportLights(taxiways: readonly TaxiwayLine[], apronRings: readonly number[][], onRunway: ZoneFn, onApron: ZoneFn, pb: PointsBuilder,
   floodMasts: { x: number; z: number; nx: number; nz: number }[]): void {
@@ -129,12 +135,12 @@ export function buildAirportLights(taxiways: readonly TaxiwayLine[], apronRings:
       for (const s of [1, -1]) {
         const px = x + nx * off * s, pz = z + nz * off * s;
         if (onRunway(px, pz) || onApron(px, pz)) continue;
-        pb.push(px, pz, 0.35, BLUE[0], BLUE[1], BLUE[2]);
+        pb.push(px, pz, TAXI_EDGE_LIGHT_H, BLUE[0], BLUE[1], BLUE[2]);
       }
     });
     walkPolyline(t.line, 15, 3, (x, z) => {
       if (onRunway(x, z) || onApron(x, z)) return;
-      pb.push(x, z, 0.12, GREEN[0] * 0.8, GREEN[1] * 0.8, GREEN[2] * 0.8);
+      pb.push(x, z, TAXI_CENTRE_LIGHT_H, GREEN[0], GREEN[1], GREEN[2]);
     });
   }
   for (const ring of apronRings) {

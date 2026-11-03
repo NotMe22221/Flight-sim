@@ -4,17 +4,20 @@
  *   node --experimental-transform-types --import ./src/scenery/dev/register.mjs \
  *        src/scenery/dev/generateFixtures.ts [outDir]
  *
+ * outDir defaults to $OSM_FIXTURES, else <os tmpdir>/osm-fixtures.
+ *
  * Runway coordinates come from public/data/airports.json (KSFO); everything else is authored
  * in src/scenery/dev/syntheticWorld.ts.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { KSFO_REF, buildSyntheticWorld, encodeWorldTile, worldTiles, type RunwayInput } from './syntheticWorld';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../../..');
-const outDir = resolve(process.argv[2] ?? '/tmp/claude-0/-home-user-Flight-sim/7bee71d5-9f1f-55ef-9ffc-73df5cf9c113/scratchpad/osm-fixtures');
+const outDir = resolve(process.argv[2] ?? process.env.OSM_FIXTURES ?? join(tmpdir(), 'osm-fixtures'));
 const Z = 14;
 
 interface RawAirport { i: string; la: number; lo: number; r?: { id: string; le: [string, number, number]; he: [string, number, number]; w: number }[] }

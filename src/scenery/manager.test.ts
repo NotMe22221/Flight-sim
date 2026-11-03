@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { LocalFrame } from '../geo/wgs84';
 import { SceneryManager, type SceneryManagerOptions } from './manager';
 import { createScenery } from './index';
+import { NEAR_DROP_M } from './materials';
 import { resetTileSourceCache } from './source';
 import { KSFO_FRAME, makeHost, worldFetch, type HeightFn } from './testUtil';
 
@@ -235,6 +236,24 @@ describe('SceneryManager (sync path)', () => {
       const walls = o.group.children.find((c) => c.name === 'walls') as THREE.Mesh | undefined;
       if (walls) expect(walls.geometry.drawRange.count).toBe(o.result.buildings!.bigIndexCount[0]);
     }
+    m.dispose();
+  });
+
+  it('lowers airport surfaces near the camera only when the camera is near the ground', () => {
+    const host = makeHost(KSFO_FRAME(), flat(4));
+    const m = manager(host);
+    const mats = m.materialSet;
+    m.update(1 / 60, new THREE.Vector3(0, 300, 0), camera, 0.8); // 296 m above the ground
+    expect(mats.nearDrop.value).toBe(0);
+    m.update(1 / 60, new THREE.Vector3(0, 6, 0), camera, 0.8); // chase camera, 2 m up
+    expect(mats.nearDrop.value).toBeCloseTo(NEAR_DROP_M, 6);
+    m.update(1 / 60, new THREE.Vector3(0, 44, 0), camera, 0.8); // 40 m up: half way
+    expect(mats.nearDrop.value).toBeGreaterThan(0.2 * NEAR_DROP_M);
+    expect(mats.nearDrop.value).toBeLessThan(0.8 * NEAR_DROP_M);
+    host.setHeight(null); // no terrain under the camera: keep the last value
+    m.update(1 / 60, new THREE.Vector3(0, 6, 0), camera, 0.8);
+    expect(mats.nearDrop.value).toBeGreaterThan(0.2 * NEAR_DROP_M);
+    expect(mats.nearDrop.value).toBeLessThan(0.8 * NEAR_DROP_M);
     m.dispose();
   });
 });
