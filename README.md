@@ -5,10 +5,8 @@ TypeScript. It streams real-world terrain, flies a Cessna 172S on a six-degree-o
 model validated against the pilot's operating handbook, and renders a physically based sky with
 weather, time of day, clouds and night lighting. Everything runs client-side as a static site.
 
-> Status: active development. The flight model, terrain, sky, weather, aircraft model, cameras,
-> steam-gauge cockpit, navigation radios, airports, landing scoring and replay are integrated and
-> flying. The MSFS-style menus, G1000 glass cockpit, HUD, procedural audio and ATC are being
-> finished and attach automatically when present.
+> Status: active development. Everything below is integrated and flying in the browser; the
+> remaining work is polish (lighting calibration, more aircraft, more content).
 
 ## Quick start
 
@@ -28,19 +26,38 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **Flight model.** RK4 rigid body at 120 Hz with JSBSim-derived aerodynamics, stall hysteresis,
   flaps, ground effect, slipstream over the tail, P-factor, torque and gyroscopic effects, an
   IO-360 engine with manifold dynamics and mixture, spring-damper gear with tyre friction and
-  brakes, Dryden turbulence, fuel burn and CG shift. Climb, cruise and take-off match the POH
-  within a few percent (see `src/fdm/README.md`).
+  brakes, Dryden turbulence, fuel burn and CG shift, factory rigging for hands-off cruise, and the
+  C172S 28 V electrical system (battery, alternator, master and avionics switches, LOW VOLTS: a flat
+  battery will not start the engine). Climb, cruise, take-off and stall match the POH within a few
+  percent; the dynamic modes, energy conservation and turbulence statistics are verified by tests
+  (see `src/fdm/README.md`).
 - **World.** AWS Terrain Tiles elevation streamed with CDLOD quadtree LOD and earth curvature,
-  Sentinel-2 cloudless imagery (procedural fallback offline), runway flattening, water, a
-  floating origin that rebases every 20 km, and 5,280 airports with procedurally marked runways,
-  edge lights and PAPI.
-- **Sky and weather.** Sun and moon from the real date and position, Preetham sky, stars, height
-  fog matched to the sky, nine MSFS weather presets, METAR parsing, live weather from Open-Meteo,
-  rain and snow, winds aloft and gusts.
-- **Cockpit and avionics.** Steam-gauge six-pack with realistic lags, engine gauges, NAV radios
-  with VOR and ILS deviation, WMM2025 magnetic variation, autopilot with HDG/NAV/APR/ALT/VS/FLC.
-- **Activities.** Landing challenges scored on centreline, touchdown rate, aim point and stopping
-  distance; a five-minute replay recorder.
+  Sentinel-2 cloudless imagery (a procedural land-cover fallback offline), a floating origin that
+  rebases every 20 km, 5,280 airports with marked, lit runways (edge, threshold, PAPI, REIL,
+  approach lights and rabbits), and **OpenStreetMap autogen**: buildings with lit windows at
+  night, aprons and taxiways with markings and edge lights, trees and street lighting streamed from
+  OpenFreeMap vector tiles. "Parking" spawns put you at a real gate or apron stand.
+- **Sky and weather.** Sun and moon from the real date and position, a physically based sky with
+  modelled aerial-perspective haze, stars, cloud layers that cast shadows on the ground, night
+  glow, nine MSFS weather presets, METAR parsing, live weather from Open-Meteo, rain and snow,
+  winds aloft and gusts.
+- **Cockpit and avionics.** A Cessna 172 cockpit with a steam-gauge six-pack (clickable knobs and
+  hover tooltips) or an **interactive G1000 NXi**: softkeys, dual knobs on the mouse wheel,
+  Direct-To any airport or navaid, an editable flight plan, nearest airports, and ILS approach
+  loading. NAV/COM radios with VOR, ILS and auto-course, WMM2025 magnetic variation.
+- **Autopilot and assists.** GFC 700-style autopilot (HDG, NAV, APR with glideslope, ALT, VS, FLC
+  and the LVL recovery mode) with flight director, verified on the real flight model; MSFS-style
+  assists (auto-rudder, assisted take-off, anti-stall protection, landing path gates, auto
+  mixture, crash and stress damage).
+- **ATC.** Scripted, menu-driven ATC with ATIS, ground, tower and flight following, readbacks,
+  traffic pattern work and spoken transmissions.
+- **Activities.** Nine landing challenges scored like MSFS, three instructor-led lessons (basic
+  flight, take-off, landing), an eight-leg Pacific Coast bush trip with saved progress, a
+  five-minute replay, slew mode and screenshots (`F12`).
+- **Interface.** MSFS-style main menu, World Map flight planner, aircraft and weather screens,
+  settings (graphics, controls with rebinding and gamepad profiles, audio, assists), in-flight
+  toolbar panels (VFR map, ATC, checklists, nav log, weather), a HUD for external views and
+  procedural engine, environment and warning sounds.
 
 ## Default controls
 
@@ -71,6 +88,10 @@ is within 10 m of the ground.
 
 The full tables are in `src/input/README.md`.
 
+**Scenery data.** Buildings and airport surfaces come from OpenFreeMap by default. To use another
+OpenMapTiles-schema source (or local test tiles), pass a URL template:
+`http://localhost:5173/?osm=http://127.0.0.1:9000/{z}/{x}/{y}.pbf`.
+
 ## Architecture
 
 ```
@@ -89,7 +110,8 @@ src/input       keyboard, mouse yoke, gamepad, touch, rebindable profiles
 src/audio       procedural engine and environment sound, warnings, speech
 src/atc         scripted, menu-driven ATC
 src/ui          MSFS-style menus, world map, settings, in-flight panels
-src/activities  touchdown detection, landing scoring, challenges, replay
+src/scenery     OpenStreetMap autogen: buildings, airport surfaces, vegetation, night lights
+src/activities  landing challenges and scoring, lessons, bush trips, replay
 src/app         simulator main loop, integration, automation hooks
 ```
 
