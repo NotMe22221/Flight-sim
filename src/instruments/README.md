@@ -75,7 +75,14 @@ model it does not own, so the lags are not advanced twice).
   `InstrumentReadings` (one object, mutated in place): pitot-static and Kollsman altimetry, VSI
   lag, vacuum gyros with spin-up/erection/drift, turn coordinator and ball, magnetic compass
   errors, engine-gauge lags, electrical/vacuum/fuel systems, annunciators, wind, trends, clock.
-  Glass displays use the AHRS truth (`ahrs`, `heading.magDeg`); the steam gauges use the gyros.
+  Glass displays use the AHRS truth (`ahrs`, `heading.magDeg`) and the air-data vertical speed
+  (`adcVsFpm`, τ 1 s); the steam gauges use the gyros and the steam VSI (`vsiFpm`, τ 2.5 s).
+  Power comes from `AircraftState.electrical` when the flight model provides it (bus volts,
+  `avionicsPowered`, `mainPowered`, LOW VOLTS, battery/alternator amps); otherwise a fallback bus
+  model honours `masterBattery`/`masterAlternator`/`avionicsMaster`. DG drift, hour meters and
+  annunciator hold timers stop while `snapshot.paused` (also set during replay); display lags keep
+  running so needles follow a replay. Filters, gyros and the compass hold their state through a
+  non-finite FDM sample instead of latching NaN.
 * **Design space**: each G1000 display is drawn in a fixed 1024×768 layout
   (`g1000/palette.ts` `PFD`/`MFD`) and scaled to the backing store with `setTransform`.
 * **PFD** (`g1000/pfd.ts`): full-width attitude with pitch ladder, roll scale, slip bar and
@@ -102,7 +109,8 @@ model it does not own, so the lags are not advanced twice).
   so a hash collision can never freeze a display. Parked or in a steady cruise the PFD drops from
   30 Hz to about 1 Hz (the UTC clock).
 * **No per-frame allocation** in the draw paths: readouts go through `LabelCache` (memoised
-  number → string), fonts through `FontCache`, scratch objects are owned by the renderers.
+  number → string), fonts through `FontCache` / the memoised `gaugeFont`, scratch objects are
+  owned by the renderers (G1000, HUD and the steam panel's clock, Kollsman, tach and radio stack).
 * **HUD** (`Hud.ts`, `hud/`): truth values from the snapshot with short display lags (IAS 0.12 s,
   VS 0.6 s); top strip (IAS/GS, ±30° heading tape with bug, ALT/VS/AGL), AP mode line, flags
   (CRASHED, STALL flashing, OVERSPEED, OVER-G, FLAP/GEAR SPEED, LOW FUEL, PAUSED, SLEW), bottom
@@ -131,6 +139,13 @@ model it does not own, so the lags are not advanced twice).
   cockpit mode hides flight data but keeps flags and terrain loading, redraw cap and change
   skipping, hide/show, warnings and status hook, dispose; tape labels, flaps/gear text, scaling.
 
+* `review.test.ts` (adversarial review): FD cue banks toward the command; pitch ladder to ±80°;
+  rolling digits continue the tape (larger values above); compass acceleration error (ANDS) and
+  reversed wet-compass card; Euler heading rate for the trend vector; glass vs steam VSI lag;
+  NaN-sample recovery; no DG drift / hour-meter advance while paused; FDM electrical (avionics
+  master off → black screens, LOW VOLTS, dead bus) and the master/avionics switch fallback;
+  EIS M BATT = battery current; SteamPanel keeps 30 Hz at 40 fps.
+
 The layout was also checked visually by rendering the PFD, MFD and HUD in headless Chrome.
 
 ## Known limitations
@@ -150,6 +165,16 @@ The layout was also checked visually by rendering the PFD, MFD and HUD in headle
   the display that changed.
 * Fonts: the canvas uses the CSS stacks in `canvas.ts`; load "Roboto Condensed"/"Roboto Mono"
   with `document.fonts.load` before the first draw or a fallback face is used.
+* Both G1000 screens are powered by the avionics bus (`avionicsPowered`). In the real 172S the
+  PFD runs from the essential bus with the master switch alone; `ElectricalState` has no such bus.
+* The steam panel redraws (and its texture uploads) at `SteamPanel.hz` without change detection.
+* Flight reset: `src/app` does not yet call `SteamPanel.reset` / `G1000.reset` / `Hud.reset`, so
+  DG drift, the elapsed timer and AFCS flash history carry over to the next flight.
+* Time compression: the instruments get the frame `dt`, so DG drift and the hour meters advance
+  at wall-clock rate, not at the compressed sim rate (they do stop while paused).
+* The AI's erection and roll-precession errors are always to the right (the spec uses |p|); the
+  GPS TERM scale switches 2 → 1 nm without the 1-nm ramp; the glideslope indicator shows NAV1's
+  glideslope when the CDI source is GPS; the wet-compass float tilt (0.35 rad/g) is a tuning value.
 
 ## Tuning knobs
 

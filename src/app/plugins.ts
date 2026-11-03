@@ -14,8 +14,8 @@ const ctor = <T>(mod: Record<string, unknown>, name: string): Ctor<T> | null => 
 
 interface UiManagerLike { update(s: SimSnapshot, dt: number): void; show(screen: string): void; onStart?(cb: () => void): void; handleAction?(a: SimAction): boolean }
 interface AudioLike { resume(): Promise<void>; update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; updateSnapshot?(dt: number, s: SimSnapshot): void; setSurface?(s: string): void; setListener?(posNED: [number, number, number] | null, velNED?: [number, number, number]): void; onTouchdown?(vs: number, drift?: number): void; setMarker?(m: 'outer' | 'middle' | 'inner' | null): void; setVolume?(bus: string, v: number): void; setMasterVolume?(v: number): void; speak?(text: string, voice?: string): void; playUi?(s: string): void }
-interface HudLike { readonly canvas: HTMLCanvasElement; resize(w: number, h: number, dpr: number): void; update(s: SimSnapshot, dt: number): void }
-interface G1000Like { readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; update(s: SimSnapshot, dt: number): boolean; setNearestAirports?(l: { icao: string; lat: number; lon: number; type: string }[]): void }
+interface HudLike { readonly canvas: HTMLCanvasElement; resize(w: number, h: number, dpr: number): void; update(s: SimSnapshot, dt: number): void; reset?(): void }
+interface G1000Like { readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; update(s: SimSnapshot, dt: number): boolean; reset?(s: SimSnapshot): void; setNearestAirports?(l: { icao: string; lat: number; lon: number; type: string }[]): void }
 interface AtcLike { update(dt: number, ac: AircraftState, w: SimSnapshot['weather'], utcMs?: number): void; select(i: number): void; reset(a: Airport | null): void }
 
 /** What `createScenery` (src/scenery/index.ts) receives from the simulator. */
@@ -114,6 +114,7 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
     sim.plugins.hud = {
       canvas: hud.canvas,
       resize: (w, h, dpr) => hud.resize(w, h, dpr),
+      reset: () => hud.reset?.(),
       update: (s, dt) => {
         // the HUD itself draws only warning flags and status in the cockpit view
         const show = sim.hudVisible && sim.inFlight && !sim.replayer.active;
@@ -141,6 +142,7 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
     let nearbyTimer = Infinity;
     sim.attachG1000({
       pfdCanvas: panel,
+      reset: (s) => { g.reset?.(s); nearbyTimer = Infinity; },
       update: (s, dt) => {
         nearbyTimer += dt;
         if (nearbyTimer > 2 && g.setNearestAirports) {

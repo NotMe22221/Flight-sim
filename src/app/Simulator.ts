@@ -70,8 +70,8 @@ export interface SceneryLike {
 export interface SimPlugins {
   scenery?: SceneryLike;
   ui?: { update(s: SimSnapshot, dt: number): void; handleAction?(a: SimAction): boolean };
-  g1000?: { update(s: SimSnapshot, dt: number): boolean; readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas };
-  hud?: { update(s: SimSnapshot, dt: number): void; resize(w: number, h: number, dpr: number): void; readonly canvas: HTMLCanvasElement | OffscreenCanvas };
+  g1000?: { update(s: SimSnapshot, dt: number): boolean; reset?(s: SimSnapshot): void; readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas };
+  hud?: { update(s: SimSnapshot, dt: number): void; reset?(): void; resize(w: number, h: number, dpr: number): void; readonly canvas: HTMLCanvasElement | OffscreenCanvas };
   audio?: { update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; onTouchdown?(vsMs: number, lateralDriftMs?: number): void; setMarker?(m: string | null): void };
   atc?: { update(dt: number, ac: AircraftState, w: SimSnapshot['weather']): void; select(i: number): void; reset(a: Airport | null): void };
 }
@@ -200,6 +200,18 @@ export class Simulator {
     window.addEventListener('resize', this.onResize);
   }
 
+  /**
+   * Start the instruments from the current state: gyro drift, timers, lags and the AFCS flash
+   * history must not carry over from the previous flight (needles would sweep in).
+   */
+  private resetInstruments(): void {
+    interpolateState(this.prev, this.fdm.state, 1, this.interp);
+    const snap = this.refreshSnapshot();
+    this.steam.reset(snap);
+    this.plugins.g1000?.reset?.(snap);
+    this.plugins.hud?.reset?.();
+  }
+
   /** Attach a glass cockpit: its PFD canvas replaces the steam panel texture. */
   attachG1000(g: NonNullable<SimPlugins['g1000']>): void {
     this.plugins.g1000 = g;
@@ -209,7 +221,13 @@ export class Simulator {
 
   /** Swap the cockpit panel between steam gauges and the G1000 (falls back to steam if no G1000 is attached). */
   setPanel(variant: 'steam' | 'g1000'): void {
-    this.panelVariant = variant === 'g1000' && this.g1000Tex ? 'g1000' : 'steam';
+    const next = variant === 'g1000' && this.g1000Tex ? 'g1000' : 'steam';
+    // the newly shown panel has not been stepped while hidden: start it from the current state
+    if (next !== this.panelVariant) {
+      const snap = this.refreshSnapshot();
+      if (next === 'steam') this.steam.reset(snap); else this.plugins.g1000?.reset?.(snap);
+    }
+    this.panelVariant = next;
     if (variant === 'g1000' && this.g1000Tex) {
       this.model.setPanelVariant('g1000');
       const mesh = (this.model as unknown as { cockpit: { panelMeshG1000: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> } }).cockpit.panelMeshG1000;
@@ -456,8 +474,9 @@ export class Simulator {
     this.plan = this.planner.waypoints.length ? this.planner.update(s.geo, s.groundSpeedMs) : null;
 
     const snap = this.refreshSnapshot();
-    if (this.steam.update(snap, dt)) this.steamTex.needsUpdate = true;
-    if (this.plugins.g1000 && this.plugins.g1000.update(snap, dt) && this.g1000Tex) this.g1000Tex.needsUpdate = true;
+    // only the panel on display is stepped and redrawn (each has its own instrument model)
+    if (this.panelVariant === 'steam') { if (this.steam.update(snap, dt)) this.steamTex.needsUpdate = true; }
+    else if (this.plugins.g1000?.update(snap, dt) && this.g1000Tex) this.g1000Tex.needsUpdate = true;
     this.plugins.hud?.update(snap, dt);
     this.plugins.audio?.update(dt, s, this.cameras.state, this.weather.state);
     this.plugins.audio?.setMarker?.(this.radios.state.nav1.marker ?? null);
@@ -699,6 +718,7 @@ export class Simulator {
     this.lastSpawn = { airport, spawn, end };
     this.inFlight = true;
     this.paused = false;
+    this.resetInstruments();
     this.events.emit('flight:reset', { spawn });
   }
 

@@ -56,7 +56,7 @@ export function createPfdState(): PfdState {
  */
 export function drawPfd(ctx: Ctx2D, s: SimSnapshot, r: InstrumentReadings, st: PfdState, vspeeds: VSpeeds, hsiGeo?: HsiGeometry): void {
   ctx.fillStyle = G.black; ctx.fillRect(0, 0, PFD.width, PFD.height);
-  if (!r.avionicsOn) return;
+  if (!r.essentialOn) return; // the PFD runs on the essential bus (master on), the MFD on the avionics bus
   const ap = s.autopilot, mv = r.heading.magVarDeg;
   drawAttitude(ctx, r, ap);
   drawAirspeedTape(ctx, r, ap, vspeeds);

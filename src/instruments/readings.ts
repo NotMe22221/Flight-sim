@@ -53,10 +53,12 @@ export interface InstrumentReadings {
   iasKt: number; casKt: number; tasKt: number; gsKt: number;
   /** vacuum attitude indicator (with spin-up / erection error) */
   attitude: { pitchDeg: number; rollDeg: number; valid: boolean; spin: number };
-  /** solid-state AHRS truth for glass displays; valid while the avionics bus is live */
+  /** solid-state AHRS truth for glass displays; valid while the essential bus is live (master on) */
   ahrs: { pitchDeg: number; rollDeg: number; valid: boolean };
-  /** avionics bus live: `AircraftState.electrical.avionicsPowered` when the FDM models it, else avionics master on and bus > 20 V */
+  /** avionics bus live (MFD, radios): `AircraftState.electrical.avionicsPowered` when the FDM models it, else avionics master on and bus > 20 V */
   avionicsOn: boolean;
+  /** essential bus live (172S G1000: PFD and AHRS run on it with the master switch alone, before the avionics master) */
+  essentialOn: boolean;
   altimeter: { indicatedFt: number; pressureAltFt: number; settingInHg: number; settingHPa: number; modeCFt: number };
   turn: { rateStd: number; ballWidths: number; valid: boolean };
   heading: {
@@ -118,6 +120,7 @@ export function createReadings(): InstrumentReadings {
     attitude: { pitchDeg: 0, rollDeg: 0, valid: false, spin: 0 },
     ahrs: { pitchDeg: 0, rollDeg: 0, valid: false },
     avionicsOn: false,
+    essentialOn: false,
     altimeter: { indicatedFt: 0, pressureAltFt: 0, settingInHg: 29.92, settingHPa: 1013, modeCFt: 0 },
     turn: { rateStd: 0, ballWidths: 0, valid: false },
     heading: { dgDeg: 0, dgValid: false, bugDeg: 0, bugErrorDeg: 0, compassDeg: 0, magDeg: 0, trueDeg: 0, trackMagDeg: 0, magVarDeg: 0 },
@@ -281,7 +284,8 @@ export class InstrumentModel {
       busLive = r.voltsV > 20; avionicsLive = busLive && this.electrical.avionicsSwitch; lowVolts = this.electrical.lowVolts;
     }
     r.avionicsOn = avionicsLive;
-    r.ahrs.pitchDeg = pitchRad * RAD; r.ahrs.rollDeg = rollRad * RAD; r.ahrs.valid = avionicsLive;
+    r.essentialOn = busLive;
+    r.ahrs.pitchDeg = pitchRad * RAD; r.ahrs.rollDeg = rollRad * RAD; r.ahrs.valid = busLive;
     r.suctionInHg = suctionInHg(running, ac.engine.rpm);
     const vacPower = r.suctionInHg / cfg.minVacuumInHg;
 

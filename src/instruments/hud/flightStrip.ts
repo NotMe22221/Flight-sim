@@ -69,10 +69,12 @@ export function drawAltitudeBlock(ctx: Ctx2D, L: StripLayout, v: HudValues): voi
     const d = up ? -1 : 1;
     ctx.moveTo(ax, ay + d * 6 * k); ctx.lineTo(ax - 5 * k, ay - d * 3 * k); ctx.lineTo(ax + 5 * k, ay - d * 3 * k); ctx.closePath(); ctx.fill();
   }
-  value(ctx, vsLabels.get(vs), x + 70 * k, ay, 13 * k, C.text, 'right');
-  label(ctx, 'FPM', x + 73 * k, ay, 10 * k, C.dim);
-  if (v.aglFt < 2500 && !v.onGround) {
-    label(ctx, 'AGL', x + 104 * k, ay, 10 * k, C.dim, 'right');
+  value(ctx, vsLabels.get(vs), x + 62 * k, ay, 13 * k, C.text, 'right');
+  const showAgl = v.aglFt < 2500 && !v.onGround;
+  // the VS unit is dropped when the AGL readout needs the room (the box is too narrow for both)
+  if (!showAgl) label(ctx, 'FPM', x + 65 * k, ay, 10 * k, C.dim);
+  if (showAgl) {
+    label(ctx, 'AGL', x + 98 * k, ay, 10 * k, C.dim, 'right');
     value(ctx, ints.get(Math.round(v.aglFt / 10) * 10), x + w - 10 * k, ay, 13 * k, v.aglFt < 200 ? C.amber : C.text);
   }
 }

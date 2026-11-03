@@ -23,7 +23,7 @@ function bearing(h: Signature, b: BearingState): void {
 
 /** Hash of everything the PFD draws. */
 export function pfdSignature(h: Signature, s: SimSnapshot, r: InstrumentReadings, st: PfdState): number {
-  h.reset().bool(r.avionicsOn).bool(r.ahrs.valid).bool(r.onGround);
+  h.reset().bool(r.essentialOn).bool(r.avionicsOn).bool(r.ahrs.valid).bool(r.onGround);
   h.num(r.ahrs.pitchDeg, 0.1).num(r.ahrs.rollDeg, 0.1).num(r.turn.ballWidths, 0.02);
   h.num(r.iasKt, 0.05).num(r.tasKt, 1).num(r.gsKt, 1).num(r.trends.iasKtPer6s, 0.5);
   h.num(r.altimeter.indicatedFt, 0.5).num(r.altimeter.settingInHg, 0.005).num(r.trends.altFtPer6s, 5).num(r.adcVsFpm, 5);

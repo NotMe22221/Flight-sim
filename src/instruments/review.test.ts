@@ -157,7 +157,9 @@ describe('electrical power from the FDM', () => {
     const m = new InstrumentModel();
     let r = m.update(s, 1 / 60);
     expect(r.avionicsOn).toBe(false);
-    expect(r.ahrs.valid).toBe(false);
+    // 172S: the PFD and AHRS run on the essential bus with the master alone
+    expect(r.essentialOn).toBe(true);
+    expect(r.ahrs.valid).toBe(true);
     expect(r.voltsV).toBeCloseTo(28.3, 6);
     s.aircraft.electrical = elec({ busVolts: 23.8, lowVoltage: true });
     r = m.update(s, 1 / 60);
@@ -167,17 +169,27 @@ describe('electrical power from the FDM', () => {
     r = m.update(s, 1 / 60);
     expect(r.voltsV).toBe(0);
     expect(r.avionicsOn).toBe(false);
+    expect(r.essentialOn).toBe(false);
+    expect(r.ahrs.valid).toBe(false);
     expect(r.annunciators.lowVolts).toBe(false);
     expect(r.annunciators.pitotHeatOff).toBe(false); // annunciator panel unpowered
   });
 
-  it('a dead avionics bus leaves both G1000 screens black', () => {
+  it('avionics master off: the PFD stays on (essential bus), the MFD is black; a dead bus blanks both', () => {
     const s = makeSampleSnapshot();
     s.aircraft.electrical = elec({ avionicsPowered: false });
     const g = new G1000({ createCanvas: (w, h) => new MockCanvasFactory().create(w, h) });
     expect(g.update(s, 1 / 60)).toBe(true);
     const pfd = (g.pfdCanvas as unknown as { ctx: { texts(): string[] } }).ctx;
-    expect(pfd.texts().length).toBe(0);
+    const mfd = (g.mfdCanvas as unknown as { ctx: { texts(): string[] } }).ctx;
+    expect(pfd.texts().length).toBeGreaterThan(0);
+    expect(mfd.texts().length).toBe(0);
+    const dead = makeSampleSnapshot();
+    dead.aircraft.electrical = elec({ busVolts: 0, mainPowered: false, avionicsPowered: false });
+    const g2 = new G1000({ createCanvas: (w, h) => new MockCanvasFactory().create(w, h) });
+    g2.update(dead, 1 / 60);
+    expect((g2.pfdCanvas as unknown as { ctx: { texts(): string[] } }).ctx.texts().length).toBe(0);
+    expect((g2.mfdCanvas as unknown as { ctx: { texts(): string[] } }).ctx.texts().length).toBe(0);
   });
 
   it('honours the master / avionics switches when the flight model has no electrical system', () => {
