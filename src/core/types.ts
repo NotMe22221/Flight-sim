@@ -252,7 +252,9 @@ export interface AircraftConfig {
     nzMax: number; nzMin: number; maxRPM: number; redlineRPM: number;
   };
   /** instrument panel / avionics descriptor used by the instruments module */
-  panel: 'c172-steam' | 'c172-g1000' | 'airliner-pfd';
+  panel: 'c172-steam' | 'c172-g1000' | 'cub-steam' | 'airliner-pfd';
+  /** which 3D airframe and cockpit src/aircraft3d builds (default 'c172') */
+  airframe?: 'c172' | 'cub';
 }
 
 // ───────────────────────────────── Flight model ─────────────────────────────────

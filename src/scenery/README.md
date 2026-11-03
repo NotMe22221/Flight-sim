@@ -194,7 +194,8 @@ slow software renderer; wait until `stats()` reports `tilesPending === 0` and
 around the simulator's own camera (the aircraft), so close-ups far from the aircraft show a
 coarse terrain LOD that the draped pavement (sampled on the finest loaded heights) does not
 match. For ground-level views, move the aircraft instead (e.g.
-`__sim.sim.spawnAtParking(__sim.sim.currentAirport)` parks it at the nearest gate).
+`__sim.sim.spawnAtParking(__sim.sim.currentAirport)` parks it at the nearest apron stand, or at a
+gate when the airport has no stands).
 
 Runway coordinates come from `public/data/airports.json`. Tests build the same world in memory
 (`testUtil.ts`).
