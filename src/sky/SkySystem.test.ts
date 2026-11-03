@@ -6,7 +6,7 @@ import { dirFromAzEl, sunPosition } from '../geo/solar';
 import { encodeDisplayColor, heightFogOpticalDepth } from './lighting';
 import { weatherFromPreset } from './presets';
 import { Sky } from 'three/addons/objects/Sky.js';
-import { type SkySnapshot, SkySystem, patchSkyDepth } from './SkySystem';
+import { type SkySnapshot, SkySystem, patchSkyDepth, sunShadowFar } from './SkySystem';
 import { WeatherSystem } from './WeatherSystem';
 
 /** Just enough of a WebGLRenderer for SkySystem to run in Node (no PMREM bake). */
@@ -235,6 +235,34 @@ describe('SkySystem (stub renderer)', () => {
     // stars and moonlight at night, no sun
     expect(sky.sunLight.visible).toBe(false);
     expect(L.ambientIntensity).toBeGreaterThan(0);
+    sky.dispose();
+  });
+});
+
+describe('sun shadow frustum', () => {
+  it('reaches every ground point inside the orthographic square for any sun elevation and height', () => {
+    for (const elDeg of [5, 10, 20, 37, 60, 85]) {
+      const s = Math.sin((elDeg * Math.PI) / 180), c = Math.cos((elDeg * Math.PI) / 180);
+      for (const agl of [0, 2, 85, 500, 3000, 6000]) {
+        // deepest ground point: straight down-sun of the aircraft, then the far edge of the square
+        const deepest = 600 + agl / s + (200 * c) / s;
+        if (deepest < 60_000) expect(sunShadowFar(600, 200, agl, s)).toBeGreaterThan(deepest);
+      }
+    }
+    expect(sunShadowFar(600, 200, 1e6, 0.01)).toBe(60_000);
+  });
+
+  it('a climb-out under a November noon sun keeps the runway in range, with a constant bias distance', () => {
+    const { sky } = makeSky();
+    const novNoon = Date.UTC(2025, 10, 3, 20, 0); // sun ≈ 37° high at KSFO
+    sky.update(snapshot(novNoon, weatherFromPreset('clear', 4), [0, 0, -85], 85), new THREE.Vector3(0, 85, 0), 1 / 60);
+    const L = sky.sunLight, cam = L.shadow.camera;
+    const dir = L.position.clone().sub(L.target.position).normalize();
+    expect(dir.y).toBeGreaterThan(0.55); expect(dir.y).toBeLessThan(0.65);
+    const s = dir.y, c = Math.sqrt(1 - s * s);
+    // the old far plane (600 + AGL + 100 = 785 m) ended ~200 m short of the ground's far corner
+    expect(cam.far).toBeGreaterThan(600 + 85 / s + (200 * c) / s);
+    expect(L.shadow.bias * (cam.far - cam.near)).toBeCloseTo(-0.28, 6);
     sky.dispose();
   });
 });

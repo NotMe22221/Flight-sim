@@ -83,6 +83,25 @@ export interface SkySystemOptions {
 export type SkySnapshot = Pick<SimSnapshot, 'time' | 'aircraft' | 'weather'> & Partial<Pick<SimSnapshot, 'frame'>>;
 
 const SUN_DISTANCE_M = 600;
+/** Sun shadow depth bias as a distance along the light, m (the old −0.0004 over the ~700 m ground range). */
+const SHADOW_BIAS_M = 0.28;
+
+/**
+ * Far plane of the orthographic sun shadow camera (placed `lightDistM` from the aircraft toward the
+ * sun, half-size `radiusM`): it must reach every ground point inside the frustum. The ground straight
+ * down-sun of the aircraft lies AGL/sin(el) beyond it, and the down-sun half of the square slopes
+ * away by another radius/tan(el). Shadow-map receivers beyond the far plane (runway slabs, scenery
+ * pavement) read as fully shadowed with the reversed-Z depth buffer, which drew sharp-edged dark
+ * wedges on runways a few hundred metres from the aircraft. `sinEl` = sin(sun elevation);
+ * capped so a grazing sun keeps a usable depth range.
+ */
+export function sunShadowFar(lightDistM: number, radiusM: number, aglM: number, sinEl: number): number {
+  const s = Math.min(Math.max(sinEl, 0.07), 1); // ≥ 4° (the sun light fades out below that)
+  const cos = Math.sqrt(1 - s * s);
+  const far = lightDistM + (Math.max(aglM, 0) + 60) / s + (radiusM * cos) / s + 100;
+  return Math.min(far, 60_000);
+}
+
 /**
  * Drawn angular diameter of the Moon (true: 0.52°). A 60–90° screen FOV minifies the sky ≈ 1.5–2 × against
  * the eye, which left a crescent a few pixels wide; drawn at about twice its size it reads like the Moon.
@@ -409,10 +428,13 @@ export class SkySystem {
     this.sunLight.visible = L.sunIntensity > 1e-4;
     this.sunLight.position.copy(this.aircraftPos).addScaledVector(L.sunDirThree, SUN_DISTANCE_M);
     this.sunLight.target.position.copy(this.aircraftPos);
-    const shadowFar = SUN_DISTANCE_M + clamp(aircraft.altitudeAglM, 0, 3000) + 100;
-    if (Math.abs(shadowFar - this.lastShadowFar) > 50) {
+    const shadowFar = sunShadowFar(SUN_DISTANCE_M, this.opts.shadowRadiusM, aircraft.altitudeAglM, L.sunDirThree.y);
+    // grow at once (the ground must never fall beyond the far plane), shrink lazily
+    if (shadowFar > this.lastShadowFar || shadowFar < 0.85 * this.lastShadowFar) {
       this.sunLight.shadow.camera.far = shadowFar;
       this.sunLight.shadow.camera.updateProjectionMatrix();
+      // the depth bias is in normalised depth: keep it a constant distance as the range changes
+      this.sunLight.shadow.bias = -SHADOW_BIAS_M / (shadowFar - this.sunLight.shadow.camera.near);
       this.lastShadowFar = shadowFar;
     }
 
