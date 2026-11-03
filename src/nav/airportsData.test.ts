@@ -10,6 +10,7 @@ import { isIlsFrequency } from './frequencies';
 import { PUBLIC_DIR } from './__tests__/fsLoader';
 import type { Runway } from '../core/types';
 import { greatCircleDistance } from '../geo/wgs84';
+import { magneticDeclinationDeg } from '../geo/magvar';
 
 const airportsFile = JSON.parse(readFileSync(join(PUBLIC_DIR, 'data', 'airports.json'), 'utf8')) as AirportsFile;
 const navaidsFile = JSON.parse(readFileSync(join(PUBLIC_DIR, 'data', 'navaids.json'), 'utf8')) as NavaidsFile;
@@ -175,7 +176,9 @@ describe('airportsData', () => {
     expect(n.type).toBe('NDB');
     expect(n.hasDme).toBe(true);
     expect(n.position.alt).toBe(0);
-    expect(n.magneticVariationDeg).toBe(0);
+    // No slaved variation → current WMM declination at the station (≈ +1..+2° E at 10N 10E).
+    expect(n.magneticVariationDeg).toBeCloseTo(magneticDeclinationDeg(10, 10, 0, Date.now()), 3);
+    expect(Math.abs(n.magneticVariationDeg)).toBeGreaterThan(0.2);
     expect(decodeNavaid(['X', 'Bad', 'VOR', -1, 0, 0, 0, 0, '']).frequencyKHz).toBe(0);
   });
 

@@ -19,6 +19,8 @@
  *     f: [ [type, mhz], ... ] }
  * Compact navaid record:
  *   [ident, name, type, freqKHz, lat, lon, elevM, slavedVariationDeg, associatedAirport]
+ *   slavedVariationDeg is null when OurAirports has no slaved variation; the client then uses the current
+ *   WMM declination (OurAirports' magnetic_variation_deg is an old-epoch local value, so it is not used).
  */
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -149,7 +151,7 @@ for (const n of navaids) {
   if (!NAV_TYPES.has(n.type)) continue;
   const lat = num(n.latitude_deg), lon = num(n.longitude_deg);
   if (lat == null || lon == null) continue;
-  navOut.push([n.ident, n.name, n.type, num(n.frequency_khz) ?? 0, round(lat, 5), round(lon, 5), round((num(n.elevation_ft) ?? 0) * FT, 0), round(num(n.slaved_variation_deg) ?? num(n.magnetic_variation_deg) ?? 0, 1), n.associated_airport || '']);
+  navOut.push([n.ident, n.name, n.type, num(n.frequency_khz) ?? 0, round(lat, 5), round(lon, 5), round((num(n.elevation_ft) ?? 0) * FT, 0), round(num(n.slaved_variation_deg), 1), n.associated_airport || '']);
 }
 
 mkdirSync(join(OUT, 'small'), { recursive: true });

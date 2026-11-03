@@ -114,7 +114,8 @@ export function decodeNavaid(n: CompactNavaid): NavaidRecord {
     name: n[1],
     position: { lat: n[4], lon: n[5], alt: n[6] ?? 0 },
     frequencyKHz: n[3] > 0 ? n[3] : 0,
-    magneticVariationDeg: n[7] ?? 0,
+    // Slaved variation aligns the VOR's radials. Without it, assume the station matches today's declination.
+    magneticVariationDeg: n[7] ?? magneticDeclinationDeg(n[4], n[5], n[6] ?? 0, Date.now()),
     rangeNm: DEFAULT_NAVAID_RANGE_NM[type],
     associatedAirport: n[8] ?? '',
     hasDme: rawType === 'VOR-DME' || rawType === 'VORTAC' || rawType === 'DME' || rawType === 'TACAN' || rawType === 'NDB-DME',
