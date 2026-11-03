@@ -14,7 +14,7 @@ interface UiManagerLike { update(s: SimSnapshot, dt: number): void; show(screen:
 interface AudioLike { resume(): Promise<void>; update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; updateSnapshot?(dt: number, s: SimSnapshot): void; setSurface?(s: string): void; setListener?(posNED: [number, number, number] | null, velNED?: [number, number, number]): void; onTouchdown?(vs: number, drift?: number): void; setMarker?(m: 'outer' | 'middle' | 'inner' | null): void; setVolume?(bus: string, v: number): void; setMasterVolume?(v: number): void; speak?(text: string, voice?: string): void; playUi?(s: string): void }
 interface HudLike { readonly canvas: HTMLCanvasElement; resize(w: number, h: number, dpr: number): void; update(s: SimSnapshot, dt: number): void }
 interface G1000Like { readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; update(s: SimSnapshot, dt: number): boolean; setNearestAirports?(l: { icao: string; lat: number; lon: number; type: string }[]): void }
-interface AtcLike { update(dt: number, ac: AircraftState, w: SimSnapshot['weather']): void; select(i: number): void; reset(a: Airport | null): void }
+interface AtcLike { update(dt: number, ac: AircraftState, w: SimSnapshot['weather'], utcMs?: number): void; select(i: number): void; reset(a: Airport | null): void }
 
 let host: SimUiHost | null = null;
 let audio: AudioLike | null = null;
@@ -131,7 +131,8 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
       emit: (m: { from: 'atc' | 'pilot'; text: string; frequencyMHz?: number }) => sim.events.emit('atc:message', m),
       emitOptions: (options: string[]) => sim.events.emit('atc:options', { options }),
     });
-    sim.plugins.atc = atc;
+    // pass the world clock so ATIS reports the simulated Zulu time
+    sim.plugins.atc = { update: (dt, ac, w) => atc.update(dt, ac, w, sim.time.utcMs), select: (i) => atc.select(i), reset: (a) => atc.reset(a) };
     return;
   }
 }
