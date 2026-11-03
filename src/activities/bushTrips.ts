@@ -211,8 +211,13 @@ export function legRoute(trip: BushTrip, legIndex: number): Waypoint[] {
 
 export const legActivityId = (tripId: string, legIndex: number): string => `${tripId}-leg${legIndex + 1}`;
 
+export interface BushLegOptions {
+  /** fuel at the start, 0..1 of usable (e.g. what was left at the end of the previous leg); default full */
+  fuelFraction?: number;
+}
+
 /** The ActivityDef for one leg: depart, overfly the landmarks (optional), land and stop at the destination. */
-export function bushLegActivity(trip: BushTrip, legIndex: number): ActivityDef {
+export function bushLegActivity(trip: BushTrip, legIndex: number, opts: BushLegOptions = {}): ActivityDef {
   const leg = trip.legs[legIndex];
   if (!leg) throw new Error(`${trip.id} has no leg ${legIndex}`);
   const dep = trip.airports[leg.from], dest = trip.airports[leg.to];
@@ -234,6 +239,7 @@ export function bushLegActivity(trip: BushTrip, legIndex: number): ActivityDef {
     trip: { tripId: trip.id, legIndex },
     setup: {
       spawn: 'runway', icao: dep.icao, runway: leg.departureRunway, weather: leg.weather ?? 'few', time: leg.time ?? 'morning',
+      ...(opts.fuelFraction === undefined ? {} : { fuelFraction: Math.min(Math.max(opts.fuelFraction, 0.05), 1) }),
       route: legRoute(trip, legIndex), anchor: { lat: dep.lat, lon: dep.lon },
     },
     steps: [
@@ -241,8 +247,8 @@ export function bushLegActivity(trip: BushTrip, legIndex: number): ActivityDef {
         id: 'depart',
         title: `Depart ${dep.icao} runway ${leg.departureRunway}`,
         instruction: {
-          text: `${leg.briefing.text} Depart runway ${leg.departureRunway}; suggested cruise ${ftText(leg.cruiseFt)}, ${nmText(Math.round(legRouteNm(trip, legIndex)))} via the landmarks.`,
-          speech: `${leg.briefing.speech ?? leg.briefing.text} Depart ${spellRunway(leg.departureRunway)}, and cruise at ${ftSpeech(leg.cruiseFt)}.`,
+          text: `${leg.briefing.text} Depart runway ${leg.departureRunway}; suggested cruise ${ftText(leg.cruiseFt)}, ${nmText(Math.round(legRouteNm(trip, legIndex)))} via the landmarks. Highest terrain near the route: ${leg.terrain.name}, ${ftText(leg.terrain.ft)}.`,
+          speech: `${leg.briefing.speech ?? leg.briefing.text} Depart ${spellRunway(leg.departureRunway)}, and cruise at ${ftSpeech(leg.cruiseFt)}. The highest terrain near the route is ${leg.terrain.name}, at ${ftSpeech(leg.terrain.ft)}.`,
         },
         objectives: [{ type: 'reach', label: `Take off from ${dep.icao} runway ${leg.departureRunway}`, all: [{ c: 'agl', minFt: 500 }], progress: { metric: 'aglFt', to: 500 } }],
         quiet: true,
@@ -253,7 +259,7 @@ export function bushLegActivity(trip: BushTrip, legIndex: number): ActivityDef {
         instruction: { text: `Navigate by the landmarks: ${routeText}. Cruise at ${ftText(leg.cruiseFt)}.`, speech: `Navigate by the landmarks: ${routeText}. Cruise at ${ftSpeech(leg.cruiseFt)}.` },
         objectives: [
           ...waypointObjectives,
-          { type: 'landing', label: `Land at ${dest.icao}`, minScore: 0, airport: dest.icao, optional: true },
+          { type: 'landing', label: `Land at ${dest.icao}`, minScore: 0, airport: dest.icao, elsewhere: 'ignore', optional: true },
           { type: 'stopAt', label: `Land and stop at ${dest.name}`, icao: dest.icao, name: dest.name, lat: dest.lat, lon: dest.lon, radiusM: 2500 },
         ],
         success: { text: `Welcome to ${dest.name}. Leg complete.`, speech: `Welcome to ${dest.name}. Leg complete.` },
