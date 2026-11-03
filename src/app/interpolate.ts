@@ -24,27 +24,28 @@ export function copyPose(src: AircraftState, dst: AircraftState): void {
 
 /**
  * Write into `out` the state interpolated between `prev` and `cur` by `alpha` (0 = prev, 1 = cur).
- * `out` must be a distinct object that shares no arrays with `prev`/`cur`; non-interpolated fields are
- * referenced from `cur` (so `out` is a shallow view of `cur` with an interpolated pose).
+ * `out` keeps its own posNED/qNB/euler arrays (allocation-free after the first call); every other
+ * field is a shallow reference into `cur`, so callers must not mutate nested objects of `out`.
  */
 export function interpolateState(prev: AircraftState, cur: AircraftState, alpha: number, out: AircraftState): void {
   const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
-  // Shallow-copy everything from cur first (keeps references to cur's sub-objects we don't interpolate)
+  // keep out's own pose arrays (allocated once), then shallow-copy everything else from cur
+  let pos = out.posNED, q = out.qNB, eu = out.euler;
+  if (pos === cur.posNED) pos = [0, 0, 0];
+  if (q === cur.qNB) q = [1, 0, 0, 0];
+  if (eu === cur.euler) eu = [0, 0, 0];
   Object.assign(out, cur);
-  // Then replace the interpolated fields with out's own arrays/objects
-  out.posNED = out.posNED === cur.posNED ? [0, 0, 0] : out.posNED;
-  out.qNB = out.qNB === cur.qNB ? [1, 0, 0, 0] : out.qNB;
-  out.euler = out.euler === cur.euler ? [0, 0, 0] : out.euler;
-  out.posNED[0] = lerp(prev.posNED[0], cur.posNED[0], a);
-  out.posNED[1] = lerp(prev.posNED[1], cur.posNED[1], a);
-  out.posNED[2] = lerp(prev.posNED[2], cur.posNED[2], a);
-  qSlerp(prev.qNB, cur.qNB, a, out.qNB);
+  out.posNED = pos; out.qNB = q; out.euler = eu;
+  pos[0] = lerp(prev.posNED[0], cur.posNED[0], a);
+  pos[1] = lerp(prev.posNED[1], cur.posNED[1], a);
+  pos[2] = lerp(prev.posNED[2], cur.posNED[2], a);
+  qSlerp(prev.qNB, cur.qNB, a, q);
   // Euler: interpolate roll/pitch linearly, yaw along the shortest arc
-  out.euler[0] = lerp(prev.euler[0], cur.euler[0], a);
-  out.euler[1] = lerp(prev.euler[1], cur.euler[1], a);
+  eu[0] = lerp(prev.euler[0], cur.euler[0], a);
+  eu[1] = lerp(prev.euler[1], cur.euler[1], a);
   let dyaw = cur.euler[2] - prev.euler[2];
   if (dyaw > Math.PI) dyaw -= 2 * Math.PI; else if (dyaw < -Math.PI) dyaw += 2 * Math.PI;
-  out.euler[2] = prev.euler[2] + dyaw * a;
+  eu[2] = prev.euler[2] + dyaw * a;
   out.altitudeMslM = lerp(prev.altitudeMslM, cur.altitudeMslM, a);
   out.altitudeAglM = lerp(prev.altitudeAglM, cur.altitudeAglM, a);
 }

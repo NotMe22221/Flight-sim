@@ -29,6 +29,8 @@ import { runwayEnds, type RunwayEndRef } from '../activities/runwayFrame';
 import { FixedStepLoop, PHYSICS_DT } from './loop';
 import { copyPose, interpolateState } from './interpolate';
 import { RadioStack } from './radios';
+import { ReplayController } from './ReplayController';
+import { ReplayBar } from './replayBar';
 import { createRenderer, type RendererBundle } from './renderer';
 
 export interface SimulatorOptions {
@@ -87,6 +89,8 @@ export class Simulator {
   readonly planner = new FlightPlanner();
   readonly touchdown: TouchdownDetector;
   readonly replay = new ReplayRecorder(300, 30);
+  readonly replayer = new ReplayController(this.replay);
+  private replayBar: ReplayBar | null = null;
   readonly steam: SteamPanel;
   readonly plugins: SimPlugins = {};
   /** effective controls after assists and autopilot, fed to the flight model */
@@ -149,6 +153,7 @@ export class Simulator {
     this.prev = structuredClone(this.fdm.state);
     this.interp = structuredClone(this.fdm.state);
     this.snapshot = this.buildSnapshot();
+    if (typeof document !== 'undefined') this.replayBar = new ReplayBar(opts.container, this.replayer, (on) => this.setPaused(on || this.paused));
     this.events.on('aircraft:touchdown', (e) => this.plugins.audio?.onTouchdown?.(e.verticalSpeedMs, e.lateralDriftMs));
     this.events.on('aircraft:crash', (e) => this.onCrash(e.reason));
     window.addEventListener('resize', this.onResize);
@@ -196,7 +201,7 @@ export class Simulator {
     this.composeControls(dt);
     const t1 = performance.now();
 
-    const running = this.inFlight && !this.paused;
+    const running = this.inFlight && !this.paused && !this.replayer.active;
     const scale = running ? this.time.timeScale : 0;
     let alpha = 1;
     if (running) {
@@ -207,6 +212,8 @@ export class Simulator {
       if (scale > 8) this.time.utcMs += dt * (scale - 8) * 1000; // time compression beyond physics speed moves only the clock
     }
     interpolateState(this.prev, this.fdm.state, running ? alpha : 1, this.interp);
+    if (this.replayer.active) this.replayer.update(dt, this.interp, this.world.frame);
+    this.replayBar?.update(this.inFlight);
     const t2 = performance.now();
     this.mark('input', t1 - t0);
     this.mark('physics', t2 - t1);
