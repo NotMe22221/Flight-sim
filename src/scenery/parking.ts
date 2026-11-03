@@ -5,7 +5,8 @@
 import type { ParkingSpotLocal } from './protocol';
 import type { TileProjector } from './tileMath';
 
-export interface ParkingSpot { lat: number; lon: number; headingDeg: number; name: string }
+/** `kind`: a terminal gate (jet bridge) or an apron stand / ramp position. */
+export interface ParkingSpot { lat: number; lon: number; headingDeg: number; name: string; kind: 'gate' | 'stand' }
 
 const D2R = Math.PI / 180;
 
@@ -17,7 +18,7 @@ export function nearDistanceM(lat1: number, lon1: number, lat2: number, lon2: nu
 }
 
 export function selectParking(tiles: readonly { projector: TileProjector; spots: readonly ParkingSpotLocal[] }[], lat: number, lon: number, radiusM: number): ParkingSpot[] {
-  const all: (ParkingSpot & { d: number; gate: boolean })[] = [];
+  const all: (Omit<ParkingSpot, 'kind'> & { d: number; gate: boolean })[] = [];
   for (const t of tiles) {
     for (const s of t.spots) {
       const g = t.projector.toLonLat(s.x, s.z);
@@ -35,7 +36,7 @@ export function selectParking(tiles: readonly { projector: TileProjector; spots:
     if (out.some((o) => nearDistanceM(o.lat, o.lon, s.lat, s.lon) < 3)) continue;
     const n = names.get(s.name) ?? 0;
     names.set(s.name, n + 1);
-    out.push({ lat: s.lat, lon: s.lon, headingDeg: s.headingDeg, name: n === 0 ? s.name : `${s.name} (${n + 1})` });
+    out.push({ lat: s.lat, lon: s.lon, headingDeg: s.headingDeg, name: n === 0 ? s.name : `${s.name} (${n + 1})`, kind: s.gate ? 'gate' : 'stand' });
   }
   return out;
 }

@@ -133,5 +133,7 @@ describe('selectParking', () => {
     expect(spots[0].headingDeg).toBeCloseTo(10, 6);
     expect(spots[1].headingDeg).toBeCloseTo(270, 6); // 70 m away
     expect(spots[2].headingDeg).toBeCloseTo(90, 6); // 100 m away
+    // the kind survives for the host (a light aircraft parks on a stand, not at a jet bridge)
+    expect(spots.map((s) => s.kind)).toEqual(['gate', 'stand', 'stand']);
   });
 });

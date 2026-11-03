@@ -62,7 +62,7 @@ export interface SceneryLike {
   setQuality?(q: 'low' | 'medium' | 'high' | 'ultra'): void;
   setVisible?(on: boolean): void;
   /** stands / gates / apron positions near a point, best first (for parking spawns) */
-  parkingSpots?(lat: number, lon: number, radiusM: number): Promise<{ lat: number; lon: number; headingDeg: number; name: string }[]>;
+  parkingSpots?(lat: number, lon: number, radiusM: number): Promise<{ lat: number; lon: number; headingDeg: number; name: string; kind?: 'gate' | 'stand' }[]>;
   attribution?(): string[];
   stats?(): Record<string, number>;
   dispose?(): void;
@@ -672,7 +672,9 @@ export class Simulator {
       try {
         const timeout = new Promise<[]>((res) => setTimeout(() => res([]), 6000));
         const spots = await Promise.race([query.call(this.plugins.scenery, airport.position.lat, airport.position.lon, 3000), timeout]);
-        spot = spots[0] ?? null;
+        // a light aircraft parks on the ramp, as MSFS picks a GA spot: the nearest apron stand, a
+        // terminal gate only when the airport has no stands
+        spot = spots.find((s) => s.kind !== 'gate') ?? spots[0] ?? null;
       } catch { spot = null; }
     }
     if (!spot) { await this.spawnAtRunway(airport, null, { ...opts, coldAndDark: true }); return; }
