@@ -55,6 +55,8 @@ export class TileObject {
   private sphereLo = Infinity;
   private sphereHi = -Infinity;
   private disposed = false;
+  /** layer being re-sampled (round-robin, see groundStep) */
+  private resampleLayer = 0;
 
   constructor(result: TileBuildResult, mats: SceneryMaterials, trees: SharedTreeGeometry) {
     this.key = result.key;
@@ -156,15 +158,31 @@ export class TileObject {
     return false;
   }
 
-  /** Spend up to `budget` ground samples: first passes first, then gradual re-sampling. */
+  /**
+   * Spend up to `budget` ground samples. `firstPassOnly`: layers that have not finished their
+   * first pass, in order (buildings first). Otherwise gradual re-sampling: one layer at a time,
+   * a full pass each, round-robin over all layers, so pavement, lights and trees follow terrain
+   * refinements as well as buildings do.
+   */
   groundStep(budget: number, s: GroundSampler, firstPassOnly: boolean): number {
     let used = 0;
     const ls = this.layers;
-    for (let i = 0; i < ls.length; i++) {
-      const l = ls[i];
-      if (used >= budget) break;
-      if (firstPassOnly && l.firstPassDone) continue;
-      used += l.step(budget - used, s, this.placement);
+    if (firstPassOnly) {
+      for (let i = 0; i < ls.length && used < budget; i++) {
+        const l = ls[i];
+        if (l.firstPassDone) continue;
+        used += l.step(budget - used, s, this.placement, true);
+      }
+    } else {
+      for (let k = 0; k < ls.length && used < budget; k++) {
+        if (this.resampleLayer >= ls.length) this.resampleLayer = 0;
+        const l = ls[this.resampleLayer];
+        const passes = l.passes;
+        used += l.step(budget - used, s, this.placement, true);
+        // budget spent inside this layer: continue with it next time
+        if (l.n > 0 && l.passes === passes) break;
+        this.resampleLayer++;
+      }
     }
     for (let i = 0; i < ls.length; i++) ls[i].flush();
     this.refreshVisibility();

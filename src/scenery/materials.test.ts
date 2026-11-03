@@ -33,8 +33,27 @@ describe('materials', () => {
     const pts = compile(mats.streetlights, THREE.ShaderLib.points);
     expect(pts.vertexShader).toContain('gl_PointSize = max( gl_PointSize, sceneryMinPointPx );');
     expect(pts.vertexShader).toContain('#include <logdepthbuf_vertex>');
+    // airport lights stand on biased pavement: they get the same relative bias or the pavement hides them from above
+    const apt = compile(mats.airportLights, THREE.ShaderLib.points);
+    expect(apt.vertexShader).toContain('mvPosition.xyz *= 1.0 - sceneryDepthBias;');
+    expect(apt.vertexShader.indexOf('#include <project_vertex>')).toBeLessThan(apt.vertexShader.indexOf('1.0 - sceneryDepthBias;'));
+    expect(apt.vertexShader.indexOf('1.0 - sceneryDepthBias;')).toBeLessThan(apt.vertexShader.indexOf('#include <logdepthbuf_vertex>'));
+    expect(apt.uniforms.sceneryDepthBias).toBe(mats.depthBias);
+    expect(pts.vertexShader).not.toContain('sceneryDepthBias');
+    expect(mats.airportLights.customProgramCacheKey()).not.toBe(mats.streetlights.customProgramCacheKey());
     const pools = compile(mats.pools, THREE.ShaderLib.basic);
     expect(pools.vertexShader).toContain('sceneryDepthBias * aBias');
+    // near-camera drop of airport surfaces: after begin_vertex (object space), before projection
+    for (const sh of [s, compile(mats.markings, THREE.ShaderLib.standard), pools]) {
+      const vs = sh.vertexShader;
+      expect(vs).toContain('transformed.y -= sceneryNearDrop * aBias');
+      expect(vs.indexOf('#include <begin_vertex>')).toBeLessThan(vs.indexOf('sceneryNearDrop * aBias'));
+      expect(vs.indexOf('sceneryNearDrop * aBias')).toBeLessThan(vs.indexOf('#include <project_vertex>'));
+      expect(sh.uniforms.sceneryNearDrop).toBe(mats.nearDrop);
+    }
+    expect(walls.vertexShader).not.toContain('sceneryNearDrop');
+    expect(mats.nearDrop.value).toBeGreaterThan(0.1);
+    expect(mats.nearDrop.value).toBeLessThan(0.2); // aprons stay above the terrain (0.20 m lift)
     // distinct program cache keys per patch set
     expect(mats.surfaces.customProgramCacheKey()).not.toBe(mats.walls.customProgramCacheKey());
   });

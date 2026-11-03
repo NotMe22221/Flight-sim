@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTile, runwayZone, NEAR_RUNWAY_LIFT_M, RUNWAY_MARGIN_M, SURFACE_LIFT_M } from './builder';
+import { buildTile, runwayZone, MARKING_LIFT_M, NEAR_RUNWAY_LIFT_M, RIBBON_LIFT_M, RUNWAY_MARGIN_M, SURFACE_LIFT_M } from './builder';
 import { qualityProfile } from './config';
 import { DrapeBuilder, drapePolygon, drapeRibbon, type DrapeStyle } from './drape';
 import { encodeTile, orientPolygon } from './dev/mvtEncoder';
@@ -109,6 +109,17 @@ describe('buildTile on synthetic OSM tiles', () => {
     }
     expect(blue).toBeGreaterThan(10);
     expect(r.lightPools).not.toBeNull();
+  });
+
+  it('puts taxiway lights above the pavement they stand on (centre lines above ribbon + marking)', () => {
+    const L = r.airportLights!;
+    let green = 0;
+    for (let i = 0; i < L.count; i++) {
+      if (L.height[i] > 10) continue; // floodlight masts
+      expect(L.height[i]).toBeGreaterThan(RIBBON_LIFT_M + MARKING_LIFT_M);
+      if (L.color[i * 3 + 1] > 200 && L.color[i * 3] < 100) green++;
+    }
+    expect(green).toBeGreaterThan(10);
   });
 
   it('finds gates (named from ref) facing a taxiway, and stands inside the aprons', () => {

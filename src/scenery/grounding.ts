@@ -145,8 +145,11 @@ export abstract class GroundLayer {
   /** Upload the dirty range. */
   abstract flush(): void;
 
-  /** Spend up to `budget` samples; returns samples used. */
-  step(budget: number, s: GroundSampler, pl: TilePlacement): number {
+  /**
+   * Spend up to `budget` samples; returns samples used. With `untilPassEnd` it also stops when
+   * the cursor wraps (end of a pass), so a caller can hand the rest of its budget to other layers.
+   */
+  step(budget: number, s: GroundSampler, pl: TilePlacement, untilPassEnd = false): number {
     if (this.n === 0) { if (this.passes === 0) this.passes = 1; return 0; }
     let used = 0;
     while (used < budget) {
@@ -161,6 +164,7 @@ export abstract class GroundLayer {
           if (this.passes === 0) this.onFirstPass();
           this.passes++;
         }
+        if (untilPassEnd) break;
       }
     }
     return used;
