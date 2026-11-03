@@ -8,7 +8,11 @@ import type {
 } from '../core/types';
 import type { EventBus } from '../core/events';
 
-export interface RunwayEndChoice { runwayIdent: string; endIdent: string; threshold: Geodetic; headingDeg: number; lengthM: number }
+export interface RunwayEndChoice {
+  runwayIdent: string; endIdent: string; threshold: Geodetic; headingDeg: number; lengthM: number;
+  /** localizer frequency of the ILS serving this end, when the nav data has one (display only) */
+  ilsMHz?: number;
+}
 export interface SpawnChoice { airport: Airport; runwayEnd: RunwayEndChoice | null /* null = parking, cold & dark */; coldAndDark: boolean }
 export interface GraphicsSettings { quality: 'low' | 'medium' | 'high' | 'ultra'; renderScale: number; shadows: boolean; clouds: boolean; terrainDetail: number; imagery: 'satellite' | 'procedural'; fov: number }
 export interface AudioSettings { master: number; engine: number; environment: number; cockpit: number; ui: number; atc: number }
@@ -23,8 +27,12 @@ export interface UiHost {
   currentAircraft(): AircraftConfig;
   dispatch(action: SimAction): void;          // same path as a key press
   spawn(choice: SpawnChoice, aircraftId: string, options: { fuelFraction: number; payloadKg: number }): Promise<void>;
-  setWeatherPreset(id: WeatherPresetId): void;
-  setCustomWeather(w: WeatherState): void;
+  /**
+   * `immediate: true` (sent when a new flight starts) asks for no blend, so the flight begins in
+   * the chosen weather; otherwise the host may transition gradually while flying.
+   */
+  setWeatherPreset(id: WeatherPresetId, opts?: { immediate?: boolean }): void;
+  setCustomWeather(w: WeatherState, opts?: { immediate?: boolean }): void;
   requestLiveWeather(): Promise<boolean>;
   setTime(utcMs: number): void;               // sets the world clock
   setTimeScale(scale: number): void;

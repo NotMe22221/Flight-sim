@@ -29,9 +29,21 @@ describe('AircraftModel (Node build, no DOM)', () => {
     expect(model.eyePointLocal.x).toBeCloseTo(-0.25);
     expect(model.eyePointLocal.y).toBeCloseTo(0.55);
     expect(model.eyePointLocal.z).toBeCloseTo(-0.15);
-    // panel ≈ 0.65 m ahead of and 0.35 m below the eye, aft of the firewall (FS 0 ≈ z −1.04)
-    expect(model.panelMesh.position.z).toBeCloseTo(-0.8, 2);
-    expect(model.panelMesh.position.y).toBeCloseTo(0.2, 2);
+    // Panel ≈ 0.65 m ahead of the eye, aft of the firewall (FS 0 ≈ z −1.04). As in the real 172
+    // the glareshield sits ≈ 0.16 m below the design eye and the 0.48 m panel hangs from just under
+    // its lip (top edge ≈ 0.19 m, centre ≈ 0.43 m below the eye), so from the seat the six-pack
+    // fills the bottom third of a 60–75° view with the cowl visible over the glareshield.
+    const pm = model.panelMesh, eyeY = model.eyePointLocal.y;
+    expect(pm.position.z).toBeCloseTo(-0.8, 2);
+    const top = pm.position.y + (0.48 / 2) * Math.cos(pm.rotation.x);
+    expect(top).toBeLessThan(model.layout.glareshield.lipY);
+    expect(eyeY - top).toBeGreaterThan(0.15);
+    expect(eyeY - top).toBeLessThan(0.22);
+    expect(eyeY - pm.position.y).toBeGreaterThan(0.38);
+    expect(eyeY - pm.position.y).toBeLessThan(0.46);
+    // in front of the left seat: the six-pack (left 47 % of the texture) is centred on the pilot
+    const sixPackX = pm.position.x - 0.48 + 0.245 * 0.96;
+    expect(Math.abs(sixPackX - model.eyePointLocal.x)).toBeLessThan(0.05);
   });
 
   it('panel planes show an assigned instrument texture at full brightness without a recompile', () => {
@@ -52,13 +64,16 @@ describe('AircraftModel (Node build, no DOM)', () => {
 
   it('has C172-like overall extents (span 11 m, length ≈ 8.3 m, sits on its gear ~1.2 m below the CG)', () => {
     model.root.updateMatrixWorld(true);
-    // light halos are 0.9 m billboards at the wing tips; measure the airframe without them
+    // light halos are 0.9 m billboards at the wing tips; measure the airframe without them.
+    // `precise`: the default box of a rotated hinge mount is the box of its rotated local box,
+    // which overstates the swept rudder's reach by ~0.35 m.
     const box = new THREE.Box3();
-    for (const child of model.exterior.children) if (child.name !== 'lights') box.expandByObject(child);
+    for (const child of model.exterior.children) if (child.name !== 'lights') box.expandByObject(child, true);
     expect(box.max.x - box.min.x).toBeGreaterThan(10.8);
     expect(box.max.x - box.min.x).toBeLessThan(11.4);
-    expect(box.max.z - box.min.z).toBeGreaterThan(7.9);
-    expect(box.max.z - box.min.z).toBeLessThan(8.6);
+    // real 172S: length 8.28 m (spinner to rudder), height 2.72 m
+    expect(box.max.z - box.min.z).toBeGreaterThan(8.1);
+    expect(box.max.z - box.min.z).toBeLessThan(8.45);
     expect(box.min.y).toBeLessThan(-1.15);
     expect(box.min.y).toBeGreaterThan(-1.3);
     expect(box.max.y).toBeGreaterThan(1.4);
@@ -274,6 +289,30 @@ describe('AircraftModel (Node build, no DOM)', () => {
     expect(model.panelMeshG1000.visible).toBe(true);
     expect(model.panelMesh.visible).toBe(false);
     model.setPanelVariant('steam');
+  });
+
+  it('instrument faces are lit by daylight, or by the panel lights at night', () => {
+    const m = new AircraftModel(c172ModelConfig());
+    const st = makeTestState();
+    const inputs = defaultControlInputs();
+    const steam = m.panelMesh.material.color, glass = m.panelMeshG1000.material.color;
+    m.setSunElevation(35 * D2R);
+    m.update(st, inputs, 0.01, true);
+    expect(steam.getHex()).toBe(0xffffff); // full brightness by day
+    m.setSunElevation(-20 * D2R);
+    m.update(st, inputs, 0.01, true);
+    expect(steam.r).toBeLessThan(0.15); // dark night, panel lights off: dim but readable
+    expect(steam.r).toBeGreaterThan(0);
+    expect(glass.r).toBeGreaterThan(0.5); // the G1000 screens are emissive
+    inputs.lights.panel = 1;
+    m.update(st, inputs, 0.01, true);
+    expect(steam.r).toBeGreaterThan(0.6);
+    expect(steam.b).toBeLessThan(steam.r); // warm post lights
+    inputs.lights.panel = Number.NaN;
+    m.setSunElevation(Number.NaN); // ignored: keeps the last good elevation
+    m.update(st, inputs, 0.01, true);
+    expect(Number.isFinite(steam.r)).toBe(true);
+    m.dispose();
   });
 
   it('setPose copies the pose and dispose releases resources', () => {

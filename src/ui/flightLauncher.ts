@@ -41,8 +41,9 @@ export class FlightLauncher {
     this.challenge.end();
     return this.run(async () => {
       const w = sel.weather;
-      if (w.mode === 'preset') host.setWeatherPreset(w.presetId);
-      else if (w.mode === 'custom') host.setCustomWeather(w.custom);
+      // a new flight starts in the chosen weather (no in-flight blend from the previous flight's)
+      if (w.mode === 'preset') host.setWeatherPreset(w.presetId, { immediate: true });
+      else if (w.mode === 'custom') host.setCustomWeather(w.custom, { immediate: true });
       host.setTime(selection.resolvedTimeUtcMs());
       await host.spawn(sel.spawn, sel.aircraftId, { fuelFraction: sel.fuelFraction, payloadKg: sel.payloadKg });
       // live weather needs the new position; the planner is cleared at spawn, so the arrival goes in afterwards

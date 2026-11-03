@@ -76,8 +76,13 @@ Lower-level pieces are exported too (`index.ts`): `KeyAxis`, `HoldTracker`, `sha
   polls still yields the edge and one frame of "held".
 - **Keyboard**: tracked by `KeyboardEvent.code`; chords match modifiers **exactly** and are captured at key-down (releasing
   Ctrl first does not leak into plain E). An axis key pressed with unbound modifiers falls back to its plain binding
-  (Shift+↑ still pitches) unless that chord is an action. `preventDefault` only for bound chords; Meta-chords, text fields
-  (`input/textarea/select/contenteditable`) and captured mode are ignored; `blur`/`visibilitychange` release everything.
+  (Shift+↑ still pitches) unless that chord is an action — but never for browser chords (Ctrl[+Shift]+R/W/T/N/Q/Tab/L/P/F/
+  =/−/0–9/I/J/C …, `isBrowserChord`), so WASD-style custom axes do not swallow reload, zoom or devtools. `preventDefault`
+  only for bound chords (the laptop layer binds no browser chord; the MSFS chords Ctrl+F/L/H/E/A/V, Ctrl+Num 0/+/− and
+  F5/F11/F12 are bound on purpose, as research §B2 asks); Meta-chords, text fields (`input/textarea/select/contenteditable`) and captured mode
+  are ignored. `blur`, `visibilitychange` (hidden), focus moving into a text field (`focusin`) and pressing Meta/Cmd
+  (macOS drops keyups while Cmd is held) release everything. Rebinding capture ignores OS repeats and the key event that
+  was being dispatched when the capture started (the Enter/Space that activated a "rebind" row).
 - **Keyboard axes** (`keyAxis.ts`): a virtual stick per axis, linear ramp centre→full in 0.6 s, release auto-centres in
   0.3 s (reversals pass centre at the faster rate), last-pressed direction wins. Brakes keys 0.25 s / 0.17 s.
 - **Arbitration** (§B1): for every centring axis the source that changed it most recently wins (gamepad > touch > mouse
@@ -90,7 +95,9 @@ Lower-level pieces are exported too (`index.ts`): `KeyAxis`, `HoldTracker`, `sha
   moves again.
 - **Brakes**: `brakesHold` ramps 0→1 in 0.25 s (release 0.15 s) and is merged as `max()` with the `brakeLeft/Right` axes.
 - **Mouse**: right-button drag → `pointerDx/Dy` (pointer capture, or pointer lock with `lockOnDrag`); `freeLookToggle`
-  (F) locks the pointer for button-less look until Esc. The wheel drives `axes.cameraZoom` as a sticky level −1..1
+  (F) locks the pointer for button-less look until Esc (a refused lock request is retried by the next F; `freeLookLocked`
+  is true only while the browser holds the lock). Window blur / hidden tab also release mouse buttons and touch controls
+  (held touch buttons, stick re-centred), whose pointerup may never arrive. The wheel drives `axes.cameraZoom` as a sticky level −1..1
   (0.1 per notch; `cameraReset` returns it to 0) and also emits `zoomIn`/`zoomOut` per notch. Context menu suppressed on
   the canvas only.
 - **Mouse yoke** (§B4.2, Alt+M): absolute mode maps the cursor offset from the canvas centre through a square deadzone box
@@ -102,7 +109,11 @@ Lower-level pieces are exported too (`index.ts`): `KeyAxis`, `HoldTracker`, `sha
   follows Chromium's HID-usage indices (Linux joydev order on Linux, UNVERIFIED). Shaping = deadzone → rescale →
   saturation → cubic blend → gain (§B5.5); sliders use the unipolar mapping `(1 − a)/2` when inverted, with 3 % end
   deadzones (§B5.6). Hats reported as an axis are decoded with Chromium's ranges (diagonals set two directions). Buttons may
-  carry a `modifierButton` (shift layer). Overrides are stored per device key (`standard`, `hid:vvvv:pppp`).
+  carry a `modifierButton` (shift layer), decided when the button goes down like a keyboard chord (releasing or pressing the
+  modifier while the button is held changes nothing). Buttons / hats / axis halves bound to a lever axis (throttle,
+  mixture, propeller) act as rates (`leverKeyRate`, like keys); only sliders set a lever position. Rebinding capture
+  compares every pad with its own rest position (a second device's resting slider or pedals are not "moved") and binds a
+  POV hat by direction (`hat: 'left'`), never as a raw axis. Overrides are stored per device key (`standard`, `hid:vvvv:pppp`).
 - **Touch**: dynamic virtual stick (appears under the left thumb, 120 px radius, radial deadzone 0.08, curve 0.3; thumb
   down = nose up), sticky throttle slider (top = full), buttons FLAPS −/+, GEAR, BRAKE (hold), VIEW, MENU. Pointer Events,
   `touch-action: none`, one pointer per control.
@@ -268,8 +279,8 @@ Tables are generated from `profiles.ts`. Labels as shown by `getBindingLabel`.
 | Radios & instruments | Heading bug + (`headingBugInc`) | `Shift+.` |
 | Radios & instruments | Heading bug − (`headingBugDec`) | `Shift+,` |
 | Simulation | Pause (`pause`) | `P` |
-| Simulation | Sim rate faster (`timeFaster`) | `Ctrl+=` |
-| Simulation | Sim rate slower (`timeSlower`) | `Ctrl+-` |
+| Simulation | Sim rate faster (`timeFaster`) | `Shift+=` |
+| Simulation | Sim rate slower (`timeSlower`) | `Shift+-` |
 | Trim | Elevator trim nose down (`trimNoseDown`) | `[` |
 | Trim | Elevator trim nose up (`trimNoseUp`) | `]` |
 | Trim | Aileron trim left (`aileronTrimLeft`) | `Ctrl+←` |
@@ -352,21 +363,25 @@ Tables are generated from `profiles.ts`. Labels as shown by `getBindingLabel`.
   release, sub-frame taps, multi-input hold counting.
 - `keyboard.test.ts` — edge once per press (OS repeat ignored); held levels; exact modifiers (Ctrl+E auto-start vs E
   rudder); chord captured at key-down; axis fallback for unbound modifiers; preventDefault only for bound keys; blur and
-  visibilitychange release; captured flag; text-field focus; trim repeat timing; sub-frame tap; last-pressed wins; detach.
+  visibilitychange release; captured flag; text-field focus; trim repeat timing; sub-frame tap; last-pressed wins; Meta/Cmd
+  and focus moving into a text field release held keys; browser chords (Ctrl+=/−/0/R/W/Tab/1/P, Ctrl+Shift+R/I/J, Alt+F4)
+  are never prevented by the default set and never hit the axis fallback (WASD axes); detach.
 - `bindings.test.ts` — chord parsing and labels (`Ctrl+E`, `Num 7`, `Ctrl+Num Del`, `Mouse Middle`, `Pad A`, `Pad LB+A`,
   `Joy 3`, `Pad LS Y`, `Joy Hat up`); all default profiles conflict-free; merged default has numpad + arrows; conflict
   detection (chords, overlapping axis/hat); merge override; rebind displace/replace; JSON round trip of every profile;
   invalid bindings dropped with errors; storage save/load/clear incl. blocked and corrupt storage; serialised defaults
   conform to `BINDING_PROFILE_JSON_SCHEMA` (allowed keys and enums).
 - `mouse.test.ts` — yoke deadzone box, linear mapping, sensitivity, pitch inversion, centre-engage guard; right-drag deltas,
-  context menu; pointer-lock free-look and its loss; wheel notches (pixel and line modes) and zoom actions; middle button;
-  touch pointers ignored; detach.
+  context menu; pointer-lock free-look and its loss; a refused pointer lock is retried by the next toggle; wheel notches
+  (pixel and line modes) and zoom actions; middle button; touch pointers ignored; detach.
 - `shaping.test.ts` — deadzone/curve monotonic and odd-symmetric for several settings, deadzone edge, saturation, no −0,
   NaN; radial stick deadzone; inverted and normal unipolar throttle at both ends, monotonic, complementary.
 - `gamepad.test.ts` — id parsing (Chrome/Firefox/Safari/XInput); hat decoding incl. diagonals and centred values; preset
   resolution incl. Linux layout; connect/disconnect by events and by polling; standard-mapping buttons → actions (edges,
   held, repeat); sticks/triggers/right-stick look; joystick slider/twist/hat/trigger; D-pad look and trim modes; first
-  reading does not steal axes; active pad; rumble; modifier-button shift layer.
+  reading does not steal axes; active pad; rumble; modifier-button shift layer, decided at button-down (no plain action when
+  the modifier is released first, no shifted action when it is pressed second); a button held through a profile refresh does
+  not release another input's hold of the same action.
 - `touch.test.ts` — stick mapping/clamp, overlay create/remove incl. listeners, stick and slider via pointer events, buttons.
 - `InputManager.test.ts` — keyboard pitch ramp/centre through the manager (arrows and numpad); throttle 5 % steps, clamp,
   cut/full, hold-to-ramp; Ctrl+E vs E; blur; captured; flapsDown clamps at the detent count and `setFlapDetents`; gear,
@@ -376,7 +391,11 @@ Tables are generated from `profiles.ts`. Labels as shown by `getBindingLabel`.
   active device; bindingsList/controlsList; startListening (modifier-only ignored, displacement, persistence across
   instances, reset), Esc cancel, superseded listen, gamepad capture (a still-held captured button does not fire), OS
   repeat of the just-captured key ignored; joystick profile chosen without a pad applies to HID devices only; keys bound
-  to a lever axis act as rates (taps included); setProfile/resetProfile; dispose.
+  to a lever axis act as rates (taps included); setProfile/resetProfile; dispose. Review regressions: the Enter that
+  activates a keyboard-driven "rebind" row is not captured (nor its OS repeats); gamepad capture with two devices does not
+  fire on the second device's resting slider; a POV hat is captured as a hat direction (action and axis) and the centred
+  hat does not deflect the axis; pad buttons bound to the throttle axis move it at the lever rate and the lever holds;
+  window blur / hidden tab release mouse-button and touch holds and re-centre the touch stick.
 - `controlsMapper.test.ts` — flaps clamp (incl. no-flap aircraft), magnetos wrap both ways, exact throttle steps and the
   analog-lever lock, toggles/trims, sim-level actions not treated as controls, brake ramp helper.
 
@@ -396,6 +415,24 @@ Tables are generated from `profiles.ts`. Labels as shown by `getBindingLabel`.
 - `cameraZoom` is a sticky level; the camera module currently treats it as a rate in orbit mode (keeps zooming while ≠ 0)
   and as a level in chase/drone modes — the integrator should pick one meaning.
 - `KeyB` → `altimeterStd` follows the research table, but MSFS's B is "set local QNH"; see proposed contract changes.
+- Tuning differs from the research §B3 table (deliberate, kept by review): pitch/roll/yaw keys ramp 0.6 s / centre 0.3 s
+  with no tap step, ease-in or one-pole smoothing (research: 2.5/s with 0.15 s ease-in, 3.0/s return, tap 0.15, τ 0.08 s;
+  yaw 3.0/4.0, tap 0.2); throttle keys step 5 % and repeat to 0.5/s as a 10 Hz staircase (research: ±3 %, 0.40/s ramp,
+  τ 0.10 s); trim repeats give 0.1/s then 0.2/s after 1 s (research: 0.25/s, ×2 after 1 s). Change via `rates`, `repeat`
+  and `STICK_KEY_TUNING` if flight testing prefers the research values.
+- Research §B5.7 says to *invert* the joystick Y axis; that is self-contradictory (HID Y reads −1 pushed forward, so pull
+  back = +1 = nose up already). The presets do not invert Y, matching the Xbox left stick.
+- Digital pad buttons / hats bound to a centring axis (pitch, roll, yaw, look) step straight to ±1 (no ramp like the
+  keyboard's); fine for look and analog triggers, harsh for flight axes on digital buttons.
+- Alt+←/→ (browser Back/Forward) are swallowed on purpose while arrows fly the aircraft (the axis fallback), so a pilot
+  does not navigate away from the flight; Ctrl+F/L/H/E/A, Ctrl+Num 0/+/− (browser zoom) and F5/F11/F12 are MSFS
+  bindings and therefore also prevented.
+- Any focused `<input>` counts as a text field, including range sliders and checkboxes (e.g. the replay bar slider):
+  flight keys stay ignored until focus leaves it. The UI should blur such controls after use.
+- After a missed keyup (e.g. one swallowed by another handler) the key stays held until it is pressed and released again
+  or the window loses focus.
+- Mouse yoke: no left-click engage / spring-to-centre (§B4.2 steps 1 and 4) and no auto-coordination `yaw = 0.3·roll`
+  (the simulator's auto-rudder assist covers it); relative mode is basic.
 
 ## Tuning knobs
 

@@ -301,7 +301,7 @@ describe('tower camera', () => {
     expect(cam.camera.position.distanceTo(tower)).toBeLessThan(1e-9);
     const toAc = ac.pos.clone().sub(tower).normalize();
     expect(viewDir(cam).angleTo(toAc)).toBeLessThan(0.1 * D2R);
-    expect(cam.camera.fov).toBeCloseTo(autoFovDeg(tower.distanceTo(ac.pos), 8.28, 0.04, 2, 60), 3);
+    expect(cam.camera.fov).toBeCloseTo(autoFovDeg(tower.distanceTo(ac.pos), 8.28, cam.options.towerFrameFraction, 2, 60), 3);
   });
 });
 

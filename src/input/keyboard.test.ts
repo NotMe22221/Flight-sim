@@ -173,6 +173,64 @@ describe('KeyboardSource', () => {
     expect(kb.direction('roll')).toBe(-1);
   });
 
+  it('pressing Meta (Cmd) releases held keys: macOS drops their keyups while Cmd is down', () => {
+    dom.keyDown('ArrowLeft');
+    dom.keyDown('Period');
+    poll();
+    dom.keyDown('MetaLeft', { meta: true });
+    poll();
+    poll();
+    expect(held.size).toBe(0);
+    expect(kb.direction('roll')).toBe(0);
+    dom.keyDown('ArrowLeft'); // a fresh press works again
+    poll();
+    expect(kb.direction('roll')).toBe(-1);
+  });
+
+  it('focus moving into a text field releases held keys', () => {
+    dom.keyDown('ArrowLeft');
+    dom.keyDown('Period');
+    poll();
+    const input = dom.document.createElement('input');
+    const f = new FakeEvent('focusin');
+    f.target = input;
+    dom.document.dispatchEvent(f);
+    poll();
+    poll();
+    expect(held.size).toBe(0);
+    expect(kb.direction('roll')).toBe(0);
+  });
+
+  it('never prevents browser-essential chords (zoom, reload, close, tabs, devtools)', () => {
+    const chords: Array<[string, { ctrl?: boolean; shift?: boolean; alt?: boolean }]> = [
+      ['Equal', { ctrl: true }], ['Minus', { ctrl: true }], ['Digit0', { ctrl: true }],
+      ['KeyR', { ctrl: true }], ['KeyR', { ctrl: true, shift: true }], ['KeyW', { ctrl: true }],
+      ['Tab', { ctrl: true }], ['Digit1', { ctrl: true }], ['KeyI', { ctrl: true, shift: true }],
+      ['KeyJ', { ctrl: true, shift: true }], ['KeyP', { ctrl: true }], ['F4', { alt: true }],
+    ];
+    for (const [code, m] of chords) {
+      const e = dom.keyDown(code, m);
+      expect(e.defaultPrevented, `${JSON.stringify(m)}+${code}`).toBe(false);
+      dom.keyUp(code, m);
+    }
+  });
+
+  it('an axis key never falls back for a browser chord (WASD flying keeps Ctrl+R / Ctrl+W / Ctrl+S)', () => {
+    kb.setBindings([
+      { device: 'keyboard', code: 'KeyW', axis: 'pitch', dir: -1 }, { device: 'keyboard', code: 'KeyS', axis: 'pitch', dir: 1 },
+      { device: 'keyboard', code: 'KeyR', axis: 'yaw', dir: 1 },
+    ]);
+    for (const code of ['KeyR', 'KeyW', 'KeyS']) {
+      expect(dom.keyDown(code, { ctrl: true }).defaultPrevented, code).toBe(false);
+      dom.keyUp(code, { ctrl: true });
+    }
+    poll();
+    expect(kb.direction('pitch')).toBe(0);
+    expect(dom.keyDown('KeyW', { shift: true }).defaultPrevented).toBe(true); // Shift+W still pitches
+    poll();
+    expect(kb.direction('pitch')).toBe(-1);
+  });
+
   it('detach removes every listener', () => {
     kb.detach();
     expect(dom.window.listenerCount()).toBe(0);

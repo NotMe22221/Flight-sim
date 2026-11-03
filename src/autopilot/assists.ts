@@ -1,6 +1,8 @@
 /**
- * MSFS-style piloting assists. They act on the pilot's `ControlInputs` *before* the autopilot
- * (`GfcAutopilot.apply`) and mutate them in place; nothing allocates per frame.
+ * MSFS-style piloting assists. They mutate a per-frame copy of the controls in place (never the
+ * pilot's persistent `ControlInputs`: the assists *add* to what they are given) and allocate
+ * nothing. In the simulator they run after `GfcAutopilot.apply`, on the controls the flight model
+ * will fly, so auto-rudder sees the aileron the autopilot is actually applying (README.md).
  *
  *  - auto-rudder: turn coordination from sideslip β in the air (PI on β + aileron feed-forward
  *    for adverse yaw); on the ground with assisted take-off, a runway-heading hold (nosewheel /
@@ -53,10 +55,13 @@ export interface TakeoffAssistConfig {
   scaleMax: number;
   /** toe-brake level above which the brakes count as applied */
   brakeOn: number;
-  /** throttle above which a rolling take-off (no brake release seen) captures the heading */
-  rollingThrottle: number;
-  /** the hold ends when the aircraft slows below this with the throttle closed (taxi / abort), m/s */
-  stopSpeedMs: number;
+  /** throttle at or above which the take-off starts (the hold engages; below it the pilot taxis freely) */
+  takeoffThrottle: number;
+  /** the heading captured at brake release is used if the aircraft has moved less than this since, m */
+  releaseMaxTravelM: number;
+  /** throttle below which the hold lets go once slower than `releaseSpeedMs` (rejected take-off, exit) */
+  idleThrottle: number;
+  releaseSpeedMs: number;
   /** seconds after lift-off over which the heading hold hands over to the airborne coordination */
   liftoffBlendS: number;
 }
@@ -87,8 +92,9 @@ export interface AssistsConfig {
 export const defaultAssistsConfig = (): AssistsConfig => ({
   autoRudder: { betaKp: 3, betaKi: 2, iLim: 0.3, aileronFf: 0.3, authority: 0.6, minIasMs: 35 * KT, pilotYawFreeze: 0.05 },
   takeoff: {
-    headingKp: 2.0, yawRateKd: 1.2, headingKi: 0.5, iLim: 0.3, authority: 0.8,
-    refSpeedMs: 15, scaleMin: 0.3, scaleMax: 3, brakeOn: 0.5, rollingThrottle: 0.6, stopSpeedMs: 3, liftoffBlendS: 3,
+    headingKp: 4.0, yawRateKd: 1.5, headingKi: 1.5, iLim: 0.3, authority: 0.8,
+    refSpeedMs: 15, scaleMin: 0.3, scaleMax: 3, brakeOn: 0.5,
+    takeoffThrottle: 0.6, releaseMaxTravelM: 30, idleThrottle: 0.2, releaseSpeedMs: 15 * KT, liftoffBlendS: 3,
   },
   antiStall: {
     stallAlphaRad: 0.28, startMarginRad: 5 * DEG, endMarginRad: 1.5 * DEG, leadS: 0.3,
@@ -131,7 +137,10 @@ export class FlightAssists {
   private hdgI = 0;
   private holding = false;
   private holdHeading = Number.NaN;
-  private brakeArmed = false;
+  private brakesWereSet = false;
+  private releaseHeading = Number.NaN;
+  private releaseN = 0;
+  private releaseE = 0;
   private airborneT = 0;
 
   constructor(config?: DeepPartial<AssistsConfig>) {
@@ -140,11 +149,13 @@ export class FlightAssists {
 
   /** Runway heading (true, rad) held on the ground, or NaN when no hold is active. */
   get takeoffHeadingRad(): number { return this.holding ? this.holdHeading : Number.NaN; }
+  /** Heading (true, rad) captured at the last brake release, NaN when none is pending. */
+  get releaseHeadingRad(): number { return this.releaseHeading; }
 
   /** Clear all assist state (new flight / respawn). */
   reset(): void {
     this.betaI = 0; this.hdgI = 0; this.holding = false; this.holdHeading = Number.NaN;
-    this.brakeArmed = false; this.airborneT = 0;
+    this.brakesWereSet = false; this.releaseHeading = Number.NaN; this.airborneT = 0;
     this.antiStallFactor = 1; this.antiStallPush = 0; this.rudderAssist = 0;
   }
 
@@ -153,17 +164,21 @@ export class FlightAssists {
     this.assistedTakeoff = flags.assistedTakeoff;
     this.coordinateInAir = flags.autoRudder;
     if (flags.autoRudder || flags.assistedTakeoff) this.autoRudder(inputs, s, dt);
-    else { this.rudderAssist = 0; this.betaI = 0; this.holding = false; }
+    else { this.rudderAssist = 0; this.betaI = 0; this.dropHold(); this.disarm(); }
     if (flags.antiStall) this.antiStall(inputs, s, dt);
     else { this.antiStallFactor = 1; this.antiStallPush = 0; }
   }
 
   /**
    * Auto-rudder. In the air: rudder = Kp·β + ∫Ki·β + Kff·aileron (faded in above `minIasMs`).
-   * On the ground with `assistedTakeoff`: hold the heading captured at brake release (or when a
-   * rolling take-off starts) with a speed-scheduled PID on heading error and yaw rate; the hold
-   * fades into the airborne coordination over `liftoffBlendS` after lift-off. The pilot's own
-   * pedal input is kept and the assist is added to it. Mutates `inputs.yaw`.
+   * On the ground with `assistedTakeoff`: the heading is captured when the brakes come off; the
+   * hold engages when take-off power is set (throttle ≥ `takeoffThrottle` while slow) and steers
+   * that heading — or the current one if the aircraft has taxied more than `releaseMaxTravelM`
+   * since the release (rolling take-off) — with a speed-scheduled PID on heading error and yaw
+   * rate. Taxiing below take-off power is never steered. The hold fades into the airborne
+   * coordination over `liftoffBlendS` after lift-off, and lets go when the brakes are set or the
+   * throttle is closed below `releaseSpeedMs`. The pilot's own pedal input is kept and the assist
+   * is added to it. Mutates `inputs.yaw`.
    */
   autoRudder(inputs: ControlInputs, s: AircraftState, dt: number): void {
     if (!(dt > 0)) return;
@@ -172,7 +187,8 @@ export class FlightAssists {
     if (s.onGround) {
       this.airborneT = 0;
       this.betaI = 0;
-      assist = this.assistedTakeoff ? this.groundHold(inputs, s, dt) : this.dropHold();
+      if (this.assistedTakeoff) assist = this.groundHold(inputs, s, dt);
+      else { this.dropHold(); this.disarm(); }
     } else {
       this.airborneT += dt;
       const air = this.coordinateInAir ? this.coordination(inputs, s, dt) : 0;
@@ -233,19 +249,26 @@ export class FlightAssists {
     const c = this.config.takeoff;
     const brakes = inputs.parkingBrake || Math.max(inputs.brakeLeft, inputs.brakeRight) > c.brakeOn;
     if (brakes) {
-      // brakes set: (re)arm; the heading is captured when they come off
-      this.brakeArmed = true;
+      // brakes set: no hold; the heading is captured when they come off
+      this.brakesWereSet = true;
       return this.dropHold();
     }
+    if (this.brakesWereSet) {
+      this.brakesWereSet = false;
+      this.releaseHeading = s.headingTrueRad;
+      this.releaseN = s.posNED[0];
+      this.releaseE = s.posNED[1];
+    }
     if (!this.holding) {
-      const rolling = inputs.throttle > c.rollingThrottle && s.groundSpeedMs < c.refSpeedMs;
-      if (this.brakeArmed || rolling) {
-        this.holding = true;
-        this.holdHeading = s.headingTrueRad;
-        this.hdgI = 0;
-        this.brakeArmed = false;
-      } else return 0;
-    } else if (inputs.throttle < 0.2 && s.groundSpeedMs < c.stopSpeedMs) return this.dropHold(); // stopped / taxiing
+      // the take-off starts with take-off power while still slow; below it the pilot taxis freely
+      if (inputs.throttle < c.takeoffThrottle || s.groundSpeedMs > c.refSpeedMs) return 0;
+      const moved = Math.hypot(s.posNED[0] - this.releaseN, s.posNED[1] - this.releaseE);
+      const fresh = Number.isFinite(this.releaseHeading) && moved < c.releaseMaxTravelM;
+      this.holdHeading = fresh ? this.releaseHeading : s.headingTrueRad;
+      this.releaseHeading = Number.NaN;
+      this.holding = true;
+      this.hdgI = 0;
+    } else if (inputs.throttle < c.idleThrottle && s.groundSpeedMs < c.releaseSpeedMs) return this.dropHold(); // rejected take-off / runway exit
     return this.headingTerm(s, dt);
   }
 
@@ -262,5 +285,10 @@ export class FlightAssists {
     this.holdHeading = Number.NaN;
     this.hdgI = 0;
     return 0;
+  }
+
+  private disarm(): void {
+    this.brakesWereSet = false;
+    this.releaseHeading = Number.NaN;
   }
 }

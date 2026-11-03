@@ -104,22 +104,64 @@ describe('auto-rudder: assisted take-off holds the runway heading captured at br
     expect(on.maxXtrack).toBeLessThan(2);
   });
 
-  it('releases the hold after lift-off and when the aircraft stops', () => {
+  it('releases the hold after lift-off, on a rejected take-off and when the brakes are set', () => {
     const r = takeoffRoll(true);
     expect(r.plant.state.onGround).toBe(false);
     expect(Number.isNaN(r.assists.takeoffHeadingRad)).toBe(true);
     const plant = new GroundRollPlant(0);
     const a = new FlightAssists();
+    const flags: AssistFlags = { autoRudder: false, assistedTakeoff: true };
     const u = defaultControlInputs();
     u.parkingBrake = true;
-    a.apply(u, plant.state, DT, { autoRudder: false, assistedTakeoff: true });
-    expect(Number.isNaN(a.takeoffHeadingRad)).toBe(true); // brakes set: armed, not holding
+    a.apply(u, plant.state, DT, flags);
+    expect(Number.isNaN(a.takeoffHeadingRad)).toBe(true); // brakes set: nothing held
     u.parkingBrake = false;
     u.throttle = 0;
-    a.apply(u, plant.state, DT, { autoRudder: false, assistedTakeoff: true });
-    expect(a.takeoffHeadingRad).toBe(0); // brake release captures
-    a.apply(u, plant.state, DT, { autoRudder: false, assistedTakeoff: true });
-    expect(Number.isNaN(a.takeoffHeadingRad)).toBe(true); // stopped with the throttle closed: released
+    a.apply(u, plant.state, DT, flags);
+    expect(a.releaseHeadingRad).toBe(0); // brake release captures the heading ...
+    expect(Number.isNaN(a.takeoffHeadingRad)).toBe(true); // ... but idle power is not a take-off
+    u.throttle = 1;
+    a.apply(u, plant.state, DT, flags);
+    expect(a.takeoffHeadingRad).toBe(0); // take-off power engages the hold on the release heading
+    u.throttle = 0;
+    a.apply(u, plant.state, DT, flags);
+    expect(Number.isNaN(a.takeoffHeadingRad)).toBe(true); // throttle closed while slow: released
+    u.throttle = 1;
+    a.apply(u, plant.state, DT, flags);
+    expect(a.takeoffHeadingRad).toBe(0);
+    u.brakeLeft = u.brakeRight = 1;
+    a.apply(u, plant.state, DT, flags);
+    expect(Number.isNaN(a.takeoffHeadingRad)).toBe(true); // brakes: released (re-captured when they come off)
+  });
+
+  it('never steers a taxi below take-off power, and a rolling take-off holds the heading at power-up', () => {
+    const taxi = (assisted: boolean) => {
+      const plant = new GroundRollPlant(0);
+      const a = new FlightAssists();
+      const flags: AssistFlags = { autoRudder: true, assistedTakeoff: true };
+      const pilot = defaultControlInputs();
+      const u = defaultControlInputs();
+      pilot.parkingBrake = true;
+      if (assisted) a.apply(copy(pilot, u), plant.state, DT, flags);
+      pilot.parkingBrake = false; // brakes off at the parking spot, heading 000
+      for (let t = DT; t < 30; t += DT) {
+        pilot.yaw = t > 5 && t < 8 ? 0.4 : 0; // taxi, turning right onto the runway
+        pilot.throttle = plant.state.groundSpeedMs > 5 ? 0 : 0.35;
+        copy(pilot, u);
+        if (assisted) a.apply(u, plant.state, DT, flags);
+        plant.step(DT, u);
+      }
+      return { plant, a, pilot, u, flags };
+    };
+    const ref = taxi(false);
+    const r = taxi(true);
+    expect(r.plant.psi).toBe(ref.plant.psi); // the pilot's taxi turn was not touched
+    expect(r.plant.psi).toBeGreaterThan(20 * DEG);
+    expect(r.plant.crossTrack(0)).toBeGreaterThan(30); // well away from the brake-release point
+    r.pilot.throttle = 1; // rolling take-off on the runway: the stale release heading is not used
+    copy(r.pilot, r.u);
+    r.a.apply(r.u, r.plant.state, DT, r.flags);
+    expect(r.a.takeoffHeadingRad).toBeCloseTo(r.plant.psi, 9);
   });
 });
 

@@ -57,9 +57,9 @@ export class AircraftModel {
   readonly exterior = new THREE.Group();
   /** cockpit shell, only shown in cockpit view */
   readonly interior: THREE.Group;
-  /** instrument panel plane (steam six-pack size, 1.0 × 0.45 m); assign `material.map` */
+  /** steam instrument panel plane (0.96 × 0.48 m, 2:1 like its texture); assign `material.map` */
   readonly panelMesh: PanelMesh;
-  /** G1000-sized alternative (1.0 × 0.36 m), hidden unless {@link setPanelVariant}('g1000') */
+  /** G1000 plane (0.96 × 0.35 m, PFD + MFD), hidden unless {@link setPanelVariant}('g1000') */
   readonly panelMeshG1000: PanelMesh;
   /** pilot eye point in model-local coordinates (from config.geometry.eyePoint) */
   readonly eyePointLocal: THREE.Vector3;
@@ -76,6 +76,10 @@ export class AircraftModel {
   private exteriorEnabled = true;
   private interiorEnabled = true;
   private night = false;
+  /** 0 (night) … 1 (day), from {@link setSunElevation} */
+  private daylight = 1;
+  /** last `ControlInputs.lights.panel` seen by {@link update} */
+  private panelLight = 0;
   private readonly nightElevation: number;
   private disposed = false;
 
@@ -167,6 +171,8 @@ export class AircraftModel {
     this.gear.update(state.gear, step);
     this.lights.update(step, inputs.lights, !cameraIsCockpit || this.night);
     this.cockpit.update(inputs);
+    this.panelLight = inputs.lights?.panel ?? 0;
+    this.cockpit.setPanelLighting(this.daylight, this.panelLight);
 
     this.cabinShell.visible = this.exteriorEnabled && !cameraIsCockpit;
     this.interior.visible = this.interiorEnabled && cameraIsCockpit;
@@ -183,12 +189,16 @@ export class AircraftModel {
 
   /**
    * Feed the sun elevation (rad): spotlights are also enabled in the cockpit view at night,
-   * and the cabin's bounce-light fill follows the daylight.
+   * and the cabin's bounce-light fill and the light on the (unlit) instrument faces follow the
+   * daylight (sun −6° … +15°); at night the panel needs `ControlInputs.lights.panel`.
    */
   setSunElevation(elevationRad: number): void {
+    if (!Number.isFinite(elevationRad)) return;
     this.night = elevationRad < this.nightElevation;
     const t = Math.max(0, Math.min(1, (elevationRad / D2R + 6) / 21));
-    this.materials.setCabinBounce(t * t * (3 - 2 * t));
+    this.daylight = t * t * (3 - 2 * t);
+    this.materials.setCabinBounce(this.daylight);
+    this.cockpit.setPanelLighting(this.daylight, this.panelLight);
   }
 
   get isNight(): boolean { return this.night; }

@@ -70,7 +70,7 @@ function drawGraticule(g: CanvasRenderingContext2D, v: MapView): void {
     const y = Math.round(project(v, v.centerLon, lat).y) + 0.5;
     g.strokeStyle = Math.abs(lat) < 1e-9 ? C.gridMajor : C.grid;
     g.beginPath(); g.moveTo(0, y); g.lineTo(v.width, y); g.stroke();
-    g.fillText(degLabel(lat, step, 'N', 'S'), 4, y - 2);
+    if (y > 26) g.fillText(degLabel(lat, step, 'N', 'S'), 4, y - 2); // not into the longitude labels' row
   }
 }
 

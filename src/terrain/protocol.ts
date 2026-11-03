@@ -43,6 +43,12 @@ export interface LoadRequest {
   fullHeights: boolean;
   /** build the ocean patch when the tile has sea-level cells */
   water: boolean;
+  /**
+   * After a network source failed transiently (offline, timeout, 5xx), fall back to procedural
+   * heights (true, the default) or answer an `error` with `transient: true` (false) — set when
+   * real data already covers the tile on the main thread, so synthetic terrain never replaces it.
+   */
+  proceduralOnTransient?: boolean;
 }
 
 export interface AbortRequest { type: 'abort'; key: string }
@@ -108,6 +114,8 @@ export interface ErrorResponse {
   message: string;
   /** HTTP status when the failure was a response (404 → no data at this zoom) */
   status?: number;
+  /** the failure was transient (network, timeout, 5xx): worth retrying soon */
+  transient?: boolean;
 }
 export interface AbortedResponse { type: 'aborted'; key: string }
 export type WorkerResponse = TileResponse | ErrorResponse | AbortedResponse;

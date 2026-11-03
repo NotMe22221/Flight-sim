@@ -48,6 +48,43 @@ export function bilinearGradient(heights: ArrayLike<number>, width: number, heig
   out[1] = (h01 - h00) * (1 - tx) + (h11 - h10) * tx;
 }
 
+/**
+ * Height on the drawn tile surface: `lattice` holds the (quads+1)² vertex heights of a tile
+ * mesh (vertex (i, j) at tile fraction (i/quads, j/quads), row 0 = north) and the value is
+ * interpolated on the mesh's own triangles — each quad split along its NE–SW diagonal, as in
+ * gridIndex.ts — so that it equals the rendered surface, not a smoother bilinear DEM.
+ * `(u, v)` are tile fractions (east, south) in [0, 1]; values outside are clamped to the edge quads.
+ */
+export function triangleSample(lattice: ArrayLike<number>, quads: number, u: number, v: number): number {
+  const W = quads + 1;
+  const gx = u * quads, gy = v * quads;
+  let i = Math.floor(gx), j = Math.floor(gy);
+  if (i < 0) i = 0; else if (i > quads - 1) i = quads - 1;
+  if (j < 0) j = 0; else if (j > quads - 1) j = quads - 1;
+  let fx = gx - i, fy = gy - j;
+  if (fx < 0) fx = 0; else if (fx > 1) fx = 1;
+  if (fy < 0) fy = 0; else if (fy > 1) fy = 1;
+  const k = j * W + i;
+  const h0 = lattice[k], h1 = lattice[k + 1], h2 = lattice[k + W], h3 = lattice[k + W + 1];
+  // NW triangle (NW, SW, NE) when fx + fy ≤ 1, else SE triangle (NE, SW, SE)
+  return fx + fy <= 1 ? h0 + (h1 - h0) * fx + (h2 - h0) * fy : h3 + (h2 - h3) * (1 - fx) + (h1 - h3) * (1 - fy);
+}
+
+/**
+ * Gradient of `triangleSample` (the face slope of the triangle under (u, v)) in metres per
+ * quad: out[0] = ∂h/∂east, out[1] = ∂h/∂south.
+ */
+export function triangleGradient(lattice: ArrayLike<number>, quads: number, u: number, v: number, out: Float64Array | number[]): void {
+  const W = quads + 1;
+  const gx = u * quads, gy = v * quads;
+  let i = Math.floor(gx), j = Math.floor(gy);
+  if (i < 0) i = 0; else if (i > quads - 1) i = quads - 1;
+  if (j < 0) j = 0; else if (j > quads - 1) j = quads - 1;
+  const k = j * W + i;
+  const h0 = lattice[k], h1 = lattice[k + 1], h2 = lattice[k + W], h3 = lattice[k + W + 1];
+  if (gx - i + (gy - j) <= 1) { out[0] = h1 - h0; out[1] = h2 - h0; } else { out[0] = h3 - h2; out[1] = h3 - h1; }
+}
+
 /** Box-filter downsample of a square grid by an integer factor (e.g. 256 → 64). */
 export function downsampleGrid(src: Float32Array, width: number, factor: number, out?: Float32Array): Float32Array {
   const w = width / factor;

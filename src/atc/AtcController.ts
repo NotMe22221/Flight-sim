@@ -19,7 +19,7 @@ import type { AircraftState, Airport, WeatherState } from '../core/types';
 import { FT, NM } from '../core/units';
 import type { PatternLeg } from './geometry';
 import { buildMenu, type MenuItem } from './menu';
-import { holdShortRunwayAt, monitorPhase, nearestField, onEdge, updateKinematics, updateRunwayGeometry, type InboundWatch } from './monitors';
+import { lineUpRunwayAt, monitorPhase, nearestField, onEdge, updateKinematics, updateRunwayGeometry, type InboundWatch } from './monitors';
 import { AtcSession } from './session';
 import type { AtcControllerOptions, AtcPhase, AtcTuning, LandingClearance } from './types';
 
@@ -117,7 +117,7 @@ export class AtcController {
    */
   select(optionIndex: number): boolean {
     const i = optionIndex === 0 ? 9 : Math.floor(optionIndex) - 1;
-    if (i < 0 || i >= this.menu.length || this.s.radio.busy || !this.started) return false;
+    if (!Number.isInteger(i) || i < 0 || i >= this.menu.length || this.s.radio.busy || !this.started) return false;
     this.menu[i].run();
     this.publishOptions();
     return true;
@@ -153,7 +153,7 @@ export class AtcController {
     }
     s.field = this.departure ? s.fieldCtx(this.departure) : nearestField(s, AT_AIRPORT_NM);
     s.setPhase('PARKED');
-    const onRunway = holdShortRunwayAt(s);
+    const onRunway = lineUpRunwayAt(s);
     if (onRunway) { s.runway = onRunway; s.setPhase('HOLDING_SHORT'); }
     s.menuDirty = true;
   }

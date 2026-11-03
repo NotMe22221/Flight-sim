@@ -1,9 +1,15 @@
 import { readFileSync } from 'node:fs';
-import { Color, PerspectiveCamera, Vector3, type BufferGeometry, type Material, type Mesh, type ShaderMaterial, type Texture } from 'three';
+import { Color, PerspectiveCamera, Raycaster, Vector3, type BufferGeometry, type Intersection, type Material, type Mesh, type ShaderMaterial, type Texture } from 'three';
 import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../core/types';
+import { tileToLonLat } from '../geo/mercator';
 import { LocalFrame } from '../geo/wgs84';
-import type { FetchFn } from './tileFetch';
+import { HeightField } from './heightfield';
+import type { TileResponse } from './protocol';
+import { awsTerrarium } from './providers';
+import { buildLoadRequest } from './requests';
+import { TileCache, type FetchFn } from './tileFetch';
+import { createProceduralCache, runTileJob } from './tileJob';
 import { TerrainSystem, type TerrainSystemOptions } from './TerrainSystem';
 
 const KSFO = { lat: 37.613538, lon: -122.35716 };
@@ -89,6 +95,41 @@ describe('TerrainSystem (in-thread, injected fetch)', () => {
     expect(ts.groundNormalNED(0, 0, n)).toBe(n);
     expect(n[2]).toBeLessThan(-0.95);
     expect(ts.heightAtLocalNED(NaN, 0)).toBeNull();
+    ts.dispose();
+  });
+
+  it('heightAtLocalNED and groundNormalNED match the rendered triangles (raycast against the drawn mesh)', async () => {
+    const frame = new LocalFrame(KSFO.lat, KSFO.lon, 0);
+    const { ts, clock } = makeSystem(frame);
+    await settle(ts, clock, cameraAt(0, 300, 0));
+    const mesh = tileMesh(ts, '15/5246/12684')!;
+    expect(mesh.visible).toBe(true);
+    mesh.updateMatrixWorld(true);
+    const ray = new Raycaster();
+    ray.far = 5000;
+    const hits: Intersection[] = [];
+    let rng = 12345;
+    const rand = (): number => { rng = (rng * 1103515245 + 12345) & 0x7fffffff; return rng / 0x7fffffff; };
+    let worst = 0, worstNormal = 0;
+    for (let k = 0; k < 300; k++) {
+      // random point inside the tile (not on its very edge, where the skirts hang)
+      const c = tileToLonLat(5246 + 0.01 + 0.98 * rand(), 12684 + 0.01 + 0.98 * rand(), 15);
+      const ned = frame.geodeticToNED(c.lat, c.lon, 0);
+      const up = ts.heightAtLocalNED(ned[0], ned[1]);
+      expect(up).not.toBeNull();
+      ray.set(new Vector3(ned[1], 2000, -ned[0]), new Vector3(0, -1, 0));
+      hits.length = 0;
+      ray.intersectObject(mesh, false, hits);
+      expect(hits.length).toBeGreaterThan(0);
+      worst = Math.max(worst, Math.abs(hits[0].point.y - up!));
+      // the physics normal is the normal of the triangle the wheel rests on
+      const n: Vec3 = [0, 0, 0];
+      ts.groundNormalNED(ned[0], ned[1], n);
+      const face = hits[0].face!.normal.clone().transformDirection(mesh.matrixWorld); // render frame (x E, y U, z S)
+      worstNormal = Math.max(worstNormal, Math.hypot(n[0] - -face.z, n[1] - face.x, n[2] - -face.y));
+    }
+    expect(worst).toBeLessThan(0.01);
+    expect(worstNormal).toBeLessThan(1e-3);
     ts.dispose();
   });
 
@@ -200,6 +241,36 @@ describe('TerrainSystem (in-thread, injected fetch)', () => {
     await settle(ts, clock, cam);
     expect(Math.abs(ts.heightAt(KSFO.lat, KSFO.lon)! - 3.96)).toBeLessThan(0.5);
     expect(ts.attribution().some((l) => l.includes('Terrain Tiles'))).toBe(true);
+    ts.dispose();
+  });
+
+  it('a transient failure never puts synthetic terrain where real data covers the area', async () => {
+    // z12 fixtures are served; z13–z15 hit a network outage (z9–z11 anchors: 404 → procedural)
+    let online = false;
+    const real = fixtureFetch();
+    const fetchFn: FetchFn = async (url, init) => {
+      const z = Number(url.split('/terrarium/')[1]?.split('/')[0]);
+      if (!online && z >= 13) throw new TypeError('Failed to fetch');
+      return real(url, init);
+    };
+    const { ts, clock } = makeSystem(new LocalFrame(KSFO.lat, KSFO.lon, 0), { fetch: fetchFn });
+    const cam = cameraAt(0, 300, 0);
+    await settle(ts, clock, cam);
+    // the z15 tile under KSFO is not drawn from synthetic data: its real z12 ancestor stands in
+    const z12 = new HeightField(15);
+    const r = await runTileJob(buildLoadRequest('k', 12, 655, 1585, { lat0: KSFO.lat, lon0: KSFO.lon, alt0: 0 }, {
+      elevation: [awsTerrarium], imagery: [], parentFallbackLevels: 0, proceduralTileSize: 64, quadsPerLevel: [64, 32], finestZoom: 15, procedural: { seed: 1 },
+    }, []), new AbortController().signal, { cache: new TileCache('t', 1, real, false), canDecodeBitmaps: false, procedural: createProceduralCache() });
+    const m = (r.response as TileResponse).mesh;
+    z12.setMeshLattice(12, 655, 1585, m.height.subarray(0, 33 * 33), 32);
+    expect(ts.heightAt(KSFO.lat, KSFO.lon)).toBeCloseTo(z12.heightAt(KSFO.lon, KSFO.lat)!, 3);
+    expect(tileMesh(ts, '15/5246/12684')?.visible ?? false).toBe(false);
+    expect(ts.holes).toBe(0);
+    // the network recovers: the retries bring the real z15 data
+    online = true;
+    for (let i = 0; i < 8; i++) { clock.t += 70_000; await settle(ts, clock, cam); }
+    expect(Math.abs(ts.heightAt(KSFO.lat, KSFO.lon)! - 3.96)).toBeLessThan(0.5);
+    expect(tileMesh(ts, '15/5246/12684')!.visible).toBe(true);
     ts.dispose();
   });
 

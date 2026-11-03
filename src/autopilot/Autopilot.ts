@@ -120,6 +120,8 @@ export class GfcAutopilot implements Autopilot {
   private altCaptureVs = 0;
   private vsCmd = 0;
   private pendingEngageSync = false;
+  /** LVL wings-first phase is flying the load-factor (unload) law instead of the θ loop */
+  private lvlUnloading = false;
 
   constructor(opts: GfcAutopilotOptions = {}) {
     this.config = mergeConfig(defaultAutopilotConfig(), opts.config);
@@ -189,6 +191,7 @@ export class GfcAutopilot implements Autopilot {
     if (!s.engaged) return;
     s.engaged = false;
     s.lvl = false;
+    this.lvlUnloading = false;
     s.outPitch = 0;
     s.outRoll = 0;
     s.disconnectReason = reason;
@@ -258,7 +261,7 @@ export class GfcAutopilot implements Autopilot {
     this.rollPid.reset(); this.pitchPid.reset(); this.vsPid.reset(); this.flcPid.reset();
     this.ydWashout.reset(); this.lateralDotsRate.reset();
     this.locIntegral = 0; this.gsIntegral = 0; this.overrideTimer = 0; this.trimTimer = 0; this.trimRunning = false; this.sourceLostTimer = 0; this.gsLostTimer = 0;
-    this.lastAc = null; this.lastNav = null; this.pendingEngageSync = false;
+    this.lastAc = null; this.lastNav = null; this.pendingEngageSync = false; this.lvlUnloading = false;
   }
 
   // ───────────────────────────── mode selection ─────────────────────────────
@@ -451,7 +454,7 @@ export class GfcAutopilot implements Autopilot {
 
     // Inner loops → servos. Damping uses Euler attitude rates (body p in a steady turn is not φ̇).
     if (s.engaged) {
-      const [p, q, r] = ac.rates;
+      const p = ac.rates[0], q = ac.rates[1], r = ac.rates[2]; // indexed: no iterator before the JIT warms up
       const sinPhi = Math.sin(ac.euler[0]), cosPhi = Math.cos(ac.euler[0]);
       const tanTheta = Math.tan(clamp(ac.euler[1], -1.4, 1.4));
       const rollRate = p + tanTheta * (q * sinPhi + r * cosPhi);
@@ -459,7 +462,26 @@ export class GfcAutopilot implements Autopilot {
       const rollFf = g.rollFeedForward * scale * (this.rollCmd.value - prevRollCmd) / dt;
       const pitchFf = g.pitchFeedForward * scale * (this.pitchCmd.value - prevPitchCmd) / dt;
       const roll = this.rollPid.update(this.rollCmd.value, ac.euler[0], dt, rollRate) + rollFf;
-      const pitch = this.pitchPid.update(this.pitchCmd.value, ac.euler[1], dt, pitchRate) + pitchFf;
+      let pitch: number;
+      if (s.lvl && wingsFirst(ac.euler[0], L.lvlWingsFirstBankRad)) {
+        // LVL upset recovery, wings first: unload instead of holding θ. An Euler-pitch loop reverses
+        // beyond 90° of bank (pulling then lowers the nose) and needs 1/cos φ g to hold the nose in a
+        // steep bank, so fly a load-factor law toward 1 g (blending to 0 g inverted) with body
+        // pitch-rate damping and a push whenever α exceeds the LVL ceiling ("unload, roll, then
+        // pull"). The θ loop takes over bumplessly below the wings-first bank.
+        const cphi = Math.cos(ac.euler[0]);
+        const nTarget = cphi >= 0 ? 1 : Math.max(0, 1 + cphi);
+        const alphaExcess = Math.max(0, ac.aero.alpha - L.lvlAlphaMaxRad);
+        pitch = scale * (g.lvlUnloadKn * (nTarget - ac.loadFactor[2]) - g.pitch.kd * q) - g.pitch.kp * alphaExcess;
+        this.lvlUnloading = true;
+      } else {
+        if (this.lvlUnloading) {
+          this.lvlUnloading = false;
+          this.pitchCmd.reset(ac.euler[1]);
+          this.pitchPid.resetToOutput(s.outPitch, this.pitchCmd.value, ac.euler[1], pitchRate);
+        }
+        pitch = this.pitchPid.update(this.pitchCmd.value, ac.euler[1], dt, pitchRate) + pitchFf;
+      }
       s.outRoll = this.rollServo.update(clamp(roll, -L.servoAuthority, L.servoAuthority), dt);
       s.outPitch = this.pitchServo.update(clamp(pitch, -L.servoAuthority, L.servoAuthority), dt);
       this.updateAutoTrim(dt);
@@ -771,7 +793,7 @@ export class GfcAutopilot implements Autopilot {
   /** Seed the inner loops and servo slew limiters so the first engaged frame reproduces the pilot's stick. */
   private syncServos(ac: AircraftState): void {
     const s = this.state;
-    const [p, q, r] = ac.rates;
+    const p = ac.rates[0], q = ac.rates[1], r = ac.rates[2];
     const sinPhi = Math.sin(ac.euler[0]), cosPhi = Math.cos(ac.euler[0]);
     const tanTheta = Math.tan(clamp(ac.euler[1], -1.4, 1.4));
     this.rollPid.resetToOutput(this.pilotRoll, this.rollCmd.value, ac.euler[0], p + tanTheta * (q * sinPhi + r * cosPhi));

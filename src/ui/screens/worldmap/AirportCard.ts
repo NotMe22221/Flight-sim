@@ -80,7 +80,8 @@ export class AirportCard {
     const active = wind && windKt >= 5 ? activeRunwayEnd(ap, wind.directionDeg, windKt) : null;
     for (const rwy of [...ap.runways].sort((a, b) => b.lengthM - a.lengthM)) {
       const ends = runwayEnds(rwy);
-      const ils = rwy.ils ? ` · ILS ${formatFrequencyMHz(rwy.ils.frequencyMHz)}` : '';
+      const ilsEnds = ends.filter((e) => e.ilsMHz !== undefined);
+      const ils = ilsEnds.length ? ` · ILS ${ilsEnds.map((e) => `${e.endIdent} ${formatFrequencyMHz(e.ilsMHz!)}`).join(', ')}` : '';
       const meta = `${formatLength(rwy.lengthM, u)} × ${formatLength(rwy.widthM, u)} · ${SURFACE_LABEL[rwy.surface] ?? rwy.surface}${rwy.lighted ? ' · lit' : ''}${ils}`;
       const hasActive = active !== null && ends.some((e) => e.endIdent === active.endIdent);
       list.appendChild(h('div', { class: 'runway-row' },
@@ -91,7 +92,7 @@ export class AirportCard {
           const hw = wind ? headwindKt(end, wind.directionDeg, windKt) : 0;
           const windTxt = windKt >= 1 ? ` · ${hw >= 0 ? 'headwind' : 'tailwind'} ${Math.abs(Math.round(hw))} kt` : '';
           const on = chosen !== null && chosen.endIdent === end.endIdent;
-          const b = button(end.endIdent, () => this.actions.chooseEnd(ap, end), { cls: `runway-btn${on ? ' active' : ''}`, title: `Runway ${end.endIdent} · heading ${formatHeading(end.headingDeg)} true${windTxt}`, aria: { pressed: on } });
+          const b = button(end.endIdent, () => this.actions.chooseEnd(ap, end), { cls: `runway-btn${on ? ' active' : ''}`, title: `Runway ${end.endIdent} · heading ${formatHeading(end.headingDeg)} true${end.ilsMHz !== undefined ? ` · ILS ${formatFrequencyMHz(end.ilsMHz)}` : ''}${windTxt}`, aria: { pressed: on } });
           b.appendChild(h('span', { class: 'faint', style: 'font-weight:400;font-size:.8em', text: formatHeading(end.headingDeg) }));
           return b;
         })));

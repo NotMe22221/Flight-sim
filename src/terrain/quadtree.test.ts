@@ -119,6 +119,20 @@ describe('Quadtree CDLOD selection', () => {
     expect(b).toEqual(a);
   });
 
+  it('root ring: each root tile is visited once (coarse roots, polar camera) and the loop stays bounded', () => {
+    const unique = (sel: readonly SelectedNode[]) => new Set(sel.map((s) => `${s.key}${s.parentPatch ? 'P' : ''}`)).size === sel.length;
+    // coarsestZoom 0: the z0 ring "radius" spans the globe several times over
+    const world = new Quadtree(frame, { range0: 3500, finestZoom: 15, coarsestZoom: 0 }, flatRange).select([0, 1000, 0], null);
+    expect(unique(world)).toBe(true);
+    // 89.9°N: z7 tiles at the clamped Mercator limit are ~27 km wide, not cos(89.9°)·313 km
+    const polar = new LocalFrame(89.9, 10, 0);
+    const t0 = performance.now();
+    const sel = new Quadtree(polar, { range0: 3500 }, flatRange).select([0, 1000, 0], null);
+    expect(performance.now() - t0).toBeLessThan(2000);
+    expect(unique(sel)).toBe(true);
+    expect(sel.length).toBeGreaterThan(0);
+  });
+
   it('computeTileAabb contains the tile corners and centre with padding', () => {
     const min = new Float64Array(3), max = new Float64Array(3);
     computeTileAabb(frame, 15, 5246, 12684, -10, 100, min, max);

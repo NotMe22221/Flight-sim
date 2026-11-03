@@ -118,6 +118,17 @@ describe('runTileJob network robustness', () => {
     expect((response as TileResponse).transientFailure).toBe(true);
   });
 
+  it('with real data covering the tile, an outage is reported as a transient error, not synthetic heights', async () => {
+    const offline: FetchFn = async () => { throw new TypeError('Failed to fetch'); };
+    const r = buildLoadRequest('k', 15, 5246, 12684, frame, cfg, [], false);
+    expect(r.proceduralOnTransient).toBe(false);
+    const { response } = await runTileJob(r, new AbortController().signal, ctxWith(offline));
+    expect(response).toMatchObject({ type: 'error', key: 'k', transient: true });
+    // a 404 chain still falls back to procedural heights (definitive: no data exists)
+    const { response: r404 } = await runTileJob(r, new AbortController().signal, ctxWith(serve({})));
+    expect(r404.type).toBe('tile');
+  });
+
   it('404s are definitive: procedural fallback without a retry flag', async () => {
     const { response } = await runTileJob(req(15, 5246, 12684), new AbortController().signal, ctxWith(serve({})));
     expect((response as TileResponse).transientFailure).toBe(false);

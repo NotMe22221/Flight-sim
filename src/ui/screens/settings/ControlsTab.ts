@@ -19,6 +19,7 @@ export class ControlsTab implements SettingsTabView {
   private device: DeviceFilter = 'all';
   private bindings: BindingInfo[] = [];
   private rebinding: SimAction | null = null;
+  private endedThisTask = false;
   private confirm: { id: BindingProfileId; until: number } | null = null;
   private profileButtons = new Map<BindingProfileId, HTMLButtonElement>();
 
@@ -45,8 +46,12 @@ export class ControlsTab implements SettingsTabView {
   onShow(): void { this.reload(); }
   sync(): void { /* bindings live in the input module, not in PersistedSettings */ }
 
-  /** Esc while waiting for a key belongs to the input module (it cancels the rebind). */
-  onKey(e: KeyboardEvent): boolean { return this.rebinding !== null && e.key === 'Escape'; }
+  /**
+   * Esc while waiting for a key belongs to the input module (it cancels the rebind). The rebind
+   * promise may already have settled when this listener runs (microtasks run between listeners of
+   * a real key event), so the Esc that ended it is still swallowed until the next task.
+   */
+  onKey(e: KeyboardEvent): boolean { return e.key === 'Escape' && (this.rebinding !== null || this.endedThisTask); }
 
   dispose(): void { this.rebinding = null; }
 
@@ -92,7 +97,12 @@ export class ControlsTab implements SettingsTabView {
       if (res) this.d.ctx.toast(`${humanizeAction(action)} → ${res.label}`, 'success');
       else this.d.ctx.toast('Rebind cancelled', 'info');
     }).catch(() => this.d.ctx.toast('Could not rebind that action', 'error'))
-      .finally(() => { this.rebinding = null; this.reload(); });
+      .finally(() => {
+        this.rebinding = null;
+        this.endedThisTask = true;
+        setTimeout(() => { this.endedThisTask = false; }, 0);
+        this.reload();
+      });
   }
 
   private resetProfile(id: BindingProfileId): void {

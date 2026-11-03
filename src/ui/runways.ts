@@ -1,6 +1,23 @@
 /** Runway helpers: the nav database stores one record per runway, the UI offers both ends. */
-import type { Airport, Runway } from '../core/types';
+import type { Airport, Geodetic, Runway } from '../core/types';
 import type { RunwayEndChoice } from './UiHost';
+
+/**
+ * Per-end data the nav database carries on its runway records (`RunwayRecord.ends`: real
+ * idents such as 'NE'/'SW' or '13W', each end's own heading, threshold and ILS). Feature-
+ * detected so a plain core `Runway` still works (ends derived from the primary end).
+ */
+interface RecordEnd { ident: string; headingDeg?: number; threshold?: Geodetic; ils?: { frequencyMHz: number } }
+
+function recordEnds(rwy: Runway): [RecordEnd, RecordEnd] | null {
+  const ends = (rwy as Runway & { ends?: unknown }).ends;
+  if (!Array.isArray(ends) || ends.length !== 2) return null;
+  const ok = (e: unknown): e is RecordEnd => typeof e === 'object' && e !== null && typeof (e as RecordEnd).ident === 'string' && (e as RecordEnd).ident !== '';
+  return ok(ends[0]) && ok(ends[1]) ? [ends[0], ends[1]] : null;
+}
+
+const finiteOr = (v: number | undefined, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+const validGeo = (g: Geodetic | undefined): g is Geodetic => !!g && Number.isFinite(g.lat) && Number.isFinite(g.lon);
 
 /** '28R' → '10L', '09' → '27', '18C' → '36C', '36' → '18'. Non-numeric idents get '/R' appended. */
 export function reciprocalIdent(ident: string): string {
@@ -12,15 +29,28 @@ export function reciprocalIdent(ident: string): string {
   return `${n.toString().padStart(2, '0')}${side}`;
 }
 
-/** Both ends of a runway as spawn choices (primary end first). */
+/**
+ * Both ends of a runway as spawn choices (primary end first). Uses the record's own end data
+ * when the nav database provides it, so the chosen `endIdent` is exactly what the simulator
+ * looks up (a derived 'NE/R' would not match and spawn somewhere else).
+ */
 export function runwayEnds(rwy: Runway): RunwayEndChoice[] {
+  const rec = recordEnds(rwy);
+  const a = rec?.[0], b = rec?.[1];
   const primary: RunwayEndChoice = {
-    runwayIdent: rwy.ident, endIdent: rwy.ident, threshold: rwy.threshold, headingDeg: rwy.headingDeg, lengthM: rwy.lengthM,
+    runwayIdent: rwy.ident, endIdent: a?.ident ?? rwy.ident,
+    threshold: validGeo(a?.threshold) ? a.threshold : rwy.threshold,
+    headingDeg: finiteOr(a?.headingDeg, rwy.headingDeg), lengthM: rwy.lengthM,
   };
   const recip: RunwayEndChoice = {
-    runwayIdent: rwy.ident, endIdent: reciprocalIdent(rwy.ident), threshold: rwy.end,
-    headingDeg: (rwy.headingDeg + 180) % 360, lengthM: rwy.lengthM,
+    runwayIdent: rwy.ident, endIdent: b?.ident ?? reciprocalIdent(rwy.ident),
+    threshold: validGeo(b?.threshold) ? b.threshold : rwy.end,
+    headingDeg: finiteOr(b?.headingDeg, (rwy.headingDeg + 180) % 360), lengthM: rwy.lengthM,
   };
+  const ilsA = a ? a.ils?.frequencyMHz : rwy.ils?.frequencyMHz;
+  const ilsB = b?.ils?.frequencyMHz;
+  if (typeof ilsA === 'number' && ilsA > 0) primary.ilsMHz = ilsA;
+  if (typeof ilsB === 'number' && ilsB > 0) recip.ilsMHz = ilsB;
   return [primary, recip];
 }
 
@@ -37,7 +67,10 @@ export function findRunwayEnd(ap: Airport, endIdent: string): RunwayEndChoice | 
 }
 
 /** 'Runway 28R/10L · 11,870 ft · asphalt' style helper pieces. */
-export function runwayPairLabel(rwy: Runway): string { return `${rwy.ident}/${reciprocalIdent(rwy.ident)}`; }
+export function runwayPairLabel(rwy: Runway): string {
+  const [a, b] = runwayEnds(rwy);
+  return `${a.endIdent}/${b.endIdent}`;
+}
 
 /** Headwind component (kt) on a runway end for wind FROM `windDirDeg` at `windKt`; negative = tailwind. */
 export function headwindKt(end: RunwayEndChoice, windDirDeg: number, windKt: number): number {

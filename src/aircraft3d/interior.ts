@@ -130,8 +130,10 @@ export class CockpitInterior {
     // --- floor, firewall, rear bulkhead (below the rear window) ---
     const floor = add(new THREE.BoxGeometry(0.92, 0.02, F.cabinEndZ - 0.05 - F.firewallZ), mats.interiorDark, 'floor');
     floor.position.set(0, C.floorY, (F.firewallZ + F.cabinEndZ - 0.05) / 2);
-    const firewall = add(new THREE.PlaneGeometry(1.06, C.deckY - C.floorY), mats.interiorDark, 'firewall');
-    firewall.position.set(0, (C.deckY + C.floorY) / 2, F.firewallZ + 0.01);
+    // top edge kept 3 cm under the cowl deck so it cannot poke through the skin ahead of the windshield
+    const firewallTop = C.deckY - 0.03;
+    const firewall = add(new THREE.PlaneGeometry(1.06, firewallTop - C.floorY), mats.interiorDark, 'firewall');
+    firewall.position.set(0, (firewallTop + C.floorY) / 2, F.firewallZ + 0.01);
     add(buildLoftCap(cabinProfile, F.cabinEndZ - 0.05, -1, 48, C.deckY + 0.02), mats.interior, 'bulkhead');
 
     // --- glareshield hood + panel ---
@@ -139,9 +141,14 @@ export class CockpitInterior {
     const tilt = pnl.tiltRad;
     const panelTop = { y: pnl.center.y + (pnl.height / 2) * Math.cos(tilt), z: pnl.center.z - (pnl.height / 2) * Math.sin(tilt) };
     add(buildHood(layout.glareshield, panelTop), mats.trimDark, 'glareshield');
-    // panel board 1.5 cm behind the instrument planes (no z-fighting), lower switch panel below
-    const frame = add(new THREE.BoxGeometry(1.03, pnl.height + 0.12, 0.02), mats.panelFrame, 'panelBoard');
-    frame.position.set(0, pnl.center.y - 0.015 * Math.sin(tilt), pnl.center.z - 0.015 * Math.cos(tilt) - 0.01);
+    // Panel board 1.5 cm behind the instrument planes (no z-fighting). Its top edge stays under
+    // the glareshield lip (a board standing above the hood would hide the cowl from the seat);
+    // it runs 0.1 m below the planes, with the lower switch panel under it.
+    const boardTop = pnl.height / 2 - 0.006, boardBottom = -pnl.height / 2 - 0.1;
+    const boardMid = (boardTop + boardBottom) / 2;
+    const frame = add(new THREE.BoxGeometry(1.03, boardTop - boardBottom, 0.02), mats.panelFrame, 'panelBoard');
+    // along the tilted panel: local +Y = (0, cos, −sin), local +Z (towards the pilot) = (0, sin, cos)
+    frame.position.set(0, pnl.center.y + boardMid * Math.cos(tilt) - 0.025 * Math.sin(tilt), pnl.center.z - boardMid * Math.sin(tilt) - 0.025 * Math.cos(tilt));
     frame.rotation.x = -tilt;
     const panelBottomY = pnl.center.y - (pnl.height / 2) * Math.cos(tilt);
     const lower = add(new THREE.BoxGeometry(1.0, 0.14, 0.03), mats.panelFrame, 'lowerPanel');
@@ -177,7 +184,7 @@ export class CockpitInterior {
     this.mixture = knob(0.07, mats.knobRed);
     this.knobBaseZ = knobZ;
 
-    this.yokeBaseZ = eye.z - 0.37;
+    this.yokeBaseZ = eye.z - 0.4;
     this.pedalBaseZ = F.firewallZ + 0.16;
     const parts = this.buildFurniture(layout, mats, keep);
     this.pedalLeft = parts.pedalLeft;
@@ -208,22 +215,24 @@ export class CockpitInterior {
       box(0.03, 0.025, 0.12, mats.metal, s * 0.505, C.sillY - 0.05, 0.12);
     }
 
-    // yokes: hub ahead of each seat, shaft into the panel below the six-pack
+    // yokes: hub ahead of each seat at chest height, the shaft entering the panel just below the
+    // lower six-pack row (it must not cross the instruments); long enough to stay in the panel at
+    // full back stick
     const yokeZ = this.yokeBaseZ;
     const hornGeo = keep(new THREE.TorusGeometry(0.12, 0.014, 8, 20, Math.PI));
     const gripGeo = keep(new THREE.CylinderGeometry(0.017, 0.017, 0.1, 10));
     const hubGeo = keep(new THREE.BoxGeometry(0.11, 0.07, 0.05));
-    const shaftGeo = keep(new THREE.CylinderGeometry(0.014, 0.014, 0.42, 10));
+    const shaftGeo = keep(new THREE.CylinderGeometry(0.014, 0.014, 0.36, 10));
     for (const x of [eye.x, -eye.x]) {
       const y = new THREE.Group();
-      y.position.set(x, eye.y - 0.43, yokeZ);
+      y.position.set(x, eye.y - 0.5, yokeZ);
       const horn = new THREE.Mesh(hornGeo, mats.interiorDark); // half torus, opening downward
       const gripL = new THREE.Mesh(gripGeo, mats.interiorDark); gripL.position.set(-0.12, -0.05, 0);
       const gripR = new THREE.Mesh(gripGeo, mats.interiorDark); gripR.position.set(0.12, -0.05, 0);
       const hub = new THREE.Mesh(hubGeo, mats.interiorDark);
       const shaft = new THREE.Mesh(shaftGeo, mats.metal);
       shaft.rotation.x = Math.PI / 2;
-      shaft.position.z = -0.21;
+      shaft.position.z = -0.18;
       y.add(horn, gripL, gripR, hub, shaft);
       g.add(y);
       this.yokes.push(y);
@@ -254,6 +263,22 @@ export class CockpitInterior {
     this.pedalLeft.position.z = this.pedalBaseZ + 0.06 * yaw;
     this.throttle.position.z = this.knobBaseZ + 0.09 * (1 - Math.max(0, Math.min(1, inputs.throttle || 0)));
     this.mixture.position.z = this.knobBaseZ + 0.09 * (1 - Math.max(0, Math.min(1, inputs.mixture || 0)));
+  }
+
+  /**
+   * Instrument lighting. The panel planes are unlit (MeshBasicMaterial), so their colour is the
+   * light on the gauges: daylight (0 night … 1 day) or the warm post lights (`panelLight`
+   * 0..1), whichever is brighter, with a dim floor so the faces never go fully black. The
+   * G1000 screens are emissive: they only dim to ~55 % at night. Linear factors; 1 = as drawn.
+   */
+  setPanelLighting(daylight: number, panelLight: number): void {
+    const d = Math.max(0, Math.min(1, daylight || 0));
+    const p = 0.7 * Math.max(0, Math.min(1, panelLight || 0));
+    // the floor (≈ 35 % perceived) keeps a night spawn with the panel lights off readable
+    const base = 0.1 + 0.9 * d;
+    this.panelMesh.material.color.setRGB(Math.max(base, p), Math.max(base, p * 0.9), Math.max(base, p * 0.72));
+    const glass = 0.55 + 0.45 * d;
+    this.panelMeshG1000.material.color.setRGB(glass, glass, glass);
   }
 
   setPanelVariant(v: PanelVariant): void {

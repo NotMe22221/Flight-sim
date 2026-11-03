@@ -95,20 +95,20 @@ research 05 §9.3).
 ## Phrases (examples from the KSFO test transcript)
 
 ```
-ATIS  San Francisco International information Uniform. 1856Z. Wind 270 at 12 gusting 18. Visibility 10. Few clouds at 1,200,
+ATIS  San Francisco International information Uniform. 1856Z. Wind 270 at 12 gusts 18. Visibility 10. Few clouds at 1,200,
       ceiling 20,000 broken. Temperature 18, dew point 11. Altimeter 30.05. Landing and departing runways 28L and 28R.
       Advise on initial contact you have information Uniform.
 P     San Francisco Ground, N172FS, at the ramp, with information Uniform, request taxi, VFR departure.
 GND   Cessna 2FS, San Francisco Ground, taxi to runway 28L, hold short of runway 28L.
 P     Taxi to runway 28L, hold short of runway 28L, Cessna 2FS.
 P     San Francisco Tower, N172FS, holding short runway 28L, ready for departure.
-TWR   Cessna 2FS, San Francisco Tower, wind 270 at 12 gusting 18, runway 28L, cleared for takeoff.
+TWR   Cessna 2FS, San Francisco Tower, wind 270 at 12 gusts 18, runway 28L, cleared for takeoff.
 TWR   Cessna 2FS, contact San Francisco Departure 120.9.
 DEP   Cessna 2FS, San Francisco Departure, squawk 3603, radar contact 2 miles northwest of San Francisco, altimeter 30.05, maintain VFR.
 DEP   Cessna 2FS, radar service terminated, squawk VFR, contact San Francisco Tower 120.5.
 P     San Francisco Tower, N172FS, 11 miles north, 3,000, inbound for landing, full stop, with information Uniform.
 TWR   Cessna 2FS, San Francisco Tower, enter right downwind runway 28R, report midfield downwind. Information Victor now current, altimeter 30.05.
-TWR   Cessna 2FS, wind 270 at 12 gusting 18, runway 28R, cleared to land.
+TWR   Cessna 2FS, wind 270 at 12 gusts 18, runway 28R, cleared to land.
 TWR   Cessna 2FS, go around, fly runway heading, climb and maintain 1,000, make right traffic runway 28R.
 TWR   Cessna 2FS, exit runway when able, contact Ground 121.8.
 GND   Cessna 2FS, San Francisco Ground, taxi to parking.

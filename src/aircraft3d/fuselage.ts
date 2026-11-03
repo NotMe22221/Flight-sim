@@ -62,9 +62,29 @@ export function buildFuselage(layout: C172Layout, mats: ModelMaterials): Fuselag
     return m;
   };
 
-  // --- cowl (always visible) ---
-  const cowl = mesh(buildSkin(profile, { z0: profile.zMin, z1: F.cowlEndZ, dz: 0.05, radial: 72, uRange }).geometry, mats.paint, 'cowl', group);
+  // --- cowl (always visible): a finely sampled nose bowl (its radius doubles in 8 cm), then the
+  // rest; both share the boundary row, so they join seamlessly ---
+  const noseEnd = Math.min(profile.zMin + 0.36, F.cowlEndZ - 0.1);
+  mesh(buildSkin(profile, { z0: profile.zMin, z1: noseEnd, dz: 0.012, radial: 96, uRange }).geometry, mats.paint, 'noseBowl', group);
+  const cowl = mesh(buildSkin(profile, { z0: noseEnd, z1: F.cowlEndZ, dz: 0.05, radial: 96, uRange }).geometry, mats.paint, 'cowl', group);
   mesh(buildLoftCap(profile, profile.zMin, -1, 32), mats.interiorDark, 'cowlFront', group);
+  // cooling-air inlets either side of the spinner (dark openings on the nose bowl's front face)
+  const D = layout.details, inlet = D.noseInlets;
+  const inletField = (x: number, y: number): number => Math.hypot(Math.abs(x) - inlet.x, (y - inlet.y) / inlet.squash) - inlet.r;
+  mesh(buildSkin(profile, { z0: profile.zMin, z1: noseEnd, dz: 0.006, radial: 192, offset: 0.004, keep: [(x, y) => -inletField(x, y)] }).geometry, mats.gasket, 'noseInlets', group);
+  // exhaust stack under the cowl (right side) and the COM whip antenna on the tailcone top
+  const sec: LoftStation = { z: 0, width: 0, height: 0, yCenter: 0, n: 2 };
+  const stick = (name: string, mat: THREE.Material, base: THREE.Vector3, dir: THREE.Vector3, length: number, rBase: number, rTip: number): void => {
+    const geo = new THREE.CylinderGeometry(rTip, rBase, length, 8);
+    geo.translate(0, length / 2, 0); // base at the origin, along +Y
+    const m = mesh(geo, mat, name, group);
+    m.position.copy(base);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  };
+  profile.sectionAt(D.exhaust.z, sec);
+  stick('exhaust', mats.metal, new THREE.Vector3(D.exhaust.x, sec.yCenter - sec.height / 2 + 0.04, D.exhaust.z), D.exhaust.dir, D.exhaust.length, D.exhaust.radius, D.exhaust.radius);
+  profile.sectionAt(D.antenna.z, sec);
+  stick('antenna', mats.blade, new THREE.Vector3(0, sec.yCenter + sec.height / 2 - 0.01, D.antenna.z), D.antenna.dir, D.antenna.length, D.antenna.radius, D.antenna.radius * 0.45);
 
   // --- tailcone (always visible) ---
   mesh(buildSkin(profile, { z0: F.cabinEndZ, z1: profile.zMax, dz: 0.08, radial: 48, uRange }).geometry, mats.paint, 'tailcone', group);

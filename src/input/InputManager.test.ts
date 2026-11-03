@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { SimAction } from '../core/types';
 import { InputManager, type DeviceChangeEvent } from './InputManager';
 import { BINDINGS_STORAGE_KEY } from './bindingStore';
-import { FakeEvent, type FakeDom, makeFakeDom } from './testing/dom';
+import { FakeEvent, type FakeDom, type FakeElement, makeFakeDom } from './testing/dom';
 
 const DT = 1 / 60;
 
@@ -378,6 +378,117 @@ describe('InputManager', () => {
       expect(dom.document.listenerCount()).toBe(0);
       expect(dom.canvas.listenerCount()).toBe(0);
       expect(dom.document.body.children.length).toBe(1); // only the canvas remains
+    });
+  });
+
+  describe('review regressions', () => {
+    it('the Enter that starts a rebind (keyboard-activated row) is not captured; OS repeats are ignored', async () => {
+      im.dispose();
+      dom = makeFakeDom();
+      const listens: Array<Promise<{ label: string } | null>> = [];
+      // the controls row's keydown handler runs before the window listener (target before bubble)
+      dom.window.addEventListener('keydown', (e) => {
+        if ((e as unknown as { code: string }).code === 'Enter' && listens.length === 0) listens.push(im.startListening('gearToggle'));
+      });
+      im = make();
+      dom.keyDown('Enter');
+      dom.keyDown('Enter', { repeat: true });
+      dom.keyUp('Enter');
+      dom.keyDown('KeyK');
+      expect(listens.length).toBe(1);
+      expect((await listens[0])?.label).toBe('K');
+    });
+
+    it('gamepad capture compares each pad with its own rest position (no spurious capture from a second pad)', async () => {
+      const pad = dom.addPad('Xbox 360 Controller (XInput STANDARD GAMEPAD)', 'standard');
+      const stick = dom.addPad('046d-c215-Logitech Extreme 3D', '', 10, 12);
+      stick.axes[6] = 1; // slider resting at idle
+      stick.axes[9] = 3.2857; // hat centred
+      im.poll(DT);
+      let result: unknown = 'pending';
+      const p = im.startListening('flapsDown', { device: 'gamepad', timeoutMs: 0 });
+      void p.then((r) => { result = r; });
+      for (let i = 0; i < 5; i++) im.poll(DT);
+      await Promise.resolve();
+      expect(result).toBe('pending');
+      pad.setButton(5, true);
+      im.poll(DT);
+      expect(await p).toMatchObject({ label: 'Pad RB', device: 'gamepad' });
+    });
+
+    it('a POV hat pushed during gamepad capture binds that hat direction', async () => {
+      const stick = dom.addPad('046d-c215-Logitech Extreme 3D', '', 10, 12);
+      stick.axes[9] = 3.2857;
+      im.poll(DT);
+      const p = im.startListening('cameraNext', { device: 'gamepad' });
+      im.poll(DT);
+      stick.setAxis(9, -1 + (6 * 2) / 7); // hat left
+      im.poll(DT);
+      const r = await p;
+      expect(r?.binding).toMatchObject({ device: 'gamepad', axisIndex: 9, hat: 'left', action: 'cameraNext' });
+      expect(r?.label).toBe('Joy Hat left');
+      stick.setAxis(9, 3.2857);
+      im.poll(DT);
+      stick.setAxis(9, -1); // hat up must not fire it
+      expect(im.poll(DT).actions).toEqual([]);
+      stick.setAxis(9, 3.2857);
+      im.poll(DT);
+      stick.setAxis(9, -1 + (6 * 2) / 7);
+      expect(im.poll(DT).actions).toEqual(['cameraNext']);
+      // as an axis direction: the centred hat must not deflect the axis
+      const pa = im.startListeningAxis('lookYaw', 1, { device: 'gamepad' });
+      stick.setAxis(9, 3.2857);
+      im.poll(DT);
+      stick.setAxis(9, -1 + (2 * 2) / 7); // hat right
+      im.poll(DT);
+      expect((await pa)?.binding).toMatchObject({ axisIndex: 9, hat: 'right', axis: 'lookYaw', dir: 1 });
+      stick.setAxis(9, 3.2857);
+      run(0.2);
+      expect(im.snapshot.axes.lookYaw).toBe(0);
+    });
+
+    it('gamepad buttons bound to a lever axis move it incrementally (like keys), not to an absolute position', () => {
+      const pad = dom.addPad('Xbox 360 Controller (XInput STANDARD GAMEPAD)', 'standard');
+      im.setProfile({ version: 1, id: 'g', name: 'g', device: 'gamepad', bindings: [
+        { device: 'gamepad', button: 0, axis: 'throttle', dir: 1 }, { device: 'gamepad', button: 1, axis: 'throttle', dir: -1 },
+      ] }, 'standard');
+      im.poll(DT);
+      pad.setButton(0, true);
+      run(1);
+      expect(im.controls.throttle).toBeCloseTo(0.5, 2);
+      pad.setButton(0, false);
+      run(0.5);
+      expect(im.controls.throttle).toBeCloseTo(0.5, 2); // a lever holds its position
+      pad.setButton(1, true);
+      run(0.5);
+      expect(im.controls.throttle).toBeCloseTo(0.25, 2);
+    });
+
+    it('window blur releases mouse-button and touch holds and centres the touch stick', () => {
+      im.setProfile({ version: 1, id: 'm', name: 'm', device: 'keyboard', bindings: [{ device: 'mouse', button: 1, action: 'brakesHold' }] });
+      dom.pointer('pointerdown', { button: 1, buttons: 4 });
+      run(0.5);
+      expect(im.snapshot.held.has('brakesHold')).toBe(true);
+      dom.window.dispatchEvent(new FakeEvent('blur'));
+      run(0.5);
+      expect(im.snapshot.held.has('brakesHold')).toBe(false);
+      expect(im.controls.brakeLeft).toBe(0);
+
+      im.enableTouch(dom.env.document.body);
+      const find = (role: string): FakeElement[] => dom.document.body.findAll((e) => e.dataset.input === role);
+      const brake = find('touch-button').find((b) => b.dataset.action === 'brakesHold') as FakeElement;
+      const zone = find('stick-zone')[0];
+      dom.pointer('pointerdown', { pointerId: 5, pointerType: 'touch' }, brake);
+      dom.pointer('pointerdown', { pointerId: 6, pointerType: 'touch', clientX: 100, clientY: 100 }, zone);
+      dom.pointer('pointermove', { pointerId: 6, pointerType: 'touch', clientX: 100, clientY: 220 }, zone);
+      run(0.5);
+      expect(im.snapshot.held.has('brakesHold')).toBe(true);
+      expect(im.controls.pitch).toBeGreaterThan(0.9);
+      dom.document.visibilityState = 'hidden';
+      dom.document.dispatchEvent(new FakeEvent('visibilitychange'));
+      run(0.5);
+      expect(im.snapshot.held.has('brakesHold')).toBe(false);
+      expect(im.controls.pitch).toBe(0);
     });
   });
 });

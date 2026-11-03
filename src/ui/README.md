@@ -32,6 +32,7 @@ ui.dispose();                              // removes the DOM, listeners and sub
 | `handleAction(a)` | `toggleMenu` (Esc / gamepad Menu) → back / pause menu; `toggleMap`, `toggleCheckList`, `toggleAtc`, `toggleWeatherPanel`, `toggleHelp` → panels. `toggleHud` and the three assist toggles are observed but **not** consumed (the simulator acts on them too). |
 | `onStart(cb)` | Called once on the first user gesture (boot screen click/key, or any pointer/key if a flight started first). |
 | `inFlight` / `current` | A flight has been spawned / the visible route. |
+| `coversView` | An opaque menu or loading screen hides the 3D view: the integrator may skip/throttle rendering. |
 
 ### UiHost (required + optional members)
 
@@ -39,6 +40,10 @@ Required: `events`, `nav`, `snapshot()`, `aircraftList()`, `currentAircraft()`, 
 `spawn()`, `setWeatherPreset()`, `setCustomWeather()`, `requestLiveWeather()`, `setTime()`,
 `setTimeScale()`, `setPaused()`, `setCamera()`, `setAssists()`, `setGraphics()`, `setAudio()`,
 `setUnits()`, `bindings()`, `rebind()`, `resetBindings()`, `dataCredits()`, `captureInput()`.
+
+`setWeatherPreset(id, { immediate: true })` / `setCustomWeather(w, { immediate: true })` are sent
+when a new flight starts (no blend from the previous flight's weather); without the option the
+host may transition gradually in flight. A host that ignores the option still works.
 
 Optional (feature-detected, UI hides/disables the feature when absent):
 `addWaypoint(wp)` (World Map "Set as arrival", VFR map "Direct to"), `clearPlan()` (Nav log),
@@ -63,7 +68,7 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
 - **Pause menu.** Esc in flight closes the topmost overlay, else toggles the pause menu, which
   pauses the sim and restores the previous pause state on resume. World map / Settings / Main
   menu from the pause menu keep the sim paused; coming back to the flight re-opens the menu.
-- **Starting a flight** (`fly()`): weather + time from the selection → `host.spawn(...)` with
+- **Starting a flight** (`fly()`): weather (immediate) + time from the selection → `host.spawn(...)` with
   the loading screen (progress from `terrain:progress`) → live weather (needs the new position) →
   arrival waypoint (the planner is cleared at spawn) → flight view. Failures toast and return
   to the previous menu. Challenges use `host.startChallenge(id)` the same way.

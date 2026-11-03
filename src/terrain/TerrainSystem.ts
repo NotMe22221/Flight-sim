@@ -14,7 +14,7 @@
  */
 import { Frustum, Group, Matrix4, Quaternion, Sphere, Vector3, WebGLCoordinateSystem, type Color, type PerspectiveCamera, type Texture } from 'three';
 import type { Geodetic, LocalFrameInfo, Vec3 } from '../core/types';
-import { lonLatToTile, tileWidthMeters } from '../geo/mercator';
+import { MAX_LAT, lonLatToTile, tileWidthMeters } from '../geo/mercator';
 import { LocalFrame } from '../geo/wgs84';
 import { DrawPlanner, tileId, type DrawItem } from './drawPlan';
 import { subSquareRanges } from './gridIndex';
@@ -97,7 +97,10 @@ export interface TerrainStats {
 /** Runway centreline for flattening (`AirportsLayer.flatteningSegments()`); `alt` = threshold elevation. */
 export interface RunwaySegment { a: Geodetic; b: Geodetic; widthM: number }
 
-/** Reloads of a tile whose better sources failed transiently (network, timeout, 5xx). */
+/**
+ * Reloads of a tile whose imagery failed transiently (network, timeout, 5xx). Synthetic
+ * heights standing in for unreachable real elevation are retried without a limit.
+ */
 const MAX_DEGRADED_RETRIES = 4;
 /** Radius around the camera (beyond the nearest selected tile) used by readyFraction, m. */
 export const READY_RADIUS_M = 5000;
@@ -152,6 +155,8 @@ export class TerrainSystem {
   private readonly selectCam = new Vector3(NaN, NaN, NaN);
   private planDirty = false;
   private drawnCount = 0;
+  /** records holding procedural heights that stand in for unreachable real elevation */
+  private degradedCount = 0;
   private disposed = false;
   private lastErrorLog = -Infinity;
   private hasFrustum = false;
@@ -329,7 +334,10 @@ export class TerrainSystem {
     if (now < rec.retryAt) return; // backoff after a failure or a degraded (fallback) load
     rec.reqVersion = rec.wantVersion;
     rec.reqKey = `${rec.key}@${rec.reqVersion}`;
-    rec.req = buildLoadRequest(rec.reqKey, rec.z, rec.x, rec.y, this.frame, this.requestCfg, this.runways);
+    // Once a tile has data, or real data covers it from an ancestor, a network outage must not
+    // replace that with synthetic heights: the worker then answers a transient error instead.
+    const proceduralOnTransient = !rec.hasData && !this.hasRealCover(rec);
+    rec.req = buildLoadRequest(rec.reqKey, rec.z, rec.x, rec.y, this.frame, this.requestCfg, this.runways, proceduralOnTransient);
     this.byReqKey.set(rec.reqKey, rec);
     this.loader.request(rec.req, priority);
   }
@@ -348,9 +356,19 @@ export class TerrainSystem {
     const rec = this.disposed ? null : this.settle(r.key);
     if (!rec) { discardResponse(r); this.checkIdle(); return; }
     const now = this.now();
+    const synthetic = r.elevationProviderId === proceduralElevation.id;
+    const standIn = r.transientFailure && synthetic; // procedural heights only because the network failed
+    if (standIn && this.hasRealCover(rec)) {
+      // Real data covers this tile (its own, or an ancestor drawn in its place): keep that
+      // instead of synthetic terrain, and retry the tile like a failed load.
+      discardResponse(r);
+      if (rec.degraded) this.dropData(rec);
+      this.failLoad(rec, now);
+      return;
+    }
     rec.failed = false;
     rec.haveVersion = rec.reqVersion;
-    if (r.transientFailure && rec.failures < MAX_DEGRADED_RETRIES) {
+    if (r.transientFailure && (standIn || rec.failures < MAX_DEGRADED_RETRIES)) {
       // a better source failed for a transient reason: keep this data, reload it later
       rec.failures++;
       rec.retryAt = now + Math.min(120_000, 10_000 * 2 ** (rec.failures - 1));
@@ -359,11 +377,18 @@ export class TerrainSystem {
       rec.failures = 0;
       rec.retryAt = 0;
     }
-    this.heights.set(rec.z, rec.x, rec.y, r.heights, r.heightsWidth, r.mesh.minH, r.mesh.maxH, now);
+    // Collision samples the vertex lattice of the mesh that will be drawn, on its own
+    // triangles, so wheels rest on the visible surface (not on a smoother bilinear DEM).
+    const lattice = r.mesh.height.subarray(0, (r.mesh.quads + 1) * (r.mesh.quads + 1));
+    this.heights.setMeshLattice(rec.z, rec.x, rec.y, lattice, r.mesh.quads, r.mesh.minH, r.mesh.maxH, now);
     rec.hasData = true;
+    rec.dataProviderId = r.elevationProviderId;
+    if (rec.degraded !== standIn) { rec.degraded = standIn; this.degradedCount += standIn ? 1 : -1; }
     discardResponse(rec.pending); // an older response that never reached the GPU
     rec.pending = r;
     if (!rec.queued) { rec.queued = true; this.uploadQueue.push(rec); }
+    // real data arrived: descendants showing synthetic stand-ins fall back to it right away
+    if (!synthetic && this.degradedCount > 0) this.dropDegradedBelow(rec, now);
     this.pinned.delete(rec.id);
     this.resolveWaiters(rec.id);
     this.loader.pump(now);
@@ -372,16 +397,55 @@ export class TerrainSystem {
 
   private onError(r: ErrorResponse): void {
     const rec = this.disposed ? null : this.settle(r.key);
-    if (rec) {
-      const now = this.now();
-      rec.failed = true;
-      rec.failures++;
-      rec.retryAt = now + Math.min(60_000, 2000 * 2 ** (rec.failures - 1));
-      this.pinned.delete(rec.id);
-      this.resolveWaiters(rec.id);
-      this.loader.pump(now);
-    }
+    if (rec) this.failLoad(rec, this.now());
+    else this.checkIdle();
+  }
+
+  /** The load failed: draw ancestors meanwhile (keeping any older data) and retry with backoff. */
+  private failLoad(rec: TileRecord, now: number): void {
+    rec.failed = true;
+    rec.failures++;
+    rec.retryAt = now + Math.min(60_000, 2000 * 2 ** (rec.failures - 1));
+    this.pinned.delete(rec.id);
+    this.resolveWaiters(rec.id);
+    this.loader.pump(now);
     this.checkIdle();
+  }
+
+  /** Real (non-procedural) elevation covers the tile: its own data or a resident ancestor's. */
+  private hasRealCover(rec: TileRecord): boolean {
+    const synthetic = proceduralElevation.id;
+    if (rec.hasData && rec.dataProviderId !== synthetic) return true;
+    for (let z = rec.z - 1, x = rec.x >> 1, y = rec.y >> 1; z >= this.anchorFloor; z--, x >>= 1, y >>= 1) {
+      const a = this.records.get(tileId(z, x, y));
+      if (a && a.hasData && a.dataProviderId !== synthetic) return true;
+    }
+    return false;
+  }
+
+  /** Drop the synthetic stand-ins below `anc` (which now has real data) and reload them now. */
+  private dropDegradedBelow(anc: TileRecord, now: number): void {
+    for (const rec of this.records.values()) {
+      if (!rec.degraded || rec.z <= anc.z) continue;
+      const k = rec.z - anc.z;
+      if (rec.x >> k !== anc.x || rec.y >> k !== anc.y) continue;
+      this.dropData(rec);
+      rec.retryAt = now;
+      this.lastSelectAt = -Infinity;
+    }
+  }
+
+  /** Forget a record's heights and GPU objects (the record itself stays). */
+  private dropData(rec: TileRecord): void {
+    this.heights.delete(rec.z, rec.x, rec.y);
+    if (rec.gpu) disposeTileGpu(rec.gpu, this.textures, true);
+    discardResponse(rec.pending);
+    rec.gpu = null;
+    rec.pending = null;
+    rec.hasData = false;
+    rec.dataProviderId = '';
+    if (rec.degraded) { rec.degraded = false; this.degradedCount--; }
+    this.planDirty = true;
   }
 
   private onAborted(key: string): void {
@@ -481,12 +545,7 @@ export class TerrainSystem {
   }
 
   private evict(rec: TileRecord): void {
-    this.heights.deleteKey(rec.key);
-    if (rec.gpu) disposeTileGpu(rec.gpu, this.textures, true);
-    discardResponse(rec.pending);
-    rec.gpu = null;
-    rec.pending = null;
-    rec.hasData = false;
+    this.dropData(rec);
     this.records.delete(rec.id);
   }
 
@@ -557,10 +616,13 @@ export class TerrainSystem {
     try {
       const now = this.now();
       let target: TileRecord | null = null;
+      // the pyramid stops at ±85.05°: widths there (cos(90°) → 0 would make the loops unbounded)
+      const lat = Math.max(-MAX_LAT, Math.min(MAX_LAT, latDeg));
       for (let z = this.maxZoom; z >= Math.max(this.minZoom, this.maxZoom - 1); z--) {
-        const t = lonLatToTile(lonDeg, latDeg, z);
-        const w = tileWidthMeters(latDeg, z), n = 2 ** z;
-        const cx = Math.floor(t.x), cy = Math.floor(t.y), r = Math.ceil(Math.max(0, radiusM) / w);
+        const t = lonLatToTile(lonDeg, lat, z);
+        const w = tileWidthMeters(lat, z), n = 2 ** z;
+        const cx = Math.floor(t.x), cy = Math.min(n - 1, Math.floor(t.y));
+        const r = Math.min(32, Math.ceil(Math.max(0, Number.isFinite(radiusM) ? radiusM : 0) / w));
         for (let dy = -r; dy <= r; dy++) {
           const y = cy + dy;
           if (y < 0 || y >= n) continue;
@@ -718,6 +780,7 @@ export class TerrainSystem {
     this.byReqKey.clear();
     this.uploadQueue.length = 0;
     this.drawnCount = 0;
+    this.degradedCount = 0;
     this.selection = [];
     this.pinned.clear();
     this.heights.clear();

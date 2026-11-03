@@ -7,6 +7,7 @@ import { bilinearSample } from './sampling';
 import { decodeTerrariumPng } from './terrarium';
 
 const KSFO = { lat: 37.613538, lon: -122.35716 };
+const lonLatOf = (x: number, y: number) => tileToLonLat(x, y, 12);
 const ksfo = () => decodeTerrariumPng(new Uint8Array(readFileSync(new URL('./__fixtures__/terrarium-15-5246-12684.png', import.meta.url))));
 
 describe('HeightField', () => {
@@ -56,6 +57,35 @@ describe('HeightField', () => {
     expect(out[1]).toBe(123);
     expect(hf.heightRange(15, 1, 1, out)).toBe(-1);
     expect(hf.nearestResident(15, 5240, 12680)!.z).toBe(12);
+  });
+
+  it('mesh lattice: queries follow the drawn triangles, not a bilinear surface', () => {
+    const hf = new HeightField(15);
+    // 2 quads per side, one raised centre vertex: the mesh is a pyramid with straight ridges
+    const lattice = new Float32Array([0, 0, 0, 0, 8, 0, 0, 0, 0]);
+    hf.setMeshLattice(12, 655, 1585, lattice, 2);
+    const at = (u: number, v: number) => { const c = tileToLonLat(655 + u, 1585 + v, 12); return hf.heightAt(c.lon, c.lat)!; };
+    expect(at(0.5, 0.5)).toBeCloseTo(8, 5);
+    // NW and SE quads: their NE–SW diagonals join two zero vertices → 0 (a bilinear surface gives 2)
+    expect(at(0.25, 0.25)).toBeCloseTo(0, 5);
+    expect(at(0.75, 0.75)).toBeCloseTo(0, 5);
+    // NE and SW quads: their diagonals run through the raised vertex → 4 half way
+    expect(at(0.75, 0.25)).toBeCloseTo(4, 5);
+    expect(at(0.25, 0.75)).toBeCloseTo(4, 5);
+    expect(at(0.25, 0.5)).toBeCloseTo(4, 5);   // mid edge between (0,1) and the raised vertex
+    expect(hf.sample(lonLatOf(655.75, 1585.75).lon, lonLatOf(655.75, 1585.75).lat)!.tile!.layout).toBe('mesh');
+    // the gradient is the face slope: in the SE quad's NW triangle the height falls 8 m per quad eastward
+    const g = new Float64Array(2);
+    const c = tileToLonLat(655.6, 1585.55, 12);
+    expect(hf.gradient(c.lon, c.lat, g)).toBe(true);
+    const mpq = (40075016.686 * Math.cos((c.lat * Math.PI) / 180)) / (2 * 2 ** 12);
+    expect(g[0]).toBeCloseTo(-8 / mpq, 6);
+    expect(g[1]).toBeCloseTo(8 / mpq, 6); // falls southward → rises northward
+    expect(() => hf.setMeshLattice(12, 0, 0, new Float32Array(8), 2)).toThrow();
+    // numeric-id storage still answers the string API
+    expect(hf.getByKey('12/655/1585')!.layout).toBe('mesh');
+    expect(hf.deleteKey('12/655/1585')).toBe(true);
+    expect(hf.size).toBe(0);
   });
 
   it('gradient and ENU normal of a tilted plane', () => {

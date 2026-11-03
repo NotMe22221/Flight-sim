@@ -14,6 +14,7 @@
 import type { Geodetic, Vec3 } from '../core/types';
 import { MAX_LAT, lonLatToTile, tileToLonLat, tileWidthMeters } from '../geo/mercator';
 import { EARTH_RADIUS, LocalFrame } from '../geo/wgs84';
+import { tileId } from './drawPlan';
 
 export interface FrustumLike {
   intersectsBox(min: ArrayLike<number>, max: ArrayLike<number>): boolean;
@@ -87,7 +88,8 @@ export class Quadtree {
   private frame: LocalFrame;
   private epoch = 0;
   private pass = 0;
-  private readonly nodes = new Map<string, Node>();
+  /** keyed by drawPlan.tileId (no string per lookup) */
+  private readonly nodes = new Map<number, Node>();
   private readonly pool: SelectedNode[] = [];
   private readonly hRange = new Float64Array(2);
   private readonly camGeo: Geodetic = { lat: 0, lon: 0, alt: 0 };
@@ -136,14 +138,17 @@ export class Quadtree {
     const o = this.options, L = this.levels, zc = o.coarsestZoom;
     const geo = this.frame.threeToGeodetic(cam[0], cam[1], cam[2], this.camGeo);
     const n = 2 ** zc;
-    const t = lonLatToTile(geo.lon, Math.max(-MAX_LAT, Math.min(MAX_LAT, geo.lat)), zc);
-    const cx = Math.floor(t.x), cy = Math.floor(t.y);
-    const k = Math.ceil(this.ranges[L - 1] / tileWidthMeters(geo.lat, zc)) + 1;
-    for (let dy = -k; dy <= k; dy++) {
-      const y = cy + dy;
-      if (y < 0 || y >= n) continue;
-      for (let dx = -k; dx <= k; dx++) {
-        let x = (cx + dx) % n;
+    const lat = Math.max(-MAX_LAT, Math.min(MAX_LAT, geo.lat));
+    const t = lonLatToTile(geo.lon, lat, zc);
+    const cx = Math.floor(t.x), cy = Math.min(n - 1, Math.max(0, Math.floor(t.y)));
+    // Ring of root tiles around the camera. Widths at the clamped latitude (the pyramid stops
+    // there; cos(90°) → 0 would make the loop unbounded), and never more than the n columns
+    // that exist, so a root tile is visited — and selected — once.
+    const k = Math.min(n, Math.ceil(this.ranges[L - 1] / tileWidthMeters(lat, zc)) + 1);
+    const x0 = 2 * k + 1 >= n ? 0 : cx - k, x1 = 2 * k + 1 >= n ? n - 1 : cx + k;
+    for (let y = Math.max(0, cy - k); y <= Math.min(n - 1, cy + k); y++) {
+      for (let xx = x0; xx <= x1; xx++) {
+        let x = xx % n;
         if (x < 0) x += n;
         this.selectNode(this.node(zc, x, y), L - 1);
       }
@@ -153,11 +158,11 @@ export class Quadtree {
   }
 
   private node(z: number, x: number, y: number): Node {
-    const key = `${z}/${x}/${y}`;
-    let nd = this.nodes.get(key);
+    const id = tileId(z, x, y);
+    let nd = this.nodes.get(id);
     if (!nd) {
-      nd = { z, x, y, key, min: new Float64Array(3), max: new Float64Array(3), epoch: -1, hSource: -2, maxH: 0, active: false, split: false, visit: 0 };
-      this.nodes.set(key, nd);
+      nd = { z, x, y, key: `${z}/${x}/${y}`, min: new Float64Array(3), max: new Float64Array(3), epoch: -1, hSource: -2, maxH: 0, active: false, split: false, visit: 0 };
+      this.nodes.set(id, nd);
     }
     nd.visit = this.pass;
     return nd;

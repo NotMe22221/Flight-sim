@@ -31,3 +31,36 @@ describe('runways', () => {
     expect(headwindKt(e, 118, 10)).toBeCloseTo(-10, 9);
   });
 });
+
+describe('runway records with per-end data (nav database)', () => {
+  const base = FALLBACK_KSFO.runways[0];
+  const rec = {
+    ...base, ident: '10L', headingDeg: 118, threshold: base.end, end: base.threshold, ils: undefined,
+    ends: [
+      { ident: '10L', headingDeg: 118.2, threshold: base.end, ils: { frequencyMHz: 109.55 } },
+      { ident: '28R', headingDeg: 298.4, threshold: base.threshold, ils: { frequencyMHz: 111.7 } },
+    ],
+  };
+  it('uses the record idents, headings, thresholds and per-end ILS', () => {
+    const [a, b] = runwayEnds(rec);
+    expect([a.endIdent, b.endIdent]).toEqual(['10L', '28R']);
+    expect(b.headingDeg).toBe(298.4);
+    expect(b.threshold).toBe(base.threshold);
+    expect(a.ilsMHz).toBe(109.55);
+    expect(b.ilsMHz).toBe(111.7);
+    expect(findRunwayEnd({ ...FALLBACK_KSFO, runways: [rec] }, '28r')?.ilsMHz).toBe(111.7);
+  });
+  it('keeps non-standard idents so the simulator finds the same end', async () => {
+    const { runwayPairLabel } = await import('./runways');
+    const water = { ...base, ident: 'NE', ends: [{ ident: 'NE', headingDeg: 45 }, { ident: 'SW', headingDeg: 225 }] };
+    expect(runwayEnds(water).map((e) => e.endIdent)).toEqual(['NE', 'SW']);
+    expect(runwayPairLabel(water)).toBe('NE/SW');
+    // malformed ends fall back to the derived reciprocal
+    expect(runwayEnds({ ...base, ends: [{ ident: '' }, {}] } as never).map((e) => e.endIdent)).toEqual(['28R', '10L']);
+  });
+  it('plain core runways: ILS on the primary end only', () => {
+    const [a, b] = runwayEnds(base);
+    expect(a.ilsMHz).toBe(111.7);
+    expect(b.ilsMHz).toBeUndefined();
+  });
+});

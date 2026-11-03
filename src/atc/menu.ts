@@ -6,7 +6,7 @@
 import type { Airport } from '../core/types';
 import { NM } from '../core/units';
 import {
-  callInbound, cancelFlightFollowing, cancelInbound, cancelTakeoff, listenAtis, readBack, readyForDeparture, requestClearance,
+  callInbound, cancelFlightFollowing, cancelInbound, cancelTakeoff, departureRunway, listenAtis, readBack, readyForDeparture, requestClearance,
   requestClosedTraffic, requestFlightFollowing, requestFrequencyChange, requestTaxi, selectDestination, announceInbound,
 } from './actions';
 import type { Facility, FacilityKind } from './field';
@@ -15,7 +15,7 @@ import {
   announceDeparture, announceLeavingArea, announceLeg, announceRemainInPattern, announceTaxi, clearOfRunway, goingAround,
   leavePattern, reportPosition, requestOption,
 } from './patternActions';
-import { frequency } from './phraseology';
+import { frequency, runway as rwySpoken } from './phraseology';
 import type { AtcSession, FieldCtx } from './session';
 
 /** One option: its label and what selecting it does. */
@@ -51,15 +51,18 @@ function departureItems(s: AtcSession, ctx: FieldCtx, out: MenuItem[]): void {
     if (clearance && !s.clearanceReceived) out.push({ label: `Request VFR departure clearance${via(clearance)}`, run: () => requestClearance(s, ctx) });
     out.push({ label: `Request taxi for VFR departure${via(ground)}`, run: () => requestTaxi(s, ctx, 'departure') });
     out.push({ label: `Request taxi for closed traffic${via(ground)}`, run: () => requestTaxi(s, ctx, 'closed-traffic') });
-  } else if (ctx.inUse) {
-    const c = ctx.info.ctaf;
-    out.push({ label: `Announce taxi to runway ${ctx.inUse.primary.ident} for departure${via(c)}`, run: () => announceTaxi(s, ctx, 'departure') });
-    out.push({ label: `Announce taxi to runway ${ctx.inUse.primary.ident} for closed traffic${via(c)}`, run: () => announceTaxi(s, ctx, 'closed-traffic') });
+  } else {
+    // the runway the call will announce (the in-use parallel nearest the aircraft)
+    const ref = departureRunway(s, ctx);
+    if (!ref) return;
+    const c = ctx.info.ctaf, rwy = rwySpoken(ref.ident).text;
+    out.push({ label: `Announce taxi to runway ${rwy} for departure${via(c)}`, run: () => announceTaxi(s, ctx, 'departure', ref) });
+    out.push({ label: `Announce taxi to runway ${rwy} for closed traffic${via(c)}`, run: () => announceTaxi(s, ctx, 'closed-traffic', ref) });
   }
 }
 
 function readyItems(s: AtcSession, ctx: FieldCtx, out: MenuItem[]): void {
-  const rwy = s.runway?.ident ?? ctx.inUse?.primary.ident ?? '';
+  const rwy = rwySpoken(s.runway?.ident ?? ctx.inUse?.primary.ident ?? '').text;
   const tail = s.intent === 'closed-traffic' ? ', remaining in the pattern' : '';
   if (ctx.info.tower) out.push({ label: `Ready for departure, runway ${rwy}${tail}${via(ctx.info.tower)}`, run: () => readyForDeparture(s, ctx) });
   else out.push({ label: `Announce departing runway ${rwy}${tail}${via(ctx.info.ctaf)}`, run: () => announceDeparture(s, ctx) });
@@ -174,7 +177,7 @@ export function buildMenu(s: AtcSession): MenuItem[] {
     case 'LANDED':
       if (!ctx) break;
       if (ctx.info.ground) out.push({ label: `Report clear of runway, request taxi to parking${via(ctx.info.ground)}`, run: () => clearOfRunway(s, ctx) });
-      else out.push({ label: `Announce clear of runway ${s.runway?.ident ?? ''}${via(ctx.info.ctaf)}`.replace('  ', ' '), run: () => clearOfRunway(s, ctx) });
+      else out.push({ label: `Announce clear of runway ${rwySpoken(s.runway?.ident ?? '').text}${via(ctx.info.ctaf)}`.replace('  ', ' '), run: () => clearOfRunway(s, ctx) });
       break;
   }
   if (out.length === 0) out.push({ label: 'No ATC facility in range', run: () => undefined });

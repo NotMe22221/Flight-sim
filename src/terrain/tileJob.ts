@@ -8,7 +8,9 @@
  *              network imagery is fetched concurrently with the elevation
  *
  * A source that fails transiently (network, timeout, 5xx) marks the response for a later
- * retry, and the rest of that provider's ancestor URLs are skipped (same host).
+ * retry, and the rest of that provider's ancestor URLs are skipped (same host). When the
+ * request says real data already covers the tile (`proceduralOnTransient: false`), the job
+ * answers a transient `error` instead of falling back to procedural heights.
  *
  * Never throws: every failure becomes an `error` or `aborted` response.
  */
@@ -70,6 +72,8 @@ async function loadElevation(req: LoadRequest, signal: AbortSignal, ctx: TileJob
     if (src.providerId === unreachable) continue;
     try {
       if (src.url === null || src.format === 'none') {
+        // real data covers this tile on the main thread: report the outage instead of inventing terrain
+        if (trouble.transient && req.proceduralOnTransient === false) throw lastError;
         const t = ctx.procedural(req.procedural).heightsTile(req.z, req.x, req.y, src.tileSize);
         return { heights: t.heights, width: src.tileSize, providerId: src.providerId, zoom: req.z };
       }
@@ -80,6 +84,7 @@ async function loadElevation(req: LoadRequest, signal: AbortSignal, ctx: TileJob
       return { heights, width: d.width, providerId: src.providerId, zoom: src.zoom };
     } catch (err) {
       if (isAbortError(err, signal)) throw err;
+      if (src.url === null) throw err;
       if (isTransientFetchError(err)) { trouble.transient = true; unreachable = src.providerId; }
       lastError = err;
     }
@@ -160,6 +165,7 @@ export async function runTileJob(req: LoadRequest, signal: AbortSignal, ctx: Til
         type: 'error', key: req.key,
         message: err instanceof Error ? err.message : String(err),
         status: err instanceof HttpError ? err.status : undefined,
+        transient: trouble.transient || isTransientFetchError(err),
       },
       transfer: [],
     };

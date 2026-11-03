@@ -2,7 +2,7 @@
  * Compiles a gamepad profile into flat, allocation-free evaluation records for one pad,
  * applying the D-pad / hat mode override ("look" or "trim") on top of the profile.
  */
-import { type BindableAction, axisIndexOf, axisRange } from './actions';
+import { type BindableAction, LEVER_AXES, axisIndexOf, axisRange } from './actions';
 import { type Binding, type BindingInput, isActionBinding } from './bindings';
 import { type ResolvedPreset, hatBit } from './gamepadId';
 import { type AxisShaping, makeShaping } from './shaping';
@@ -30,6 +30,8 @@ export interface CompiledAxis {
   invert: boolean;
   lo: number;
   hi: number;
+  /** a button / hat / axis half on a lever axis: moves the lever at a rate (like keys), not to a position */
+  rate: boolean;
 }
 
 export interface CompiledAction {
@@ -41,7 +43,9 @@ export interface CompiledAction {
   /** modifiers used by other bindings on the same button (shadow this plain binding) */
   shadows: number[];
   mask: number;
-  /** current pressed state (edge detection) */
+  /** physical state of the input at the last poll (edge detection) */
+  raw: boolean;
+  /** pressed into the tracker (the chord matched when the input went down) */
   down: boolean;
 }
 
@@ -98,11 +102,11 @@ export function compilePad(bindings: readonly Binding[], mode: DpadMode, r: Reso
   for (const b of eff) {
     if (isActionBinding(b)) {
       if (b.button !== undefined) {
-        actions.push({ action: b.action, kind: ActionSrc.Button, src: b.button, modifier: b.modifierButton ?? -1, shadows: [], mask: 0, down: false });
+        actions.push({ action: b.action, kind: ActionSrc.Button, src: b.button, modifier: b.modifierButton ?? -1, shadows: [], mask: 0, raw: false, down: false });
       } else if (b.axisIndex !== undefined && b.hat) {
-        actions.push({ action: b.action, kind: ActionSrc.Hat, src: b.axisIndex, modifier: -1, shadows: [], mask: hatBit(b.hat), down: false });
+        actions.push({ action: b.action, kind: ActionSrc.Hat, src: b.axisIndex, modifier: -1, shadows: [], mask: hatBit(b.hat), raw: false, down: false });
       } else if (b.axisIndex !== undefined && b.axisDir) {
-        actions.push({ action: b.action, kind: ActionSrc.Half, src: b.axisIndex, modifier: -1, shadows: [], mask: b.axisDir, down: false });
+        actions.push({ action: b.action, kind: ActionSrc.Half, src: b.axisIndex, modifier: -1, shadows: [], mask: b.axisDir, raw: false, down: false });
       }
       continue;
     }
@@ -117,7 +121,8 @@ export function compilePad(bindings: readonly Binding[], mode: DpadMode, r: Reso
       deadzone: b.deadzone ?? (kind === AxisSrc.Lever ? 0.03 : defaultDeadzone(kind, r.standard)),
       saturation: b.saturation, curve: b.curve ?? 0, invert: kind === AxisSrc.Stick ? !!b.invert : false, gain: b.sensitivity ?? 1,
     });
-    axes.push({ ai: axisIndexOf(b.axis), kind, src, dir: b.dir ?? 1, mask, shaping, invert: !!b.invert, lo, hi });
+    const rate = LEVER_AXES.has(b.axis) && kind !== AxisSrc.Stick && kind !== AxisSrc.Lever;
+    axes.push({ ai: axisIndexOf(b.axis), kind, src, dir: b.dir ?? 1, mask, shaping, invert: !!b.invert, lo, hi, rate });
   }
   // a plain button binding is shadowed while a modifier variant of the same button is satisfied
   for (const a of actions) {

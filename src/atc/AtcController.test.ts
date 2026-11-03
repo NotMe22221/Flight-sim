@@ -76,7 +76,7 @@ describe('AtcController — towered round trip at KSFO', () => {
     // ── ATIS ──
     h.select(/^Listen to ATIS/);
     const atisMsg = h.find(/information/);
-    expect(atisMsg?.text).toMatch(/^San Francisco International information [A-Z][a-z]+\. 1856Z\. Wind 270 at 12 gusting 18\./);
+    expect(atisMsg?.text).toMatch(/^San Francisco International information [A-Z][a-z]+\. 1856Z\. Wind 270 at 12 gusts 18\./);
     expect(atisMsg?.frequencyMHz).toBe(113.7);
     expect(h.atc.frequencyMHz).toBe(113.7);
     const letterWord = /information ([A-Z][a-z-]+)\./.exec(atisMsg?.text ?? '')?.[1] ?? '';
@@ -106,7 +106,7 @@ describe('AtcController — towered round trip at KSFO', () => {
 
     // ── Tower: takeoff ──
     delays.push(selectWithReply(h, new RegExp(`^Ready for departure, runway ${rwy} \\(Tower 120\\.5\\)`),
-      new RegExp(`^Cessna 2FS, San Francisco Tower, wind 270 at 12 gusting 18, runway ${rwy}, cleared for takeoff\\.$`)));
+      new RegExp(`^Cessna 2FS, San Francisco Tower, wind 270 at 12 gusts 18, runway ${rwy}, cleared for takeoff\\.$`)));
     expect(h.atc.phase).toBe('CLEARED_TAKEOFF');
     readBack(h, /^Read back: runway/);
     h.move({ along: thr.along + 100, cross: thr.cross, h: 0 }, 5, true);
@@ -163,7 +163,7 @@ describe('AtcController — towered round trip at KSFO', () => {
     h.move({ along: -1200, cross: 0, h: 120 }, 35, false);
     expect(h.atc.patternLeg).toBe('final');
     expect(h.atc.landingClearance).toBe('land');
-    expect(h.find(/cleared to land/)?.text).toBe('Cessna 2FS, wind 270 at 12 gusting 18, runway 28R, cleared to land.');
+    expect(h.find(/cleared to land/)?.text).toBe('Cessna 2FS, wind 270 at 12 gusts 18, runway 28R, cleared to land.');
     readBack(h, /^Read back: runway 28R, cleared to land/);
 
     // ── Go-around on short final ──

@@ -69,10 +69,15 @@ export function runwaysForTile(z: number, x: number, y: number, runways: readonl
   return out;
 }
 
-/** Complete load request for tile (z, x, y) built in `frame`. `reqKey` identifies this attempt. */
+/**
+ * Complete load request for tile (z, x, y) built in `frame`. `reqKey` identifies this attempt.
+ * `proceduralOnTransient` false: real data already covers the tile, so a network outage must
+ * produce an error (keep drawing the real data) rather than synthetic heights.
+ */
 export function buildLoadRequest(
   reqKey: string, z: number, x: number, y: number,
   frame: LocalFrameInfo, cfg: RequestConfig, runways: readonly RunwayFlatteningSpec[],
+  proceduralOnTransient = true,
 ): LoadRequest {
   const latC = tileToLonLat(x + 0.5, y + 0.5, z).lat;
   return {
@@ -88,5 +93,6 @@ export function buildLoadRequest(
     procedural: cfg.procedural,
     fullHeights: z >= FULL_HEIGHTS_MIN_ZOOM,
     water: true,
+    proceduralOnTransient,
   };
 }

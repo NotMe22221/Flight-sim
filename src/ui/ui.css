@@ -229,6 +229,7 @@
 .fs-ui .wm-zoom { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
 .fs-ui .wm-scale { font-size: 0.72em; color: var(--fg-dim); padding: 3px 8px; background: var(--ui-bg); border: 1px solid var(--ui-border); border-radius: var(--radius-sm); }
 .fs-ui .wm-hover { position: absolute; left: 10px; top: 10px; font-size: 0.78em; color: var(--fg-dim); padding: 3px 8px; background: var(--ui-bg); border: 1px solid var(--ui-border); border-radius: var(--radius-sm); font-variant-numeric: tabular-nums; pointer-events: none; }
+.fs-ui .wm-hover:empty { display: none; }
 .fs-ui .wm-bottom { display: flex; align-items: center; gap: 16px; }
 .fs-ui .departure-summary { flex: 1; padding: 10px 16px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .fs-ui .wm-right { width: min(330px, 26vw); min-width: 260px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }

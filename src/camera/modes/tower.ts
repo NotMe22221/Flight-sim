@@ -1,6 +1,7 @@
 /**
  * Tower camera: fixed world position looking at the aircraft with an automatic field of view
- * that keeps the aircraft's length at ~4 % of the frame height (clamped 2°..60°).
+ * that keeps the aircraft's length at a fixed fraction of the frame height (`towerFrameFraction`,
+ * default 14 %, clamped 2°..60°).
  */
 import * as THREE from 'three';
 import { SpringVector3, expSmoothing, omegaFromTau } from '../smoothing';

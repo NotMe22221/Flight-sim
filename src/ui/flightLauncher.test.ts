@@ -17,8 +17,8 @@ function setup(opts: { failSpawn?: boolean; live?: boolean; noChallenge?: boolea
   const host = {
     nav: { getAirport: (icao: string) => [FALLBACK_KSFO, KOAK].find((a) => a.icao === icao) },
     aircraftList: () => [{ id: 'c172s', name: '172S', manufacturer: 'Cessna' } as unknown as AircraftConfig],
-    setWeatherPreset: (id: string) => calls.push(`wx:${id}`),
-    setCustomWeather: () => calls.push('wx:custom'),
+    setWeatherPreset: (id: string, o?: { immediate?: boolean }) => calls.push(`wx:${id}${o?.immediate ? '!' : ''}`),
+    setCustomWeather: (_w: unknown, o?: { immediate?: boolean }) => calls.push(`wx:custom${o?.immediate ? '!' : ''}`),
     requestLiveWeather: async () => { calls.push('live'); return opts.live ?? false; },
     setTime: () => calls.push('time'),
     spawn: async (c: { airport: { icao: string } }) => {
@@ -46,7 +46,7 @@ describe('FlightLauncher.fly', () => {
     const t = setup();
     t.selection.set({ weather: { mode: 'preset', presetId: 'overcast' }, arrival: KOAK });
     expect(await t.launcher.fly()).toBe(true);
-    expect(t.calls).toEqual(['wx:overcast', 'time', 'spawn:KSFO', 'wp:KOAK']);
+    expect(t.calls).toEqual(['wx:overcast!', 'time', 'spawn:KSFO', 'wp:KOAK']); // '!' = immediate (no blend into the new flight)
     expect(t.route).toEqual(['loading', 'flight']);
     expect(t.launcher.flying).toBe(false);
   });

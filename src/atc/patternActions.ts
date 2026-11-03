@@ -4,7 +4,7 @@
  */
 import { FT } from '../core/units';
 import { departureRunway } from './actions';
-import { patternSideFor } from './field';
+import { patternSideFor, type RunwayRef } from './field';
 import { makeRunwayFrame, rangeBearing } from './geometry';
 import { atc, ctaf, pilot, readback } from './messages';
 import { runway as rwySpoken, spoken } from './phraseology';
@@ -90,6 +90,7 @@ export function leavePattern(s: AtcSession, ctx: FieldCtx): void {
   s.pilotSays(twr, (cs) => pilot.requestFrequencyChange(twr, cs));
   s.atcReplies(twr, (cs) => atc.frequencyChange(cs), () => {
     resetApproach(s);
+    s.intent = 'departure'; // no longer in closed traffic
     s.setPhase('ENROUTE');
     s.expectReadback(twr, 'Acknowledge frequency change', (cs) => readback.goodDay(cs));
   });
@@ -113,8 +114,9 @@ export function clearOfRunway(s: AtcSession, ctx: FieldCtx): void {
 
 // ───────────────────────────── CTAF self-announcements ─────────────────────────────
 
-export function announceTaxi(s: AtcSession, ctx: FieldCtx, intent: DepartureIntent): void {
-  const ref = departureRunway(s, ctx);
+/** `runway`: the end named in the option (defaults to the in-use parallel nearest the aircraft). */
+export function announceTaxi(s: AtcSession, ctx: FieldCtx, intent: DepartureIntent, runway: RunwayRef | null = null): void {
+  const ref = runway ?? departureRunway(s, ctx);
   if (!ref) return;
   s.intent = intent;
   s.runway = makeRunwayFrame(ctx.info.airport, ref);
@@ -137,6 +139,7 @@ export function announceLeavingArea(s: AtcSession, ctx: FieldCtx): void {
     s.announce(ctx.info.ctaf, (cs) => ctaf.leavingArea(ctx.info.ctaf, cs, ctx.info.shortName, brg, altFt(s)));
   }
   resetApproach(s);
+  s.intent = 'departure'; // no longer in closed traffic
   s.setPhase('ENROUTE');
 }
 

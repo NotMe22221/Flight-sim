@@ -95,6 +95,11 @@ export class AtcSession {
   readonly atisHeard = new Map<string, string>();
   /** airport whose automatic INBOUND detection is suppressed until the aircraft leaves its area */
   inboundSuppressed: string | null = null;
+  /**
+   * An arrival not yet in the pattern is abandoned beyond this range of its field, m (the tuning
+   * value, or farther for a destination picked from the menu beyond it).
+   */
+  inboundCancelM: number;
   readonly flags: PhaseFlags = { timeS: 0, callIssued: false, minHeightM: Infinity, climbS: 0, touchedDown: false, outsideS: 0, armed: true, joined: false };
   /** kinematic timers (not reset on phase change) */
   stoppedS = 0;
@@ -116,6 +121,7 @@ export class AtcSession {
     this.radio = new RadioQueue(sink);
     this.rnd = mulberry32(seed ?? fnv1a(this.callsign.registration));
     this.utcMs = utcMs ?? DEFAULT_UTC_MS;
+    this.inboundCancelM = tuning.inboundCancelRangeM;
   }
 
   /** Change phase (no-op when unchanged); resets the per-phase flags and marks the menu dirty. */
@@ -253,10 +259,12 @@ export class AtcSession {
   /** Forget everything flight-specific (keeps per-airport ATIS trackers and the clock). */
   resetFlight(): void {
     this.radio.clear();
+    this.atisHeard.clear();
     this.field = null; this.facility = null; this.abbreviated = false; this.runway = null;
     this.side = 'left'; this.leg = 'outside'; this.intent = 'departure'; this.landingIntent = 'full-stop';
     this.landingClearance = 'none'; this.entry = null; this.clearanceReceived = false; this.squawk = 1200;
     this.flightFollowing = null; this.pendingReadback = null; this.inboundSuppressed = null;
+    this.inboundCancelM = this.tuning.inboundCancelRangeM;
     this.stoppedS = 0; this.airborneS = 0; this.groundS = 0;
     this.phase = 'PARKED';
     const f = this.flags;

@@ -118,6 +118,11 @@ export class UiManager {
   get inFlight(): boolean { return this._inFlight; }
   /** The visible screen ('flight' when the 3D view is unobstructed). */
   get current(): UiScreen { return this.router.current; }
+  /**
+   * True while an opaque full-screen menu or loading screen hides the 3D view completely, so the
+   * integrator can skip or throttle `renderer.render` (every menu screen has an opaque background).
+   */
+  get coversView(): boolean { return this.router.current !== 'flight'; }
 
   /** Shows a screen. 'loading' shows the boot splash before the first flight, else flight loading. */
   show(screen: UiScreen): void {

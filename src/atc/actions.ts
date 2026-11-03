@@ -4,7 +4,7 @@
  * state change happens when the reply goes out. CTAF self-announcements change state at once.
  */
 import type { Airport } from '../core/types';
-import { FT } from '../core/units';
+import { FT, NM } from '../core/units';
 import { patternSideFor, type RunwayRef } from './field';
 import {
   choosePatternEntry, makeRunwayFrame, rangeBearing, relativeTo, sideOf, type PatternEntry, type RunwayFrame, type TrafficSide,
@@ -188,10 +188,16 @@ export function cancelFlightFollowing(s: AtcSession): void {
 
 // ───────────────────────────── Arrival ─────────────────────────────
 
+/** Extra range beyond a menu-picked destination's distance before the arrival is abandoned, m. */
+const DESTINATION_CANCEL_MARGIN_M = 5 * NM;
+
 /** Choose a destination without calling anyone yet (menu: "prepare to land at …"). */
 export function selectDestination(s: AtcSession, airport: Airport): void {
   s.field = s.fieldCtx(airport);
   s.inboundSuppressed = null;
+  // The menu offers airports up to 30 nm away, beyond the automatic inbound/cancel range.
+  const rangeM = s.ac ? rangeBearing(airport.position, s.ac.geo).nm * NM : 0;
+  s.inboundCancelM = Math.max(s.tuning.inboundCancelRangeM, rangeM + DESTINATION_CANCEL_MARGIN_M);
   s.setPhase('INBOUND');
 }
 

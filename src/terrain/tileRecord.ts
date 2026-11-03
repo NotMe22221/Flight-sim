@@ -30,6 +30,10 @@ export interface TileRecord {
   queued: boolean;
   /** heights are in the HeightField */
   hasData: boolean;
+  /** elevation provider of the data in the HeightField ('' when none) */
+  dataProviderId: string;
+  /** that data is a procedural stand-in after a transient network failure (replaced as soon as real data covers the tile) */
+  degraded: boolean;
   /** outstanding pool request key ('' when none) and its request (kept to refresh priority) */
   reqKey: string;
   req: LoadRequest | null;
@@ -62,7 +66,7 @@ export function createTileRecord(z: number, x: number, y: number, frame: LocalFr
   return {
     id: tileId(z, x, y), key: `${z}/${x}/${y}`, z, x, y,
     widthM: tileWidthMeters(c.lat, z), center: new Vector3(p[0], p[1], p[2]),
-    gpu: null, pending: null, queued: false, hasData: false,
+    gpu: null, pending: null, queued: false, hasData: false, dataProviderId: '', degraded: false,
     reqKey: '', req: null, wantVersion: 0, reqVersion: 0, haveVersion: -1,
     failed: false, failures: 0, retryAt: 0,
     lastUsed: 0, wantedPass: -1, drawPass: -1,

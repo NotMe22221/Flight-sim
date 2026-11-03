@@ -204,4 +204,50 @@ describe('GamepadSource', () => {
     poll();
     expect(edges).toEqual(['flapsDown']);
   });
+
+  it('the shift layer is decided when the button goes down (like Ctrl+E vs E)', () => {
+    const custom: BindingProfile = {
+      version: 1, id: 'c', name: 'c', device: 'gamepad',
+      bindings: [{ device: 'gamepad', button: 0, action: 'flapsDown' }, { device: 'gamepad', button: 0, modifierButton: 4, action: 'gearToggle' }],
+    };
+    src = new GamepadSource(dom.env.window, dom.env.navigator, () => custom);
+    const pad = dom.addPad('Xbox 360 Controller (XInput STANDARD GAMEPAD)', 'standard');
+    poll();
+    pad.setButton(4, true);
+    poll();
+    pad.setButton(0, true);
+    poll();
+    expect(edges).toEqual(['gearToggle']);
+    pad.setButton(4, false); // modifier released first, A still held: no plain A
+    poll();
+    expect(edges).toEqual([]);
+    pad.setButton(0, false);
+    poll();
+    pad.setButton(0, true); // plain A …
+    poll();
+    expect(edges).toEqual(['flapsDown']);
+    pad.setButton(4, true); // … then LB while A is held: no LB+A
+    poll();
+    poll();
+    expect(edges).toEqual([]);
+  });
+
+  it('a button held through a profile refresh does not steal another input\'s hold of the same action', () => {
+    const custom: BindingProfile = {
+      version: 1, id: 'c', name: 'c', device: 'gamepad',
+      bindings: [{ device: 'gamepad', button: 0, action: 'brakesHold' }, { device: 'gamepad', button: 1, action: 'brakesHold' }],
+    };
+    src = new GamepadSource(dom.env.window, dom.env.navigator, () => custom);
+    const pad = dom.addPad('Xbox 360 Controller (XInput STANDARD GAMEPAD)', 'standard');
+    poll();
+    pad.setButton(0, true);
+    poll();
+    src.refreshProfiles(); // e.g. after a rebind: button 0 is held but no longer counted
+    pad.setButton(1, true);
+    poll();
+    pad.setButton(0, false); // releasing the primed button must not release button 1's hold
+    poll();
+    poll();
+    expect(held.has('brakesHold')).toBe(true);
+  });
 });

@@ -38,11 +38,11 @@ camera.update(dtReal, state, pos, quat, input, model.eyePointLocal);
 |---|---|
 | `root` | add to the scene; driven by `setPose(posThree, qThree)` |
 | `exterior`, `interior`, `cabinShell` | groups; the cabin skin + exterior glass hide in the cockpit view, the interior shows |
-| `panelMesh` / `panelMeshG1000` | `Mesh<PlaneGeometry, MeshBasicMaterial>`: steam 1.0 × 0.45 m, G1000 1.0 × 0.36 m. Assign the instruments texture to `material.map`: the colour is white and a dark placeholder map is bound from the start, so no `needsUpdate` is required. `setPanelVariant('steam' \| 'g1000')` picks which is visible |
+| `panelMesh` / `panelMeshG1000` | `Mesh<PlaneGeometry, MeshBasicMaterial>`: steam 0.96 × 0.48 m (2:1 like its 1024 × 512 texture), G1000 0.96 × 0.35 m. Assign the instruments texture to `material.map`: a dark placeholder map is bound from the start, so no `needsUpdate` is required. The material colour is the light on the gauges (white by day, see *Cockpit*); never set it to a dark tint. `setPanelVariant('steam' \| 'g1000')` picks which is visible |
 | `eyePointLocal` | pilot eye in model coordinates (from `config.geometry.eyePoint`); pass it to `CameraController.update` |
 | `update(state, inputs, dt, cameraIsCockpit)` | surfaces, prop, gear, lights, yoke/pedals/knobs, cockpit/exterior switch; allocation-free |
 | `setVisibility(exterior, interior)` | master switches (e.g. hide the airframe for a "no aircraft" view) |
-| `setSunElevation(rad)` | below `nightSunElevationRad` (−3°) the spotlights also light the cockpit view |
+| `setSunElevation(rad)` | below `nightSunElevationRad` (−3°) the spotlights also light the cockpit view; the cabin bounce light and the instrument lighting follow the daylight (sun −6° … +15°) |
 | `surfaces`, `propeller`, `gear`, `lights`, `cockpit`, `materials`, `layout` | sub-assemblies (read-only use) |
 | `dispose()` | geometries, materials, textures, light shadows; idempotent; removes `root` from its parent |
 | `frames.ts` | `bodyQuatToThree`, `threeQuatToBody`, `bodyVecToThreeLocal`, `threeLocalToBodyVec`, `nedToThreeVec`, `threeVecToNed` (all write into `out`) |
@@ -50,30 +50,57 @@ camera.update(dtReal, state, pos, quat, input, model.eyePointLocal);
 
 ## How it works
 
-- **Geometry**: the fuselage is a superellipse loft through stations (`loft.ts`; cowl, cabin,
-  tailcone); window glass and the cockpit lining are patches of the same surface offset along
-  the normal, so they always hug the skin. Wings, stabiliser, fin and prop blades loft a
-  NACA 4-digit polygon through span sections (`airfoil.ts`); the left side is the mirrored right.
+- **Fuselage** (`fuselage.ts`, `loft.ts`, `skin.ts`): one superellipse loft from the spinner to
+  the tail, split into three regions of the same surface so they shade seamlessly: the cowl
+  (always visible, also over the glareshield), the cabin shell (hidden in the cockpit view) and
+  the tailcone. Windows and door seams are rounded convex outlines in the side view (z, y),
+  turned into signed distance fields; `buildSkin` keeps the grid cells outside every window and
+  clips cells along the zero level set by bisection, so window edges are smooth curves. Glass,
+  rubber gaskets and door seams are patches of the same surface offset along the analytic
+  normal. A dark inner face of the cabin skin makes the windows read as tinted glass over a dark
+  cabin from outside.
+- **Cockpit** (`interior.ts`): a lining that follows the fuselage profile 3 cm inside the skin
+  with the same window cut-outs (reveals face into each opening), fabric door panels, a padded
+  glareshield hood whose lip covers the top of the panel planes, the panel board 1.5 cm behind
+  the planes (its top edge stays under the lip, so the cowl shows over the glareshield), floor,
+  firewall, seats, yokes, pedals, throttle and mixture. Yokes slide 7 cm fore/aft with `pitch`
+  and turn with `roll` (clockwise for roll right); their shafts enter the panel below the
+  six-pack. Pedals ±6 cm with `yaw`; the knobs push in with the levers. The interior casts but
+  does not receive the sun's shadow map (its texels are ~0.2 m: blotches); a warm emissive
+  "bounce" term scaled with daylight stands in for light bounced around the cabin.
+- **Panel placement**: centred on the aircraft centreline 0.65 m ahead of the eye, top edge
+  ≈ 0.19 m below the eye just under the glareshield lip, tilted back 8°. The six-pack is the left
+  47 % of the steam texture, so it lands straight ahead of the left-seat eye; from the seat the
+  instruments fill the bottom ~35 % of a 65–75° view with the cowl top visible over the
+  glareshield.
+- **Instrument lighting**: the panel planes are unlit, so `material.color` is the light on the
+  gauges: max(daylight, warm post lights at `ControlInputs.lights.panel`) with a dim floor
+  (≈ 35 % perceived) so a night spawn with the panel lights off stays readable; the G1000
+  screens are emissive and only dim to 55 %.
 - **Control surfaces** (`hinge.ts`): each surface is built at zero deflection, then wrapped in
   a `mount` (on the hinge line, local X — or Y for the rudder — along the hinge) and a `pivot`
   child. `update` writes one Euler component on the pivot, so deflection is about the real,
   swept/dihedral hinge line. Signs: elevator `+δe` TE down; each aileron `+` TE down
   (`aileronLeftRad`/`aileronRightRad` per surface); flaps `+deg` down; rudder `+δr` TE left.
 - **Propeller**: blades spin at the true rate (`sense +1` = clockwise from behind) below
-  ~450 rpm; a translucent radial-blur disc fades in over 330–520 rpm.
+  ~450 rpm; a translucent radial-blur disc fades in over 330–520 rpm (fainter from the cockpit).
 - **Gear**: the nose strut telescopes by `compressionM` and steers with `steerRad` (+ = right);
-  the spring-steel main legs shorten along their axis so the axle rises by `compressionM`;
-  wheels turn by `wheelSpeedMs / tyreRadius`. Gear layouts are matched to `state.gear[i]` by
-  the index in `config.gear` (structure contacts are skipped).
+  the white spring-steel main legs shorten along their axis so the axle rises by
+  `compressionM`; wheels turn by `wheelSpeedMs / tyreRadius`. Teardrop wheel pants cover the
+  upper part of each tyre. Gear layouts are matched to `state.gear[i]` by the index in
+  `config.gear` (structure contacts are skipped).
+- **Lathe parts** (spinner, wheel pants): `LatheGeometry` faces outward only when the profile
+  runs with increasing y; a profile listed top-to-bottom is built inside-out (back faces
+  culled: the spinner reads as a flat disc and the pants vanish).
 - **Lights**: nav red left / green right / white tail; beacon 1 Hz (0.12 s on); strobes double
   flash every 1.5 s. Landing/taxi `SpotLight`s: the cockpit switch sets `visible`, the
   "allowed" gate (external view or night) sets `intensity`, so camera switches never change
   the scene's light count (which would rebuild every lit material's program).
-- **Cockpit**: yokes slide 7 cm fore/aft with `pitch` and turn ±75° with `roll` (clockwise
-  for roll right); pedals ±6 cm with `yaw`; throttle/mixture knobs push in with the lever.
-- **Livery**: a 1024 × 512 `CanvasTexture` (cheat line, cowl anti-glare panel, registration
-  on both sides, mirrored correctly for each side). In Node (tests) it is `null` and the
-  fuselage falls back to plain paint.
+- **Livery** (`textures.ts`): a 2048 × 1024 `CanvasTexture` on the fuselage UVs (u along the
+  length, v around the section), so the blue cheat line with its red pinstripe follows a
+  constant fraction of the section height and sweeps up the tailcone; registration on both
+  sides at the right proportions. In Node (tests) it is `null` and the fuselage falls back to
+  plain paint.
 - **Materials**: built-in three.js materials only (Standard/Physical/Basic/Sprite), so the
   logarithmic-depth fallback works without custom shader chunks.
 
@@ -94,8 +121,14 @@ and span come from it, so model and physics agree.
   nose +x; heading 180; equivalence with rotating body axes by `q_bn`; round trips.
 - `c172Layout.test.ts`: fixture numbers against the spec (above); FRD → model mapping; nav
   light sides; dihedral and flap/aileron spans.
-- `AircraftModel.test.ts`: scene graph and panel planes (white colour + bound placeholder map);
-  overall extents; surface sign conventions; every hinge rotates about its own hinge line;
+- `skin.test.ts`: window distance fields (sign, rounded corners, short edges, sides); every
+  window centre lies on the skin; no skin triangle inside a window; skin + glass area equals
+  the uncut skin; outward winding.
+- `AircraftModel.test.ts`: scene graph, panel placement relative to the eye and glareshield
+  (six-pack ahead of the left seat), panel planes (white colour + bound placeholder map);
+  instrument lighting by day / night / panel lights; overall extents against the real 172
+  (precise boxes: span, length 8.1–8.45 m, gear height); surface sign conventions; every hinge
+  rotates about its own hinge line;
   prop blades/disc and spin direction; gear compression, steering and wheel spin; NaN samples
   do not poison accumulators; light timing and spotlight gating; cockpit/exterior switching;
   cockpit controls follow inputs; pose and idempotent dispose (shared sprite geometry kept).

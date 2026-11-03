@@ -121,6 +121,15 @@ export interface C172Layout {
     strobeLeft: THREE.Vector3; strobeRight: THREE.Vector3;
     landing: THREE.Vector3; taxi: THREE.Vector3;
   };
+  /** small exterior details (positions on the skin are found from the fuselage profile) */
+  details: {
+    /** nose-bowl cooling inlets: centre |x|, y, radius, vertical stretch */
+    noseInlets: { x: number; y: number; r: number; squash: number };
+    /** exhaust stack under the cowl: x, station z, length, radius, direction (down and aft) */
+    exhaust: { x: number; z: number; length: number; radius: number; dir: THREE.Vector3 };
+    /** COM whip on the tailcone top: station z, length, base radius, direction (raked aft) */
+    antenna: { z: number; length: number; radius: number; dir: THREE.Vector3 };
+  };
   /** CG height above ground with unloaded gear, m */
   cgAglM: number;
 }
@@ -208,17 +217,19 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
 
   // ── windows (side view, counter-clockwise: z to the right, y up) ──
   // The A-pillar runs from the windshield's lower corner to the roof corner at the wing LE;
-  // the door window's front edge is parallel to it, 0.085 m further aft (≈ 5 cm pillar).
+  // the door window's front edge is parallel to it, 0.07 m further aft (a ≈ 4 cm post: the
+  // fixed pillar plus the door's 2 cm window frame).
   const aY0 = deckY - 0.08, aY1 = winTopY - 0.03;
   const pillarSlope = (zW1 - 0.02 - zW0) / (aY1 - aY0); // dz per dy
-  const doorFrontZ = (y: number) => zW0 + 0.085 + (y - aY0) * pillarSlope;
+  const pillarW = 0.07, doorFrameW = 0.022;
+  const doorFrontZ = (y: number) => zW0 + pillarW + (y - aY0) * pillarSlope;
   const windows: SkinOutline[] = [
     { name: 'windscreen', side: 'both', radius: 0.035, outline: [[zW0 - 0.06, aY0], [zW0, aY0], [zW1 - 0.02, aY1], [zW1 - 0.02, roofY + 0.4], [zW0 - 0.06, roofY + 0.4]] },
     { name: 'rear', side: 'both', radius: 0.06, outline: [[1.38, winTopY - 0.08], [1.95, deckY + 0.02], [1.95, roofY + 0.4], [1.38, roofY + 0.4]] },
   ];
-  const doorWindow: SideXY[] = [[zW0 + 0.085, sillY], [0.37, sillY], [0.37, winTopY], [doorFrontZ(winTopY), winTopY], [zW0 + 0.085, aY0]];
+  const doorWindow: SideXY[] = [[zW0 + pillarW, sillY], [0.37, sillY], [0.37, winTopY], [doorFrontZ(winTopY), winTopY], [zW0 + pillarW, aY0]];
   const rearSide: SideXY[] = [[0.47, sillY + 0.02], [1.10, sillY + 0.04], [1.30, winTopY - 0.08], [1.22, winTopY - 0.02], [0.47, winTopY - 0.02]];
-  const doorOutline: SideXY[] = [[zW0 + 0.055, bellyY + 0.16], [0.42, bellyY + 0.16], [0.42, winTopY + 0.045], [doorFrontZ(winTopY + 0.045) - 0.03, winTopY + 0.045], [zW0 + 0.055, aY0]];
+  const doorOutline: SideXY[] = [[zW0 + pillarW - doorFrameW, bellyY + 0.16], [0.42, bellyY + 0.16], [0.42, winTopY + 0.045], [doorFrontZ(winTopY + 0.045) - doorFrameW, winTopY + 0.045], [zW0 + pillarW - doorFrameW, aY0]];
   for (const [side, sfx] of [['right', 'Right'], ['left', 'Left']] as const) {
     windows.push({ name: `door${sfx}`, side, radius: 0.05, outline: doorWindow });
     windows.push({ name: `rear${sfx}`, side, radius: 0.06, outline: rearSide });
@@ -276,6 +287,11 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
       strobeRight: v(halfSpan - 0.03, tipY + 0.02, wingTipLE + tipChord * 0.3),
       landing: v(-(breakX + 0.35), lampY(breakX + 0.35), leZ - 0.012),
       taxi: v(-(breakX + 0.62), lampY(breakX + 0.62), leZ - 0.012),
+    },
+    details: {
+      noseInlets: { x: 0.27, y: hy - 0.03, r: 0.062, squash: 1.15 },
+      exhaust: { x: 0.2, z: -1.22, length: 0.17, radius: 0.024, dir: v(0, -0.8, 0.6).normalize() },
+      antenna: { z: 2.25, length: 0.55, radius: 0.007, dir: v(0, Math.cos(32 * D2R), Math.sin(32 * D2R)) },
     },
     cgAglM,
   };

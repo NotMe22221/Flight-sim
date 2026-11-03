@@ -100,6 +100,17 @@ describe('MouseSource', () => {
     expect(look).toEqual([0, 0]);
   });
 
+  it('a refused pointer lock is retried by the next toggle instead of being reported as locked', async () => {
+    const c = dom.canvas as unknown as { requestPointerLock: () => Promise<void>; pointerLockRequests: number };
+    c.requestPointerLock = () => { c.pointerLockRequests++; return Promise.reject(new Error('denied')); };
+    mouse.setFreeLook(!mouse.freeLookLocked);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mouse.freeLookLocked).toBe(false);
+    const n = c.pointerLockRequests;
+    mouse.setFreeLook(!mouse.freeLookLocked); // F again: try again
+    expect(c.pointerLockRequests).toBeGreaterThan(n);
+  });
+
   it('wheel: notches (zoom-in positive) and zoom actions; middle button resets the view', () => {
     const w = dom.wheel(-100);
     expect(w.defaultPrevented).toBe(true);

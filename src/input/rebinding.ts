@@ -10,7 +10,7 @@ import type { ResolvedPreset } from './gamepadId';
 import type { KeyboardSource } from './keyboard';
 
 /** Physical-input part of a binding produced by a capture. */
-export type CapturedInput = Pick<Binding, 'device' | 'code' | 'ctrl' | 'shift' | 'alt' | 'button' | 'axisIndex' | 'axisDir'>;
+export type CapturedInput = Pick<Binding, 'device' | 'code' | 'ctrl' | 'shift' | 'alt' | 'button' | 'axisIndex' | 'axisDir' | 'hat'>;
 
 export interface CaptureOptions {
   /** which devices may answer (default 'any') */
@@ -62,9 +62,9 @@ export function captureNextInput(
     pads.listener = (cap: GamepadCapture): boolean => {
       const r = pads.resolved(cap.pad.index);
       if (!r) return false;
-      finish(cap.button !== undefined
-        ? { device: 'gamepad', button: cap.button }
-        : { device: 'gamepad', axisIndex: cap.axisIndex, axisDir: cap.axisDir }, r);
+      finish(cap.button !== undefined ? { device: 'gamepad', button: cap.button }
+        : cap.hat ? { device: 'gamepad', axisIndex: cap.axisIndex, hat: cap.hat }
+          : { device: 'gamepad', axisIndex: cap.axisIndex, axisDir: cap.axisDir }, r);
       return true;
     };
   }

@@ -37,7 +37,7 @@ export interface AutopilotLimits {
   rolWingsLevelRad: number;
   /** LVL: roll-command slew rate while levelling the wings (faster than normal, it is a recovery) */
   lvlRollCmdRateRadS: number;
-  /** LVL: the vertical loop only starts pulling/pushing once |bank| is below this (wings first) */
+  /** LVL: above this |bank| the elevator unloads (load-factor law) and the vertical loop waits (wings first) */
   lvlWingsFirstBankRad: number;
   /** LVL: load factor budget of the pull-up / push-over; the pitch command slews at (n − 1)·g/V */
   lvlLoadFactor: number;
@@ -122,6 +122,8 @@ export interface AutopilotGains {
   qbarScheduleExponent: number;
   qbarScaleMin: number;
   qbarScaleMax: number;
+  /** LVL wings-first (|φ| above `limits.lvlWingsFirstBankRad`): elevator per g of load-factor error while unloading (× airspeed schedule) */
+  lvlUnloadKn: number;
   /** yaw damper: rudder per rad/s of washed-out yaw rate; washout time constant; authority */
   ydGain: number;
   ydWashoutS: number;
@@ -184,7 +186,7 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     servoAuthority: 0.5,
     servoRatePerS: 1.0,
     rolWingsLevelRad: 6 * DEG,
-    lvlRollCmdRateRadS: 10 * DEG,
+    lvlRollCmdRateRadS: 20 * DEG,
     lvlWingsFirstBankRad: 30 * DEG,
     lvlLoadFactor: 1.8,
     // C172 FDM: stall warning α 10.3°, CLmax at 16°; test plant: warning 12.6°, stall 15.6°
@@ -205,12 +207,15 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     altLevelVsMs: 100 * FPM,
     vsToPitchKp: 0.008 * DEG / FPM, // 0.008 deg per fpm → 500 fpm error = 4°
     vsToPitchKi: 0.0012 * DEG / FPM,
-    flcKp: 0.6 * DEG / KT, // 0.6 deg per kt
-    flcKi: 0.06 * DEG / KT,
+    // 1°/kt and 0.15°/kt/s: holds ±1.5 kt in full-power climbs and idle descents 70–100 kt on both the
+    // test plant and the C172 FDM (0.6 / 0.06 let the speed run 3–4 kt off for 20 s after FLC + power)
+    flcKp: 1.0 * DEG / KT,
+    flcKi: 0.15 * DEG / KT,
     flcKd: 0.5 * DEG / KT, // 0.5 deg per kt/s of acceleration
     flcTauD: 0.5,
     gpsInterceptRadPerM: 60 * DEG / NM, // 60° per nm en route
-    gpsInterceptMaxRad: 45 * DEG,
+    // spec 45°; 44° leaves room for the heading overshoot so the flown intercept stays ≤ 45° (C172 FDM: 45.4° with 45)
+    gpsInterceptMaxRad: 44 * DEG,
     vorInterceptRad: 45 * DEG, // full-scale needle → 45°
     vorInterceptMaxRad: 45 * DEG,
     vorScaleDistanceM: 10 * NM,
@@ -240,6 +245,7 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     qbarScheduleExponent: 1,
     qbarScaleMin: 0.5,
     qbarScaleMax: 2.0,
+    lvlUnloadKn: 0.15,
     ydGain: 0.8, // rudder per rad/s of washed-out yaw rate
     ydWashoutS: 2.0,
     ydAuthority: 0.3,

@@ -148,7 +148,7 @@ describe('AtcController — starts, closed traffic and touch-and-go', () => {
     h.move({ along: -1600, cross: 0, h: 160 }, 35, false);
     h.move({ along: -1000, cross: 0, h: 100 }, 35, false);
     expect(h.atc.landingClearance).toBe('touch-and-go');
-    expect(h.find(/cleared touch and go/)?.text).toBe('Cessna 2FS, wind 270 at 12 gusting 18, runway 28R, cleared touch and go.');
+    expect(h.find(/cleared touch and go/)?.text).toBe('Cessna 2FS, wind 270 at 12 gusts 18, runway 28R, cleared touch and go.');
     h.move({ along: 250, cross: 0, h: 1 }, 32, false);
     h.move({ along: 700, cross: 0, h: 0 }, 30, true);
     expect(h.atc.phase).toBe('PATTERN');

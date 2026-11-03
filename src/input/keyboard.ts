@@ -33,6 +33,24 @@ interface KeyState {
 const RATE_AXES: readonly SimAxis[] = ['throttle', 'mixture', 'propeller', 'cameraZoom'];
 const RATE_AXIS_INDEX = RATE_AXES.map(axisIndexOf);
 
+/** Keys that browsers use with Ctrl (Ctrl+Shift) for tabs, reload, zoom, find, print, devtools … */
+const CTRL_BROWSER_CODES: ReadonlySet<string> = new Set([
+  'KeyR', 'KeyW', 'KeyT', 'KeyN', 'KeyQ', 'KeyL', 'KeyP', 'KeyF', 'KeyS', 'KeyD', 'KeyO', 'KeyU', 'KeyI', 'KeyJ', 'KeyC', 'KeyV', 'KeyX',
+  'Tab', 'PageUp', 'PageDown', 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract', 'Numpad0',
+  'Digit0', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9',
+]);
+
+/**
+ * Browser-essential chords (Ctrl[+Shift]+R/W/T/Tab/=/−/0/1…9/I/J …). An axis key never falls back
+ * to its plain binding for these, so they are not swallowed unless a profile binds them explicitly.
+ */
+export function isBrowserChord(c: Chord): boolean {
+  return !!c.ctrl && !c.alt && CTRL_BROWSER_CODES.has(c.code);
+}
+
+/** `performance.now()` (the clock of `Event.timeStamp`), 0 where unavailable. */
+const clockMs = (): number => (typeof performance !== 'undefined' ? performance.now() : 0);
+
 /** Returns true when the event target is a text-entry control that owns the keyboard. */
 export function isEditableTarget(t: EventTarget | null): boolean {
   const el = t as (HTMLElement & { tagName?: unknown }) | null;
@@ -63,8 +81,22 @@ export class KeyboardSource {
   private pressedSincePoll = false;
   /** per-poll held direction of non-ramped axes (levers, zoom), sampled before taps are cleared */
   private polledDirs = new Float64Array(AXIS_COUNT);
-  /** rebinding hook: receives every non-modifier chord; return true to swallow it */
-  listener: ((chord: Chord) => boolean) | null = null;
+  private listenFn: ((chord: Chord) => boolean) | null = null;
+  /** clock time the rebinding hook was set; key events created before it are not new presses */
+  private listenSince = 0;
+  /** the event being dispatched when the hook was set (e.g. the Enter that activated "rebind") */
+  private listenSkip: unknown = null;
+
+  /**
+   * Rebinding hook: receives every fresh non-modifier chord pressed after it was set (OS repeats
+   * and the key event that is being dispatched while it is set are ignored); return true to swallow it.
+   */
+  get listener(): ((chord: Chord) => boolean) | null { return this.listenFn; }
+  set listener(fn: ((chord: Chord) => boolean) | null) {
+    this.listenFn = fn;
+    this.listenSince = fn ? clockMs() : 0;
+    this.listenSkip = fn ? (this.win as { event?: unknown } | null)?.event ?? null : null;
+  }
 
   constructor(private win: Window | null, private doc: Document | null, bindings: readonly Binding[], repeat: Partial<RepeatTuning> = {}) {
     this.tracker = new HoldTracker<BindableAction>((a) => actionMeta(a), repeat);
@@ -105,6 +137,7 @@ export class KeyboardSource {
     this.win.addEventListener('keyup', this.onKeyUp);
     this.win.addEventListener('blur', this.onBlur);
     this.doc?.addEventListener('visibilitychange', this.onVisibility);
+    this.doc?.addEventListener('focusin', this.onFocusIn);
   }
 
   detach(): void {
@@ -114,6 +147,7 @@ export class KeyboardSource {
     this.win.removeEventListener('keyup', this.onKeyUp);
     this.win.removeEventListener('blur', this.onBlur);
     this.doc?.removeEventListener('visibilitychange', this.onVisibility);
+    this.doc?.removeEventListener('focusin', this.onFocusIn);
     this.releaseAll();
   }
 
@@ -204,10 +238,18 @@ export class KeyboardSource {
   }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
-    if (e.metaKey) return;
-    if (this.listener) {
+    if (e.metaKey) {
+      // Cmd/Win chords belong to the browser/OS; macOS also drops the keyups of keys released
+      // while Cmd is down, so release everything now instead of leaving keys stuck
+      if (e.code === 'MetaLeft' || e.code === 'MetaRight' || e.code === 'OSLeft' || e.code === 'OSRight') this.releaseAll();
+      return;
+    }
+    const listen = this.listenFn;
+    if (listen) {
       if (MODIFIER_CODES.has(e.code)) return;
-      if (this.listener({ code: e.code, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey })) e.preventDefault();
+      // not a new press: OS repeat, or the key event that started the capture is still being dispatched
+      if (e.repeat || e === this.listenSkip || (e.timeStamp > 0 && e.timeStamp < this.listenSince)) return;
+      if (listen({ code: e.code, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey })) e.preventDefault();
       return;
     }
     if (this.captured || isEditableTarget(e.target)) return;
@@ -224,7 +266,7 @@ export class KeyboardSource {
     let entry = this.chords.get(chordKey);
     let axes = entry?.axes;
     const actions = entry?.actions;
-    if ((!actions || actions.length === 0) && (!axes || axes.length === 0) && (e.ctrlKey || e.shiftKey || e.altKey)) {
+    if ((!actions || actions.length === 0) && (!axes || axes.length === 0) && (e.ctrlKey || e.shiftKey || e.altKey) && !isBrowserChord(chord)) {
       entry = this.chords.get(e.code); // axis fallback to the unmodified chord
       axes = entry?.axes;
     }
@@ -254,5 +296,10 @@ export class KeyboardSource {
 
   private readonly onVisibility = (): void => {
     if (this.doc && this.doc.visibilityState === 'hidden') this.releaseAll();
+  };
+
+  /** Focus moving into a text field: its keyups may never reach us (or belong to the field). */
+  private readonly onFocusIn = (e: Event): void => {
+    if (isEditableTarget(e.target)) this.releaseAll();
   };
 }

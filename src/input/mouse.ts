@@ -151,13 +151,18 @@ export class MouseSource {
 
   /** Toggles a persistent pointer-lock free-look (no button needed). */
   setFreeLook(on: boolean): void {
-    if (on === this.freeLock) return;
-    this.freeLock = on;
-    if (on) this.requestLock();
-    else if (this.doc && this.doc.pointerLockElement === this.el && !(this.indicator.enabled && this.options.yokeMode === 'relative')) this.doc.exitPointerLock();
+    if (on) {
+      this.freeLock = true;
+      this.requestLock(); // no-op while locked; a refused request (no gesture, sandbox) is retried by the next toggle
+      return;
+    }
+    if (!this.freeLock) return;
+    this.freeLock = false;
+    if (this.doc && this.doc.pointerLockElement === this.el && !(this.indicator.enabled && this.options.yokeMode === 'relative')) this.doc.exitPointerLock();
   }
 
-  get freeLookLocked(): boolean { return this.freeLock; }
+  /** True while the pointer-lock free-look is on and the browser granted the lock. */
+  get freeLookLocked(): boolean { return this.freeLock && this.locked; }
 
   /** Whether the pointer is currently locked to our canvas. */
   get locked(): boolean { return !!this.doc && this.doc.pointerLockElement === this.el; }

@@ -77,9 +77,12 @@ export interface CameraOptions {
   /** head spring natural frequency (default 6 rad/s) and damping ratio (default 0.7) */
   headSpringOmega?: number;
   headSpringZeta?: number;
-  /** initial chase distance (default 3 × aircraft length ≈ 25 m); zoom changes it */
+  /**
+   * initial chase / orbit distance (default 2 × aircraft length ≈ 16.6 m: like the MSFS default
+   * external view, the aircraft spans about a third of the frame width at 70° FOV); zoom changes it
+   */
   chaseDistanceM?: number;
-  /** chase elevation angle above the aircraft (default 15°) */
+  /** chase elevation angle above the aircraft (default 12°) */
   chaseElevationRad?: number;
   /** chase position / look-at spring lags (default 0.35 s / 0.15 s) */
   chasePosTauS?: number;
@@ -93,7 +96,7 @@ export interface CameraOptions {
   /** drone translation speed at full axis deflection, m/s (default 20; see setDroneSpeed) */
   droneBaseSpeedMs?: number;
   droneAxes?: Partial<DroneAxisMap>;
-  /** tower auto-FOV: aircraft length as a fraction of the frame height (default 0.04) */
+  /** tower auto-FOV: aircraft length as a fraction of the frame height (default 0.14, ≈ 100 px at 720 p) */
   towerFrameFraction?: number;
   /** tower FOV limits (default 2°..60°) and FOV smoothing (default 0.4 s) */
   towerMinFovDeg?: number;
@@ -146,8 +149,8 @@ export function resolveCameraOptions(o: CameraOptions): ResolvedCameraOptions {
     gBobMaxM: o.gBobMaxM ?? 0.05,
     headSpringOmega: o.headSpringOmega ?? 6,
     headSpringZeta: o.headSpringZeta ?? 0.7,
-    chaseDistanceM: o.chaseDistanceM ?? 3 * length,
-    chaseElevationRad: o.chaseElevationRad ?? 15 * D2R,
+    chaseDistanceM: o.chaseDistanceM ?? 2 * length,
+    chaseElevationRad: o.chaseElevationRad ?? 12 * D2R,
     chasePosTauS: o.chasePosTauS ?? 0.35,
     chaseLookTauS: o.chaseLookTauS ?? 0.15,
     chaseRollFollow: o.chaseRollFollow ?? 0.3,
@@ -159,7 +162,7 @@ export function resolveCameraOptions(o: CameraOptions): ResolvedCameraOptions {
       forward: 'pitch', forwardSign: -1, strafe: 'roll', vertical: 'throttle',
       verticalCentre: 'entry', verticalRange: 0.5, verticalDeadband: 0.03, ...o.droneAxes,
     },
-    towerFrameFraction: o.towerFrameFraction ?? 0.04,
+    towerFrameFraction: o.towerFrameFraction ?? 0.14,
     towerMinFovDeg: o.towerMinFovDeg ?? 2,
     towerMaxFovDeg: o.towerMaxFovDeg ?? 60,
     towerFovTauS: o.towerFovTauS ?? 0.4,

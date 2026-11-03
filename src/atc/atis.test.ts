@@ -45,14 +45,14 @@ describe('ATIS for KSFO', () => {
     // True-wind report (no declination): matches the METAR numbers exactly.
     const trueAtis = buildAtis({ airport: ksfo, weather: ksfoWeather(), letter: 'C', utcMs: UTC, runways: ['28L', '28R'] });
     expect(trueAtis.text).toBe(
-      'San Francisco International information Charlie. 1856Z. Wind 280 at 12 gusting 18. Visibility 10. ' +
+      'San Francisco International information Charlie. 1856Z. Wind 280 at 12 gusts 18. Visibility 10. ' +
       'Few clouds at 1,200, ceiling 20,000 broken. Temperature 18, dew point 11. Altimeter 30.05. ' +
       'Landing and departing runways 28L and 28R. Advise on initial contact you have information Charlie.',
     );
     const sp = trueAtis.speech.toLowerCase();
     expect(sp).toContain('information charlie');
     expect(sp).toContain('one eight five six zulu');
-    expect(sp).toContain('wind two eight zero at one two gusting one eight');
+    expect(sp).toContain('wind two eight zero at one two gusts one eight');
     expect(sp).toContain('few clouds at one thousand two hundred, ceiling two zero thousand broken');
     expect(sp).toContain('temperature one eight, dew point one one');
     expect(sp).toContain('altimeter three zero zero five');
@@ -64,7 +64,7 @@ describe('ATIS for KSFO', () => {
     const decl = magneticDeclinationDeg(ksfo.position.lat, ksfo.position.lon, 0, UTC);
     expect(decl).toBeGreaterThan(11);
     const magAtis = buildAtis({ airport: ksfo, weather: ksfoWeather(), letter: 'C', utcMs: UTC, runways: ['28L', '28R'], magVarDeg: decl });
-    expect(magAtis.text).toContain('Wind 270 at 12 gusting 18.');
+    expect(magAtis.text).toContain('Wind 270 at 12 gusts 18.');
     expect(magAtis.metar).toContain('28012G18KT');
   });
 

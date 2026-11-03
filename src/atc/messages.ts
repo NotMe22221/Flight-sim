@@ -115,7 +115,9 @@ export const atc = {
     say`${cs}, go around, fly runway heading, climb and maintain ${altitude(altFt)}, make ${side} traffic runway ${runway(rwy)}.`,
   goAroundAck: (cs: Spoken, side: TrafficSide, rwy: string): Spoken => say`${cs}, roger, make ${side} traffic runway ${runway(rwy)}, report downwind.`,
   optionAck: (cs: Spoken, intent: LandingIntent): Spoken => say`${cs}, roger, ${intentWords(intent)}.`,
-  exitRunway: (cs: Spoken, ground: Facility): Spoken => say`${cs}, exit runway when able, contact Ground ${frequency(ground.mhz)}.`,
+  /** `ground` null: the tower also works the ground (no separate frequency). */
+  exitRunway: (cs: Spoken, ground: Facility | null): Spoken =>
+    ground ? say`${cs}, exit runway when able, contact Ground ${frequency(ground.mhz)}.` : say`${cs}, exit runway when able, remain this frequency.`,
   taxiToParking: (cs: Spoken, f: Facility): Spoken => say`${cs}, ${f.name}, taxi to parking.`,
   /** Weather remark appended when the pilot lacks the current ATIS. */
   weatherRemark: (fieldName: string, currentLetter: string | null, pilotLetter: string | null, inHg: number): Spoken => {
@@ -145,6 +147,6 @@ export const readback = {
     say`Runway ${runway(rwy)}, ${kind === 'land' ? 'cleared to land' : 'cleared touch and go'}, ${cs}.`,
   goAround: (cs: Spoken, altFt: number): Spoken => say`Going around, runway heading, climb and maintain ${altitude(altFt)}, ${cs}.`,
   traffic: (cs: Spoken, side: TrafficSide): Spoken => say`${cap(side)} traffic, ${cs}.`,
-  exitRunway: (cs: Spoken, ground: Facility): Spoken => say`Exit runway, Ground ${frequency(ground.mhz)}, ${cs}.`,
+  exitRunway: (cs: Spoken, ground: Facility | null): Spoken => (ground ? say`Exit runway, Ground ${frequency(ground.mhz)}, ${cs}.` : say`Exit runway, ${cs}.`),
   taxiToParking: (cs: Spoken): Spoken => say`Taxi to parking, ${cs}.`,
 };

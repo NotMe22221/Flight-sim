@@ -13,6 +13,8 @@ export class FakeEvent {
   defaultPrevented = false;
   target: unknown = null;
   currentTarget: unknown = null;
+  /** like the DOM: creation time on the performance.now() clock */
+  readonly timeStamp = performance.now();
   constructor(public readonly type: string) {}
   preventDefault(): void { this.defaultPrevented = true; }
   stopPropagation(): void { /* no propagation in the fake */ }
@@ -187,7 +189,14 @@ export class FakeNavigator {
 export class FakeWindow extends FakeEventTarget {
   innerWidth = 800;
   innerHeight = 600;
+  /** like `window.event`: the event being dispatched (undefined outside dispatch) */
+  event: FakeEvent | undefined = undefined;
   constructor(public document: FakeDocument, public navigator: FakeNavigator) { super(); }
+  override dispatchEvent(e: FakeEvent): boolean {
+    const prev = this.event;
+    this.event = e;
+    try { return super.dispatchEvent(e); } finally { this.event = prev; }
+  }
 }
 
 export class FakeStorage implements StorageLike {

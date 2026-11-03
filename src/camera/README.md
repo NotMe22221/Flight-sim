@@ -51,11 +51,14 @@ controls while the drone uses the stick and throttle (the camera only reads the 
 
 ## Modes
 
-- **cockpit**: eye point from the config, free-look yaw ±160°, pitch −60°/+80°; head orientation
+- **cockpit**: eye point from the config; neutral head pose 3.5° nose-down like the MSFS default
+  view (`cockpitNeutralPitchRad`: the six-pack sits in the bottom third with the horizon above
+  the glareshield; recentring returns to it); free-look yaw ±160°, pitch −60°/+80°; head orientation
   lags the airframe (τ 0.08 s); head displacement = 2nd-order spring (ωn 6 rad/s, ζ 0.7) per axis
   driven by the body specific force at 2 cm/g, each axis clamped ±5 cm (sinks under +g, swings
   aft on the take-off roll, sways against side force). Rolls with the aircraft.
-- **chase**: behind and above (15°) along the horizontal velocity at 3 × aircraft length;
+- **chase**: behind and above (12°) along the horizontal velocity at 2 × aircraft length (the
+  aircraft spans about a third of the frame width, like the MSFS default external view);
   critically damped springs on the offset (τ 0.35 s) and the look-at point (τ 0.15 s,
   velocity-led so steady flight is centred); 30 % roll follow; kept above the ground if
   `groundHeightThree` is given.
@@ -63,8 +66,9 @@ controls while the drone uses the stick and throttle (the camera only reads the 
   (τ 0.4 s, exact integral), pitch −10°..85°, distance 8–200 m.
 - **drone**: free camera, see the input contract; follow mode keeps the offset in the aircraft
   heading frame and turns the view with the heading.
-- **tower**: fixed point, look-at spring τ 0.3 s, auto-FOV so the aircraft's length is 4 % of the
-  frame height (inside the 2–6 % target), clamped 2°–60°, smoothed τ 0.4 s.
+- **tower**: fixed point, look-at spring τ 0.3 s, auto-FOV so the aircraft's length is 14 % of
+  the frame height (≈ 100 px at 720 p, a readable silhouette at any distance), clamped 2°–60°,
+  smoothed τ 0.4 s.
 - **flyby**: a point 400 m ahead and 50 m to the side of the track (alternating), re-seeded once
   the aircraft is 150 m past; mild auto-zoom.
 - **wing**: fixed above the left wing looking at the cabin, fully attitude-locked.
@@ -98,12 +102,12 @@ controls while the drone uses the stick and throttle (the camera only reads the 
 `defaultFovDeg` 70, `minFovDeg` 30, `maxFovDeg` 90, `fovStepDeg` 5, `distanceStep` 1.1,
 `fovRateDegS` 40, `distanceRatePerS` 1.2, `farM` 600 000, `nearCockpitM` 0.05,
 `nearExternalM` 0.5, `pointerSensitivity` 0.0025, `lookRateRadS` 2, `recentreTauS` 0.12,
-`cockpitYawLimitRad` 160°, `cockpitPitchMinRad` −60°, `cockpitPitchMaxRad` 80°,
+`cockpitNeutralPitchRad` −3.5°, `cockpitYawLimitRad` 160°, `cockpitPitchMinRad` −60°, `cockpitPitchMaxRad` 80°,
 `headLagTauS` 0.08, `gBobMPerG` 0.02, `gBobMaxM` 0.05, `headSpringOmega` 6,
-`headSpringZeta` 0.7, `chaseDistanceM` 3 × length, `chaseElevationRad` 15°,
+`headSpringZeta` 0.7, `chaseDistanceM` 2 × length, `chaseElevationRad` 12°,
 `chasePosTauS` 0.35, `chaseLookTauS` 0.15, `chaseRollFollow` 0.3, `orbitMinM` 8,
 `orbitMaxM` 200, `orbitInertiaTauS` 0.4, `droneBaseSpeedMs` 20, `droneAxes`
 (`forwardSign` −1, `verticalCentre` 'entry', `verticalRange` 0.5, `verticalDeadband` 0.03),
-`towerFrameFraction` 0.04, `towerMinFovDeg` 2, `towerMaxFovDeg` 60, `towerFovTauS` 0.4,
+`towerFrameFraction` 0.14, `towerMinFovDeg` 2, `towerMaxFovDeg` 60, `towerFovTauS` 0.4,
 `flybyAheadM` 400, `flybySideM` 50, `groundHeightThree`, `groundClearanceM` 1.5,
 `consumeActions` true, `onModeChange`.

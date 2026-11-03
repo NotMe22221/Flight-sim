@@ -121,21 +121,24 @@ export function runway(ident: string): Spoken {
 
 /**
  * Radio frequency in MHz with trailing zeros dropped: 120.5 → "120.5" / "one two zero point five",
- * 128.325 → "one two eight point three two five", 121 → "121.0".
+ * 121 → "121.0". The subtitle keeps the tuning value; speech omits digits after the second digit
+ * right of the decimal point (FAA JO 7110.65 §2-4-17): 135.275 → "one three five point two seven".
  */
 export function frequency(mhz: number): Spoken {
   let text = mhz.toFixed(3).replace(/0+$/, '');
   if (text.endsWith('.')) text += '0';
-  return spoken(text, spellOut(text));
+  const dot = text.indexOf('.');
+  return spoken(text, spellOut(dot < 0 ? text : text.slice(0, dot + 3)));
 }
 
 /** Wind below this speed is reported as calm (FAA JO 7110.65 §2-6-5: less than three knots). */
 export const CALM_WIND_KT = 3;
 
 /**
- * Surface wind as ATC says it: direction rounded to 10° (north = 360), speed and gust in digits:
- * (280, 12, 18) → "280 at 12 gusting 18" / "two eight zero at one two gusting one eight".
- * Below {@link CALM_WIND_KT} → "calm". A gust is reported only when it exceeds the mean speed.
+ * Surface wind as ATC says it (FAA JO 7110.65 §2-4-17): direction rounded to 10° (north = 360),
+ * speed and gust in digits: (280, 12, 18) → "280 at 12 gusts 18" / "two eight zero at one two
+ * gusts one eight". Below {@link CALM_WIND_KT} → "calm". A gust is reported only when it exceeds
+ * the mean speed.
  */
 export function wind(dirDeg: number, speedKt: number, gustKt = 0): Spoken {
   const spd = Math.round(speedKt);
@@ -144,8 +147,8 @@ export function wind(dirDeg: number, speedKt: number, gustKt = 0): Spoken {
   if (d === 0) d = 360;
   const dir = String(d).padStart(3, '0');
   const gust = Math.round(gustKt);
-  const g = gust > spd ? ` gusting ${gust}` : '';
-  const gs = gust > spd ? ` gusting ${spellOut(gust)}` : '';
+  const g = gust > spd ? ` gusts ${gust}` : '';
+  const gs = gust > spd ? ` gusts ${spellOut(gust)}` : '';
   return spoken(`${dir} at ${spd}${g}`, `${spellOut(dir)} at ${spellOut(spd)}${gs}`);
 }
 

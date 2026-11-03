@@ -8,7 +8,7 @@ import { NM, RAD } from '../core/units';
 import { allRunwayRefs } from './field';
 import { greatCircleDistance } from '../geo/wgs84';
 import {
-  classifyPatternLeg, isAtHoldShort, isEstablishedOnFinal, makeRelativeState, makeRunwayFrame, relativeTo,
+  classifyPatternLeg, HOLD_SHORT_BOX, isAtHoldShort, isEstablishedOnFinal, isOnRunway, makeRelativeState, makeRunwayFrame, relativeTo,
   type RunwayFrame,
 } from './geometry';
 import { atc, readback } from './messages';
@@ -33,6 +33,12 @@ const INBOUND_CLOSING_S = 3;
 const INBOUND_CLOSING_MS = 10;
 /** Time outside the pattern area before reverting to en route, s. */
 const PATTERN_EXIT_S = 10;
+/** A touchdown farther than this from every airport is an off-field landing, nm. */
+const AT_FIELD_NM = 3;
+/** Go-around: height gained above the lowest point of the approach, m (≈ 100 ft; a correction back to the glidepath gains less). */
+const GO_AROUND_GAIN_M = 30;
+/** Go-around: continuous climb time, s. */
+const GO_AROUND_CLIMB_S = 2;
 
 const GROUND_PHASES: ReadonlySet<AtcPhase> = new Set(['PARKED', 'TAXI_CLEARED', 'HOLDING_SHORT', 'CLEARED_TAKEOFF', 'LANDED', 'TAXI_IN']);
 const scratchRel = makeRelativeState();
@@ -112,12 +118,14 @@ export function onEdge(s: AtcSession, edge: 'liftoff' | 'touchdown'): void {
     const tng = s.landingClearance === 'touch-and-go' || (!s.field.info.towered && s.landingIntent === 'touch-and-go');
     if (tng) { s.flags.touchedDown = true; return; }
   }
-  // Landed at the current airport if on one of its runways, else at the nearest airport.
+  // Landed at the current airport if on one of its runways, else at the nearest airport; far
+  // from every airport it is an off-field landing (not one at a field left long ago).
   let ctx = s.field;
   let rw = ctx ? runwayUnderAircraft(s, ctx) : null;
   if (!rw) {
-    const near = nearestField(s, 3);
+    const near = nearestField(s, AT_FIELD_NM);
     if (near && near !== ctx) { ctx = near; rw = runwayUnderAircraft(s, near); }
+    else if (!near && ctx && s.ac && greatCircleDistance(ctx.info.airport.position, s.ac.geo) > AT_FIELD_NM * NM) ctx = null;
   }
   if (ctx !== s.field) s.runway = rw;
   else if (rw) s.runway = rw;
@@ -141,6 +149,27 @@ export function holdShortRunwayAt(s: AtcSession): RunwayFrame | null {
     if (!isAtHoldShort(rel)) continue;
     const d = Math.hypot(rel.alongM, rel.crossM) - (f === s.runway ? 200 : 0); // prefer the assigned runway
     if (d < bestD) { bestD = d; best = f; }
+  }
+  return best;
+}
+
+/**
+ * Runway end the aircraft is lined up on at its start: on the pavement, within the first 400 m
+ * past the (displaced) threshold and heading within 45° of the landing direction; else null.
+ * A start beside the runway (ramp, run-up area) is not one. Allocates; call on start only.
+ */
+export function lineUpRunwayAt(s: AtcSession): RunwayFrame | null {
+  const ctx = s.field, ac = s.ac;
+  if (!ctx || !ac) return null;
+  const hdg = ac.headingTrueRad * RAD;
+  let best: RunwayFrame | null = null, bestScore = Infinity;
+  for (const ref of allRunwayRefs(ctx.info.airport)) {
+    const f = makeRunwayFrame(ctx.info.airport, ref);
+    const rel = relativeTo(f, ac.geo, ac.altitudeMslM, hdg, scratchRel);
+    const maxAlong = (ref.end.displacedThresholdM || 0) + HOLD_SHORT_BOX.maxAlongM;
+    if (!isOnRunway(rel, f) || rel.alongM > maxAlong || Math.abs(rel.relTrackDeg) > 45) continue;
+    const score = Math.abs(rel.crossM) + Math.abs(rel.relTrackDeg);
+    if (score < bestScore) { bestScore = score; best = f; }
   }
   return best;
 }
@@ -206,6 +235,7 @@ function monitorEnroute(s: AtcSession, watch: InboundWatch, tickS: number): void
     s.squawk = 1200;
   }
   s.field = s.fieldCtx(target.info.airport);
+  s.inboundCancelM = s.tuning.inboundCancelRangeM;
   watch.icao = ''; watch.closingS = 0;
   s.setPhase('INBOUND');
 }
@@ -213,7 +243,7 @@ function monitorEnroute(s: AtcSession, watch: InboundWatch, tickS: number): void
 function monitorInbound(s: AtcSession): void {
   const ctx = s.field, ac = s.ac;
   if (!ctx || !ac) { s.setPhase('ENROUTE'); return; }
-  if (greatCircleDistance(ctx.info.airport.position, ac.geo) > s.tuning.inboundCancelRangeM) {
+  if (greatCircleDistance(ctx.info.airport.position, ac.geo) > s.inboundCancelM) {
     s.field = null;
     s.setPhase('ENROUTE');
   }
@@ -225,7 +255,7 @@ function monitorPattern(s: AtcSession, dt: number): void {
   const twr = ctx.info.tower;
   // Leaving the pattern area (an arrival still on its way in is not "leaving").
   const range = greatCircleDistance(ctx.info.airport.position, ac.geo);
-  const left = s.flags.joined ? range > s.tuning.patternExitRangeM : range > s.tuning.inboundCancelRangeM;
+  const left = s.flags.joined ? range > s.tuning.patternExitRangeM : range > s.inboundCancelM;
   s.flags.outsideS = s.leg === 'outside' && left ? s.flags.outsideS + dt : 0;
   if (s.flags.outsideS >= PATTERN_EXIT_S) {
     if (twr && s.facility === twr) {
@@ -234,6 +264,7 @@ function monitorPattern(s: AtcSession, dt: number): void {
       s.expectReadback(twr, 'Acknowledge frequency change', (cs) => readback.goodDay(cs));
     }
     resetApproach(s);
+    s.intent = 'departure'; // no longer in closed traffic
     s.setPhase('ENROUTE');
     return;
   }
@@ -243,7 +274,7 @@ function monitorPattern(s: AtcSession, dt: number): void {
   const height = s.rel.heightM;
   // Landing clearance once established on final.
   if (s.landingClearance === 'none') {
-    if (s.flags.armed && !s.radio.busy && isEstablishedOnFinal(s.rel, s.tuning.landingClearanceRangeM)) {
+    if (s.flags.armed && s.facility === twr && !s.radio.busy && isEstablishedOnFinal(s.rel, s.tuning.landingClearanceRangeM)) {
       const kind = s.landingIntent === 'touch-and-go' ? 'touch-and-go' : 'land';
       s.atcCalls(twr, (cs) => atc.landing(cs, s.windOf(ctx), rw.ident, kind));
       landingClearanceText(s, ctx);
@@ -253,8 +284,8 @@ function monitorPattern(s: AtcSession, dt: number): void {
   // Go-around: climbing away from final low, after the landing clearance.
   if (height < s.tuning.goAroundMaxHeightM) s.flags.minHeightM = Math.min(s.flags.minHeightM, height);
   s.flags.climbS = ac.verticalSpeedMs > s.tuning.goAroundClimbMs ? s.flags.climbS + dt : 0;
-  const climbedAway = height > s.flags.minHeightM + 10 && s.flags.minHeightM < s.tuning.goAroundMaxHeightM;
-  if (s.flags.climbS >= 1.5 && climbedAway && height < s.tuning.goAroundMaxHeightM && !s.radio.busy) {
+  const climbedAway = height > s.flags.minHeightM + GO_AROUND_GAIN_M && s.flags.minHeightM < s.tuning.goAroundMaxHeightM;
+  if (s.flags.climbS >= GO_AROUND_CLIMB_S && climbedAway && height < s.tuning.goAroundMaxHeightM && !s.radio.busy) {
     const alt = ctx.info.patternAltitudeFt, side = s.side;
     s.atcCalls(twr, (cs) => atc.goAround(cs, alt, side, rw.ident));
     resetApproach(s);
@@ -266,10 +297,13 @@ function monitorLanded(s: AtcSession): void {
   const ctx = s.field, ac = s.ac;
   if (!ctx || !ac) return;
   const twr = ctx.info.tower, gnd = ctx.info.ground;
-  if (twr && gnd && !s.flags.callIssued && ac.groundSpeedMs < s.tuning.exitRunwaySpeedMs && !s.radio.busy) {
+  // Only to a pilot on the tower frequency (nobody calls an aircraft that never contacted the tower).
+  if (twr && gnd && s.facility === twr && !s.flags.callIssued && ac.groundSpeedMs < s.tuning.exitRunwaySpeedMs && !s.radio.busy) {
     s.flags.callIssued = true;
-    s.atcCalls(twr, (cs) => atc.exitRunway(cs, gnd));
-    s.expectReadback(twr, `Read back: exit runway, contact Ground ${frequency(gnd.mhz).text}`, (cs) => readback.exitRunway(cs, gnd), () => s.tune(gnd));
+    const next = gnd === twr ? null : gnd; // a tower without a ground frequency keeps the aircraft
+    s.atcCalls(twr, (cs) => atc.exitRunway(cs, next));
+    if (next) s.expectReadback(twr, `Read back: exit runway, contact Ground ${frequency(next.mhz).text}`, (cs) => readback.exitRunway(cs, next), () => s.tune(next));
+    else s.expectReadback(twr, 'Read back: exit runway', (cs) => readback.exitRunway(cs, null));
   }
   if (s.stoppedS >= PARK_ENGINE_OFF_S && !ac.engine.running) parkHere(s);
 }
@@ -282,6 +316,7 @@ function monitorTaxiIn(s: AtcSession): void {
 
 /** Arrived at parking: ready for the next departure from this field. */
 function parkHere(s: AtcSession): void {
+  s.abbreviated = false; // the next call (a new flight) is an initial contact: full callsign
   s.intent = 'departure';
   s.landingIntent = 'full-stop';
   s.landingClearance = 'none';
@@ -291,6 +326,7 @@ function parkHere(s: AtcSession): void {
   s.runway = null;
   s.entry = null;
   s.pendingReadback = null;
+  s.inboundCancelM = s.tuning.inboundCancelRangeM;
   s.setPhase('PARKED');
 }
 

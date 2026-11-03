@@ -166,6 +166,22 @@ export class TouchControls {
     this.stickX = 0; this.stickY = 0;
   }
 
+  /**
+   * Focus loss: releases held buttons and centres the stick (their pointerup may never arrive);
+   * the throttle slider keeps its position.
+   */
+  releaseAll(): void {
+    this.buttonPointers.clear();
+    this.tracker.releaseAll();
+    this.sliderPointer = -1;
+    if (this.stickPointer >= 0 || this.stickX !== 0 || this.stickY !== 0) {
+      this.stickPointer = -1;
+      this.stickX = 0; this.stickY = 0; this.stickDirty = true;
+      if (this.base) css(this.base, { display: 'none' });
+      if (this.knob) css(this.knob, { display: 'none' });
+    }
+  }
+
   /** Moves the slider to an externally changed throttle (keyboard / UI) when not being touched. */
   syncThrottle(v: number): void {
     if (this.sliderPointer >= 0 || v === this.throttle) return;

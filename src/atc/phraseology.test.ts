@@ -46,12 +46,12 @@ describe('phraseology spell-outs', () => {
     expect(runway('36C').speech).toBe('three six center');
     expect(frequency(120.5)).toEqual({ text: '120.5', speech: 'one two zero point five' });
     expect(frequency(118.85).speech).toBe('one one eight point eight five');
-    expect(frequency(128.325).speech).toBe('one two eight point three two five');
+    expect(frequency(128.325)).toEqual({ text: '128.325', speech: 'one two eight point three two' }); // 7110.65 §2-4-17: two decimals spoken
     expect(frequency(121).text).toBe('121.0');
   });
 
   it('winds, temperatures, time, letters', () => {
-    expect(wind(280, 12, 18)).toEqual({ text: '280 at 12 gusting 18', speech: 'two eight zero at one two gusting one eight' });
+    expect(wind(280, 12, 18)).toEqual({ text: '280 at 12 gusts 18', speech: 'two eight zero at one two gusts one eight' });
     expect(wind(3, 8).text).toBe('360 at 8');
     expect(wind(275, 9, 0).speech).toBe('two eight zero at niner');
     expect(wind(120, 2, 0).text).toBe('calm');

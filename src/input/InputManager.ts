@@ -142,7 +142,13 @@ export class InputManager {
     this.keyboard.attach();
     this.mouse.attach();
     this.pads.attach();
+    this.win?.addEventListener('blur', this.onFocusLost);
+    this.doc?.addEventListener('visibilitychange', this.onVisibility);
   }
+
+  /** Window blur / hidden tab: mouse buttons and touches may never send their pointerup (keys release themselves). */
+  private readonly onFocusLost = (): void => { this.mouse.releaseAll(); this.touch.releaseAll(); };
+  private readonly onVisibility = (): void => { if (this.doc?.visibilityState === 'hidden') this.onFocusLost(); };
 
   // ───────────────────────────── simple state ─────────────────────────────
 
@@ -259,7 +265,7 @@ export class InputManager {
     snap.actions.length = 0;
     for (let i = 0; i < this.reportQueue.length; i++) snap.actions.push(this.reportQueue[i]);
     this.reportQueue.length = 0;
-    snap.held.clear();
+    if (snap.held.size > 0) snap.held.clear(); // Set.clear() reallocates its table even when empty
     this.brakesHeld = false;
     this.starterHeld = false;
     const kbActive = this.keyboard.poll(step, now, this.emitFn, this.holdFn);
@@ -306,7 +312,8 @@ export class InputManager {
       if (li === 0 && touchOn && this.touch.throttleLastChange > devTime) { devTime = this.touch.throttleLastChange; devVal = this.touch.throttle; }
       if (devTime === now) { this.leverDeviceTime[li] = now; this.leverFollowsDevice[li] = true; }
       if (this.leverFollowsDevice[li] && devTime > -Infinity) c[lever] = clamp(devVal, 0, 1);
-      const kd = this.keyboard.polledDirection(lever);
+      // keys and pad buttons bound to a lever axis act as rates (absolute only from sliders)
+      const kd = clamp(this.keyboard.polledDirection(lever) + this.pads.rate(ai), -1, 1);
       if (kd !== 0 && this.mapperCtx.leverFree(lever)) {
         c[lever] = clamp(c[lever] + kd * this.rates.leverKeyRate * dt, 0, 1);
         this.leverFollowsDevice[li] = false;
@@ -451,7 +458,7 @@ export class InputManager {
    */
   startListeningAxis(axis: SimAxis, dir: 1 | -1 = 1, opts: ListenOptions = {}): Promise<{ axis: SimAxis; dir: 1 | -1; label: string; binding: Binding; displaced: Binding[] } | null> {
     return this.listen(opts, (input) => {
-      if (input.device === 'gamepad' && input.axisIndex !== undefined) {
+      if (input.device === 'gamepad' && input.axisIndex !== undefined && input.hat === undefined) {
         const invert = (input.axisDir ?? 1) !== dir;
         return { device: 'gamepad', axisIndex: input.axisIndex, axis, ...(invert ? { invert: true } : {}), ...(LEVER_AXES.has(axis) ? { unipolar: true } : {}) };
       }
@@ -487,6 +494,8 @@ export class InputManager {
     this.keyboard.detach();
     this.mouse.detach();
     this.pads.detach();
+    this.win?.removeEventListener('blur', this.onFocusLost);
+    this.doc?.removeEventListener('visibilitychange', this.onVisibility);
     this.pads.onConnection = null;
     this.touch.disable();
     this.listeners = [];
