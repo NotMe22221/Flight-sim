@@ -244,6 +244,15 @@ describe('AircraftModel (Node build, no DOM)', () => {
     step(0.01, true);
     expect(fresh.lights.landingLit).toBe(true);
     expect(fresh.lights.landingLight.intensity).toBeGreaterThan(1000);
+    // by day the landing light's pool fades out in exterior views too (invisible on sunlit pavement)
+    fresh.setSunElevation(40 * D2R);
+    step(0.01, false);
+    expect(fresh.lights.landingLight.intensity).toBe(0);
+    fresh.setSunElevation(1 * D2R); // around sunset: partly
+    step(0.01, false);
+    expect(fresh.lights.landingLight.intensity).toBeGreaterThan(0);
+    expect(fresh.lights.landingLight.intensity).toBeLessThan(4000);
+    fresh.setSunElevation(-10 * D2R);
     inputs.lights.landing = false;
     step(0.01, false);
     expect(fresh.lights.landingLight.visible).toBe(false);

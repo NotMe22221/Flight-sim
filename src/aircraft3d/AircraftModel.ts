@@ -78,6 +78,8 @@ export class AircraftModel {
   private night = false;
   /** 0 (night) … 1 (day), from {@link setSunElevation} */
   private daylight = 1;
+  /** 1 (night) … 0 (day), a quicker ramp around sunset for the exterior lights' pools and halos */
+  private nightLights = 0;
   /** last `ControlInputs.lights.panel` seen by {@link update} */
   private panelLight = 0;
   private readonly nightElevation: number;
@@ -169,7 +171,7 @@ export class AircraftModel {
 
     this.propeller.update(finiteOr(state.engine.rpm), step, cameraIsCockpit);
     this.gear.update(state.gear, step);
-    this.lights.update(step, inputs.lights, !cameraIsCockpit || this.night);
+    this.lights.update(step, inputs.lights, !cameraIsCockpit || this.night, this.nightLights);
     this.cockpit.update(inputs);
     this.panelLight = inputs.lights?.panel ?? 0;
     this.cockpit.setPanelLighting(this.daylight, this.panelLight);
@@ -196,6 +198,8 @@ export class AircraftModel {
   setSunElevation(elevationRad: number): void {
     if (!Number.isFinite(elevationRad)) return;
     this.night = elevationRad < this.nightElevation;
+    const tn = Math.max(0, Math.min(1, (elevationRad / D2R + 4) / 10));
+    this.nightLights = 1 - tn * tn * (3 - 2 * tn);
     const t = Math.max(0, Math.min(1, (elevationRad / D2R + 6) / 21));
     this.daylight = t * t * (3 - 2 * t);
     this.materials.setDaylight(this.daylight);

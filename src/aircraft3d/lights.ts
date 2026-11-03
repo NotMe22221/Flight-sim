@@ -34,6 +34,9 @@ export class AircraftLights {
   private readonly nav: THREE.Object3D[] = [];
   private readonly beacon: THREE.Object3D[] = [];
   private readonly strobes: THREE.Object3D[] = [];
+  /** nav/beacon halo sprites and their night size (they shrink by day; strobes stay full) */
+  private readonly dayHalos: { sprite: THREE.Sprite; scale: number }[] = [];
+  private lastNight = -1;
   private readonly lenses: THREE.Mesh[] = [];
   private readonly geometries: THREE.BufferGeometry[] = [];
 
@@ -47,6 +50,7 @@ export class AircraftLights {
       const m = new THREE.Mesh(bulbGeo, bulb);
       const s = new THREE.Sprite(halo);
       s.scale.setScalar(haloScale);
+      if (into !== this.strobes) this.dayHalos.push({ sprite: s, scale: haloScale });
       g.add(m, s);
       g.visible = false;
       this.group.add(g);
@@ -85,8 +89,10 @@ export class AircraftLights {
 
   /**
    * @param spotlightsAllowed  enable the landing/taxi SpotLights (false in daylight cockpit view)
+   * @param night 0 (full daylight) … 1 (night): landing/taxi pools and nav/beacon halos fade by day,
+   *   as real lights vanish against sunlit pavement; strobes stay bright
    */
-  update(dt: number, lights: ControlInputs['lights'], spotlightsAllowed: boolean): void {
+  update(dt: number, lights: ControlInputs['lights'], spotlightsAllowed: boolean, night = 1): void {
     this.t += dt;
     if (this.t >= CLOCK_WRAP) this.t -= CLOCK_WRAP * Math.floor(this.t / CLOCK_WRAP);
     const beaconOn = lights.beacon && (this.t % BEACON_PERIOD) < BEACON_ON;
@@ -97,8 +103,14 @@ export class AircraftLights {
     for (const s of this.strobes) s.visible = strobeOn;
     this.landingLight.visible = lights.landing;
     this.taxiLight.visible = lights.taxi;
-    this.landingLight.intensity = spotlightsAllowed ? this.landingIntensity : 0;
-    this.taxiLight.intensity = spotlightsAllowed ? this.taxiIntensity : 0;
+    const n = night < 0 ? 0 : night > 1 ? 1 : night;
+    this.landingLight.intensity = spotlightsAllowed ? this.landingIntensity * n : 0;
+    this.taxiLight.intensity = spotlightsAllowed ? this.taxiIntensity * n : 0;
+    if (Math.abs(n - this.lastNight) > 0.01) {
+      this.lastNight = n;
+      const k = 0.3 + 0.7 * n; // a small glint by day, the full halo at night
+      for (const h of this.dayHalos) h.sprite.scale.setScalar(h.scale * k);
+    }
     this.lenses[0].visible = lights.landing;
     this.lenses[1].visible = lights.taxi;
   }
