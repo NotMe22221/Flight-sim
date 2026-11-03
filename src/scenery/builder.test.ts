@@ -6,6 +6,7 @@ import { encodeTile, orientPolygon } from './dev/mvtEncoder';
 import { extractFeatures } from './features';
 import { decodeTile } from './mvt';
 import { pointInPolygon, reverseRing, signedArea } from './polygon';
+import { TileProjector } from './tileMath';
 import { tileBytesAt } from './testUtil';
 
 const settings = qualityProfile('high').build;
@@ -109,6 +110,25 @@ describe('buildTile on synthetic OSM tiles', () => {
     }
     expect(blue).toBeGreaterThan(10);
     expect(r.lightPools).not.toBeNull();
+  });
+
+  it('puts apron floodlights only along real apron edges, never along the tile-clipping edge', () => {
+    // the terminal apron is cut by this tile's east edge: the clipped ring runs along the tile
+    // border, which is no apron edge (the apron continues in the neighbouring tile)
+    expect(f.aprons.length).toBeGreaterThan(0);
+    const proj = new TileProjector(ap.z, ap.x, ap.y, 4096);
+    const L = r.airportLights!;
+    let floods = 0;
+    for (let i = 0; i < L.count; i++) {
+      if (L.height[i] < 10) continue;
+      floods++;
+      const t = proj.toTile(L.xz[i * 2], L.xz[i * 2 + 1]);
+      const m = Math.min(t.px, 4096 - t.px, t.py, 4096 - t.py) * proj.unitM; // metres inside the tile square
+      expect(m, `floodlight ${i} at ${t.px.toFixed(0)}, ${t.py.toFixed(0)}`).toBeGreaterThan(8);
+    }
+    expect(floods).toBeGreaterThan(3);
+    // one floodlight pool per mast
+    expect(r.lightPools!.mesh.position.length / 3).toBe(floods * 9);
   });
 
   it('puts taxiway lights above the pavement they stand on (centre lines above ribbon + marking)', () => {

@@ -130,7 +130,7 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
   const apb = new PointsBuilder();
   const masts: { x: number; z: number; nx: number; nz: number }[] = [];
   const lights: TaxiwayLine[] = taxiLines.map((t) => ({ line: t.line, halfWidth: t.width / 2, lit: t.cls === 'taxiway' }));
-  buildAirportLights(lights, f.aprons.map((a) => a.outer), nearRunway, onApron, apb, masts);
+  buildAirportLights(lights, f.aprons.map((a) => a.outer), nearRunway, onApron, apb, masts, f.aprons.map((a) => a.outerEdge));
   result.airportLights = apb.finish();
   if (masts.length) {
     const pools = new DrapeBuilder(0, masts.length * 9);

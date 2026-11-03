@@ -123,8 +123,9 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   low slope contrast (`uSlopeContrast` 0.4, imagery has baked shading), local vertical from the earth
   centre, cloud shadows along the sun ray (`skyCloudShadow`, same noise field as the cloud planes), the
   sky module's exponential height fog (`β(y) = β0·exp(−(y − groundY)·falloff)`, closed-form optical
-  depth) toward its haze colour with the Henyey–Greenstein sun-ward lobe (`hazeSunLobe`), tone mapping and
-  colour-space chunks. Real imagery is sampled unmodified (only lit, shadowed and fogged); procedural
+  depth; `groundY` is the sky's `uSkyGroundY` once a sky is linked — the reference of the built-in
+  materials' and cloud planes' fog — else the ground under the camera) toward its haze colour with the
+  Henyey–Greenstein sun-ward lobe (`hazeSunLobe`), tone mapping and colour-space chunks. Real imagery is sampled unmodified (only lit, shadowed and fogged); procedural
   fallback tiles (`uProcedural`) add a ground-fixed detail texture (value noise at 4 / 32 / 128 / 512 m,
   brightness ± and lush/dry tint, fine octaves faded with distance; `uDetailOffset` follows rebases mod
   8192 m so it never jumps). Includes `<logdepthbuf_*>` chunks, so it is correct with a logarithmic depth
@@ -133,7 +134,9 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   four animated wave trains faded by the pixel footprint (distance / grazing incidence, no moiré),
   Schlick Fresnel capped at 0.6 (rough water) reflecting the sky from the horizon (no brighter than the
   haze over it) to the zenith colour, normalized Blinn-Phong sun glint whose lobe widens with distance
-  (glitter path), cloud shadows on sun terms.
+  (glitter path), cloud shadows on sun terms. The wave clock `uTime` wraps at `WAVE_TIME_PERIOD_S`
+  (1000π s, a whole number of periods of every wave train; the former 3600 s wrap jumped the ripples
+  by a quarter period once an hour).
 * **Procedural fallback colours** (`procedural.ts`, offline only): land cover from the tile's heights and
   ground-fixed noise — dark blue-green water by depth, wet sand and beaches in the 0–1.8 m band, lowland
   field patchwork (warped ≈ 260 × 190 m parcels, crop/pasture/fallow tones, faded to the average where a
@@ -175,6 +178,9 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   filtering), job outputs: bit-exact decode, parent fallback agrees with the z12 ancestor, procedural
   fallback, abort, timeout of a hanging server, 404 vs transient classification,
   `proceduralOnTransient: false` → transient error, a poisoned Cache API entry is evicted and refetched.
+* `lookReview.test.ts` (review regressions) — the ocean clock wraps seamlessly (`TerrainSystem.update`
+  across the wrap, wave frequencies in the shader = the ones the period was chosen for), terrain and
+  ocean fog take the sky's ground reference once linked.
 * `drawPlan.test.ts`, `groundQueries.test.ts`, `materials.test.ts` (shader includes resolve against
   three's `ShaderChunk`, log-depth chunks present, declared uniforms exist incl. arrays, sky uniforms shared
   by reference, detail only behind the procedural flag), `procedural.test.ts` (land-cover classes: beach,
@@ -228,11 +234,15 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   (no hang at the poles) and draw nothing beyond. Near the limit tiles shrink with cos(lat), so a
   fixed radius needs many more tiles.
 * **Fog** treats render-frame y as height (as the sky module does), which over-thickens haze for very
-  distant terrain below the tangent plane; at those distances the terrain is fully hazed anyway.
+  distant terrain below the tangent plane; at those distances the terrain is fully hazed anyway. Its
+  ground reference is the ground under the aircraft (the sky's), so with a far tower or drone camera over
+  other ground the haze near the camera is referenced to the aircraft's ground, as for every renderer.
 * **No terrain self-shadows** (only cloud shadows), no night lights (city glow). The detail texture
   (§6.3) is only on procedural fallback tiles; real imagery gets none (it is shown unmodified), so it
   softens below ≈ 10 m/px at low altitude. Cloud shadows skip the cloud planes' edge erosion (slightly
-  softer edges than the clouds above) and are limited to `MAX_SHADOW_LAYERS` (4) layers.
+  softer edges than the clouds above) and are limited to `MAX_SHADOW_LAYERS` (4) layers; a layer counts
+  only where its middle is above the ground point (peaks on top of a deck are in full sun), with a hard
+  switch at the layer middle.
 * **Runway pavement vs. flattened terrain**: the flattened strip follows the curved earth at the
   interpolated threshold elevations, while `src/world` draws each runway as one flat quad between its
   corners lifted 0.12 m. On long runways the chord sags below the curve (s²/8R ≈ 0.26 m mid-runway for

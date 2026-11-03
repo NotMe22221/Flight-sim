@@ -165,8 +165,13 @@ at the zenith, ≈ 3 000 K at 5°), intensity `3 · disc(el) · lum(T) · (1 −
 dome lights the ground; zenith-weighted at twilight for cool shadows, neutral grey as cloud cover closes),
 `lerp(0.02, 0.9, smoothstep(−12°, 10°, el)) · (1 + 0.3 cc)`. Moon `DirectionalLight` and a night-blue ambient
 floor (≈ 0.12 luminance moonless, ≈ 0.24 full moon) keep nights dark but readable after ACES's toe.
-`ambientIrradiance` = hemisphere sky colour × intensity + floor — what the terrain uses, so built-in objects
-and the ground get the same skylight. Exposure is metered-free partial adaptation to the light on an
+`ambientIrradiance` = hemisphere sky colour × intensity + floor — what the terrain uses. Built-in objects get
+the same skylight magnitude from two sources (`skylightBalance`): the baked environment map (whose
+irradiance on an up-facing surface `PreethamSky.irradianceUp` measures at each bake) carries 75 % of it,
+with `scene.environmentIntensity` capped at 1 so reflections never outshine the sky they mirror, and the
+hemisphere light makes up the rest (≥ 25 %). The dome's irradiance falls ≈ 27× from noon to sunset while
+the skylight curve falls ≈ 2×, so the environment intensity runs ≈ 0.26 at a 75° sun, ≈ 0.37 at 40° and
+reaches the cap near sunset, where the hemisphere light takes over. Exposure is metered-free partial adaptation to the light on an
 up-facing surface, `day · (1.8 / E)^0.5` bounded by [day, night] (E = sun·sin el + ambient luminance): ≈ 1.0
 at dawn/dusk, ≈ 0.7 under a noon overcast, the night bound at night; it adapts with a 1.5 s first-order
 filter (frame-rate independent; the first frame snaps). `targetExposure` (elevation curve) remains exported.
@@ -202,6 +207,8 @@ reads grey, not blue-white). Cloud shadows: `CloudLayers.writeShadowUniforms` pu
 coverage, feature size, column optical depth, mid height and drift into the shared uniforms; terrain and
 ocean evaluate `skyCloudShadow` (the same noise field at the layer middle along the sun ray, floored at the
 overcast dimming and normalised by it, so gaps get the full sun and the average matches the dimmed sun).
+Only layers whose middle is above the point count — the sun ray goes up — so the aircraft and peaks on top
+of a deck are in full sun (before the review a deck below them shadowed them as if it were above).
 The built-in materials share one sun light, so `cloudShadowAt` (CPU twin) scales its intensity by the
 shadow over the aircraft: the aircraft, runway and buildings darken with the ground when a shadow passes. `cloudMath.ts` is the CPU twin (identical formula incl. erosion), used for
 `cloudDensityAt` (FDM bumpiness, in-cloud fog). Drift is integrated by the `WeatherSystem` (shared with
@@ -228,13 +235,14 @@ the lifted condensation level, precipitation as liquid-water equivalent (snowfal
 
 ## Tests
 
-`npx vitest run src/sky` — 15 files, all Node (no WebGL):
+`npx vitest run src/sky` — 16 files, all Node (no WebGL):
 
 | File | Covers |
 |---|---|
 | `SkySystem.test.ts` | stub-renderer `SkySystem`: scene graph, ACES + shadows, NOAA sun placement in the render frame, sun light/shadow box, Koschmieder fog, fog colour reaching the GPU encoded once, shared cloud field + floating-origin rebase (shared and self-integrated drift), MSL = y + alt0, ground-fog layer seen from above, in-cloud fog, `patchSkyDepth` output, no cloud-fog lag, first-frame exposure |
 | `haze.test.ts` | phase functions, aerosol share, noon haze between the lit ground and the horizon sky (ridge at 20 km still separable on screen), sun-ward glow, cap, exposure from illuminance, in-scatter knee (horizon ≈ 2–5 × zenith), night glow |
 | `skyShared.test.ts` | shared uniforms (ambient irradiance = hemisphere + floor, cloud-shadow layers, no shadows at night, `null` publishes nothing), noon haze darker than the horizon and blue-grey on screen, night glow and ambient floor, built-in height-fog chunks + uniforms shared through `UniformsUtils.clone`, `patchSkyDome` idempotent |
+| `lookReview.test.ts` | review regressions: a deck below the point casts no shadow (CPU twin, GLSL guard, the aircraft's sun light on top of an overcast), cloud-type parameters are shared constants, `uSkyGroundY` published, `irradianceUp` vs a fine quadrature (noon → sunset), `skylightBalance` parity and caps, built-in skylight = terrain skylight at a 40° sun and at sunset |
 | `robustness.test.ts` | one running `SkySystem` fed zero / 50 m / 10⁹ m / NaN visibility, a ground-fog layer, 80 km altitude, in-cloud and storm, at noon, dusk and midnight: every `SkyLighting` number, shared uniform, built-in fog value and the fog optical depth stays finite (a NaN visibility used to latch NaN into the adapted exposure for good) |
 | `WeatherSystem.test.ts` | presets by reference, transitions (lerp, wrap through north, exact end state), `windNED`/`windAt` sign (FROM 270° 10 kt → +E 5.144 m/s), log profile, gusts, METAR/live application, cloud density + drift + rebase |
 | `wind.test.ts` | FROM→TO sign, log profile, vector interpolation, gust envelope, deterministic `GustModel` |
@@ -255,23 +263,31 @@ material (Standard, Physical, Basic, Lambert, Phong, Toon, Matcap, Normal, Shado
 LineDashed, Sprite, InstancedMesh, and `fog: true` ShaderMaterials built before and after
 `installBuiltinHeightFog`) under FogExp2, linear `Fog` and no fog, over 11 cases from 2 m to 80 km incl.
 zero visibility, rain, dusk and night: 60 programs compile and link in each depth mode, no GL errors, and
-the pixels agree across the three modes. `npm run smoke` covers the integrated app.
+the pixels agree across the three modes. The review re-ran that harness after its shader changes (cloud
+shadows only from layers above, the shared `uSkyGroundY` fog reference) with two more cases (on top of an
+overcast at 3 km, NaN visibility): 60 programs compile and link in default, logarithmic and reversed
+depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app.
 
 ## Known limitations
 
-- **Sun vs sky balance on built-in materials (interim).** The PMREM environment map is baked from
-  the dome in the sky's radiance scale; at full strength its diffuse light overpowered the sun
-  light on MeshStandard materials (white runway paint read light blue, asphalt navy). The
-  environment intensity is set to 0.4 (`ENV_MAP_INTENSITY`) and the hemisphere light keeps 25 %
-  while the map is bound, from real-app probes. A proper calibration should derive the IBL scale
-  from `ambientIrradiance` (the terrain's skylight) and re-check exposure so sunlit white paint
-  reads near-white and asphalt neutral grey.
+- **Sun vs sky balance on built-in materials.** The PMREM environment map is baked from the dome in the
+  sky's radiance scale; at full strength it overpowered the sun on MeshStandard materials (white runway
+  paint read light blue, asphalt navy). The interim fix (a constant environment intensity 0.4, hemisphere
+  light at 25 %) was right for a 40° sun only: at sunset built-ins got a third of the terrain's skylight
+  (aircraft and cabin ≈ 45 % darker and navy against the implementer's look-dev shots). The review made
+  the magnitude follow `ambientIrradiance` at every sun height (`skylightBalance`). Still open: the
+  environment's hue is the dome's (bluer than the terrain's normalised skylight hue at noon), one
+  `environmentIntensity` scales diffuse and specular alike, and white paint / asphalt neutrality under the
+  sun has not been re-metered against exposure.
 
 - Tier A planes are 2-D slabs: weak look at the layer altitude, no cumulus towers, no earth curvature
   (≈ 0.8 km drop at the 100 km plane edge). Inside a cloud the fog is global, so rays leaving the cloud stay
   fogged. Cloud shadows skip the edge erosion (softer than the planes' edges); built-in objects get the
   shadow at the aircraft's position (one global sun light), so a far runway shares the aircraft's shadow state.
-- Fog is referenced to the ground under the aircraft (`groundY`). Built-in fog mixes in display space
+- Fog is referenced to the ground under the aircraft (`groundY`, published as `uSkyGroundY`; the terrain and
+  ocean use it too since the review — they used the ground under the camera, so with a tower or drone camera
+  over other ground the aircraft and runways hazed differently from the terrain behind them). With a far
+  camera the haze near the camera is therefore referenced to the aircraft's ground. Built-in fog mixes in display space
   (after tone mapping, three's order), the terrain in linear: identical at 0 and full fog, a few percent
   apart in between. Programs compiled before `installBuiltinHeightFog` (or ShaderMaterials with their own
   fog uniforms) keep three's FogExp2. The height-fog values and `SKY_UNIFORMS` are process-wide (one sky per
@@ -281,6 +297,9 @@ the pixels agree across the three modes. `npm run smoke` covers the integrated a
   extinction (distant terrain does not redden at sunset beyond the haze colour itself).
 - Preetham twilight is approximate (knee + glow on top of single scattering); the star field is synthetic
   (no BSC5, no precession); moon position from `geo/solar` is good to ≈ 1°.
+- Exposure follows the light on the ground under the clouds (the cover-dimmed sun), not the light where the
+  camera is: on top of a deck the aircraft (now in full sun, see cloud shadows) and the sunlit cloud tops read
+  bright. Metering the aircraft's own sun (`cloudShadowAt`) would fix it but makes exposure pump under broken cloud.
 - Exposure is a model, not metered. Night bound 1.5 (spec: 6–10) with a ≈ 10× brighter moonlight (0.08 vs
   0.0075·fraction) and a bright night ambient: same moonlit-surface brightness, but emissive lights stay
   coloured instead of clipping; raise `exposure.night` if the bloom/lights module wants more.

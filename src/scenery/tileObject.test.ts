@@ -70,6 +70,19 @@ describe('TileObject ground layers', () => {
     dispose();
   });
 
+  it('lets aprons, taxiways and their markings receive the sun shadow map like the runway slabs', () => {
+    // AirportsLayer runway slabs receive the aircraft's shadow; without this the shadow vanishes
+    // as soon as the aircraft rolls off the runway onto a taxiway or parks on an apron
+    const { obj, dispose } = terminalTile();
+    for (const name of ['pavement', 'markings']) {
+      const mesh = obj.group.children.find((c) => c.name === name) as THREE.Mesh;
+      expect(mesh, name).toBeDefined();
+      expect(mesh.receiveShadow, name).toBe(true);
+      expect(mesh.castShadow, name).toBe(false);
+    }
+    dispose();
+  });
+
   it('spreads one re-sampling call over the layers in turn instead of starving all but the first', () => {
     const frame = KSFO_FRAME();
     const host = makeHost(frame, () => 4);

@@ -16,6 +16,10 @@ const MODULES = [
   './flight/FlightUi', './flight/FlightPanels', './flight/Toolbar', './flight/FloatingPanel', './flight/AtcWindow', './flight/Checklist',
   './flight/VfrMap', './flight/NavLog', './flight/PauseMenu', './flight/Toasts', './flight/LandingReport', './flight/HelpOverlay',
   './flight/StatusBar', './flight/HudStrip', './apAnnunciator', './flight/checklistAuto',
+  // activities: Flight training / Bush trips tabs, objectives panel, subtitles, debrief
+  './activityModels', './subtitleQueue', './screens/activities/types', './screens/activities/ChallengesTab',
+  './screens/activities/TrainingTab', './screens/activities/BushTripsTab', './flight/ObjectivesPanel', './flight/InstructorSubtitle',
+  './flight/DebriefCard',
 ];
 
 describe('import safety (Node, no DOM)', () => {

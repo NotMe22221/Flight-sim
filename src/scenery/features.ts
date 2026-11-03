@@ -15,7 +15,12 @@ import type { RoadLine } from './lights';
 import type { TreeArea } from './vegetation';
 import { TileProjector } from './tileMath';
 
-export interface Poly { outer: number[]; holes: number[][] }
+export interface Poly {
+  outer: number[];
+  holes: number[][];
+  /** aprons: per outer-ring vertex, the tile edges it lies on (see `BuildingInput.outerEdge`) */
+  outerEdge?: Uint8Array;
+}
 export interface WidthLine { line: number[]; width: number; cls: string; ref: string }
 
 export interface TileFeatures {
@@ -189,9 +194,10 @@ export function extractFeatures(tile: VectorTile, z: number, x: number, y: numbe
       if (feat.type === GEOM_POLYGON) {
         const target = cls === 'apron' ? f.aprons : cls === 'taxiway' || cls === 'taxilane' ? f.taxiwayPolys : cls === 'runway' ? f.runwayPolys : cls === 'helipad' ? f.helipads : null;
         if (!target) continue;
+        const apron = target === f.aprons;
         for (const p of classifyRings(feat.geometry)) {
-          const r = polyToLocal(c, p.outer, p.holes, false);
-          if (r) target.push(r.poly);
+          const r = polyToLocal(c, p.outer, p.holes, apron);
+          if (r) target.push(apron ? { ...r.poly, outerEdge: r.outerEdge } : r.poly);
         }
       } else if (feat.type === GEOM_LINESTRING) {
         if (cls === 'taxiway' || cls === 'taxilane') {

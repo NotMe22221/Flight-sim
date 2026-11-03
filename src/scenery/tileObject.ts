@@ -24,6 +24,10 @@ function geometryFrom(m: MeshData, position: THREE.BufferAttribute | null, spher
 }
 
 const _tmpV = new THREE.Vector3();
+/** Probe grid per tile side (8 × 8 points, ~240 m apart at z14) watched for terrain refinements. */
+export const PROBE_GRID = 8;
+/** A probe point whose ground moved more than this (m) marks the tile for priority re-sampling. */
+export const PROBE_EPS_M = 0.1;
 
 export class TileObject {
   readonly key: string;
@@ -57,6 +61,18 @@ export class TileObject {
   private disposed = false;
   /** layer being re-sampled (round-robin, see groundStep) */
   private resampleLayer = 0;
+  /** coarse grid of tile-local points (x, z) watched for terrain refinements, and the ground last seen there */
+  private readonly probeXZ: Float32Array;
+  private readonly probeY: Float32Array;
+  private probeCursor = 0;
+  private probeSweeps = 0;
+  /** samples of one full re-sampling cycle over every layer */
+  private readonly cycleCost: number;
+  /**
+   * Re-sampling still owed (samples) since the terrain changed under the tile: the manager
+   * serves such tiles first, nearest first, until one full cycle over every layer is done.
+   */
+  hotSamples = 0;
 
   constructor(result: TileBuildResult, mats: SceneryMaterials, trees: SharedTreeGeometry) {
     this.key = result.key;
@@ -85,7 +101,7 @@ export class TileObject {
         this.fullIndex[m] = datas[m].index.length;
       }
     }
-    const drape = (d: TileBuildResult['surfaces'], mat: THREE.Material, name: string, order: number): [DrapeLayer, THREE.Mesh] | null => {
+    const drape = (d: TileBuildResult['surfaces'], mat: THREE.Material, name: string, order: number, receiveShadow = true): [DrapeLayer, THREE.Mesh] | null => {
       if (!d) return null;
       const layer = new DrapeLayer(d);
       this.layers.push(layer);
@@ -96,6 +112,8 @@ export class TileObject {
       mesh.name = name;
       mesh.renderOrder = order;
       mesh.visible = false;
+      // pavement takes the aircraft's shadow like the AirportsLayer runway slabs (it never casts)
+      mesh.receiveShadow = receiveShadow;
       this.group.add(mesh);
       return [layer, mesh];
     };
@@ -103,7 +121,7 @@ export class TileObject {
     if (s) [this.surfaceLayer, this.surfaceMesh] = s;
     const mk = drape(result.markings, mats.markings, 'markings', 1);
     if (mk) [this.markingLayer, this.markingMesh] = mk;
-    const pl = drape(result.lightPools, mats.pools, 'light-pools', 3);
+    const pl = drape(result.lightPools, mats.pools, 'light-pools', 3, false);
     if (pl) [this.poolLayer, this.poolMesh] = pl;
 
     const points = (d: TileBuildResult['streetlights'], mat: THREE.PointsMaterial, name: string): [PointLayer, THREE.Points] | null => {
@@ -142,6 +160,53 @@ export class TileObject {
       add(t.conifer, t.coniferColor, trees.conifer, trees.coniferTris, 0);
       add(t.broadleaf, t.broadleafColor, trees.broadleaf, trees.broadleafTris, 1);
     }
+
+    let cost = 0;
+    for (const l of this.layers) cost += l.n * l.cost;
+    this.cycleCost = cost;
+    const g = PROBE_GRID, ext = this.projector.extent, xz = [0, 0];
+    this.probeXZ = new Float32Array(g * g * 2);
+    this.probeY = new Float32Array(g * g).fill(NaN);
+    for (let j = 0; j < g; j++) {
+      for (let i = 0; i < g; i++) {
+        this.projector.toLocal(((i + 0.5) / g) * ext, ((j + 0.5) / g) * ext, xz, 0);
+        this.probeXZ[(j * g + i) * 2] = xz[0]; this.probeXZ[(j * g + i) * 2 + 1] = xz[1];
+      }
+    }
+  }
+
+  /**
+   * Watch the terrain under the tile: sample up to `budget` probe points (round-robin). A
+   * ground change since the last look (or ground appearing where there was none, after the
+   * first sweep) means the terrain refined there: restart every settled layer's pass and owe
+   * one full re-sampling cycle (`hotSamples`). Returns the samples used.
+   */
+  checkTerrain(s: GroundSampler, budget: number): number {
+    const n = this.probeY.length;
+    if (this.layers.length === 0) return 0;
+    let used = 0;
+    for (; used < budget; used++) {
+      const i = this.probeCursor;
+      const swept = this.probeSweeps > 0;
+      if (++this.probeCursor >= n) { this.probeCursor = 0; this.probeSweeps++; }
+      const prev = this.probeY[i];
+      const y = s.sample(this.placement, this.probeXZ[i * 2], this.probeXZ[i * 2 + 1], Number.isFinite(prev) ? prev : this.layers[0].meanGround);
+      if (Number.isNaN(y)) continue;
+      this.probeY[i] = y;
+      const changed = Number.isFinite(prev) ? Math.abs(y - prev) > PROBE_EPS_M : swept;
+      if (changed) this.markHot();
+    }
+    return used;
+  }
+
+  private markHot(): void {
+    if (this.hotSamples <= 0) {
+      // buildings first; already hot: keep going (restarting again could starve a layer's tail)
+      for (const l of this.layers) if (l.firstPassDone) l.cursor = 0;
+      this.resampleLayer = 0;
+    }
+    // the round-robin spends this over every layer in turn: one more full cycle from here
+    this.hotSamples = this.cycleCost;
   }
 
   /** Place the tile group in a frame (new flight origin or rebase). */
@@ -177,12 +242,13 @@ export class TileObject {
       for (let k = 0; k < ls.length && used < budget; k++) {
         if (this.resampleLayer >= ls.length) this.resampleLayer = 0;
         const l = ls[this.resampleLayer];
-        const passes = l.passes;
+        const wraps = l.wraps;
         used += l.step(budget - used, s, this.placement, true);
         // budget spent inside this layer: continue with it next time
-        if (l.n > 0 && l.passes === passes) break;
+        if (l.n > 0 && l.wraps === wraps) break;
         this.resampleLayer++;
       }
+      if (this.hotSamples > 0) this.hotSamples = Math.max(0, this.hotSamples - used);
     }
     for (let i = 0; i < ls.length; i++) ls[i].flush();
     this.refreshVisibility();

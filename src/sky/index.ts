@@ -24,7 +24,7 @@ export {
   turbidityFromVisibility, mieFromVisibility, fogBetaFromVisibility, fogExp2DensityFromVisibility, hazeScaleHeight,
   heightFogOpticalDepth, MIN_FOG_INV_H,
   hazeColor, capBySky, hazeSunLobe, hgPhase, rayleighPhase, mieFraction, HAZE_G, DEFAULT_HAZE, type HazeOptions,
-  exposureForIlluminance, surfaceIlluminance, DAY_ILLUMINANCE, NIGHT_AMBIENT_COLOR,
+  exposureForIlluminance, surfaceIlluminance, skylightBalance, DAY_ILLUMINANCE, NIGHT_AMBIENT_COLOR,
   acesFilmic, linearToSrgb, encodeDisplayColor, cloudCoverFraction, colorTemperatureK, luminance, normalizeColor,
   DEFAULT_EXPOSURE, type ExposureOptions,
 } from './lighting';

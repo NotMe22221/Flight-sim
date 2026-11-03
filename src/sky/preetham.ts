@@ -200,6 +200,30 @@ export class PreethamSky {
     return this.radiance(dir, out);
   }
 
+  /**
+   * Irradiance of an up-facing surface under the dome, ∫ L cosθ dω over the upper hemisphere (sun disc
+   * excluded, as in the environment bake), by stratified cosine-weighted sampling: `nRings` × `nAz`
+   * directions of equal weight π / n (512 by default: within 0.5 % of a fine quadrature at noon, 1.5 %
+   * at sunset, where the bright horizon band is undersampled). Called once per environment bake.
+   */
+  irradianceUp(out: Vec3 = [0, 0, 0], nRings = 16, nAz = 32): Vec3 {
+    const dir = this.tmpDir;
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < nRings; i++) {
+      const sinT = Math.sqrt((i + 0.5) / nRings); // cosine-weighted rings: sin²θ uniform
+      const cosT = Math.sqrt(Math.max(1 - sinT * sinT, 0));
+      for (let j = 0; j < nAz; j++) {
+        const az = ((j + 0.5 * (i & 1) + 0.25) / nAz) * 2 * Math.PI;
+        dir[0] = sinT * Math.cos(az); dir[1] = cosT; dir[2] = sinT * Math.sin(az);
+        const c = this.radiance(dir, this.tmp2);
+        r += c[0]; g += c[1]; b += c[2];
+      }
+    }
+    const w = Math.PI / (nRings * nAz);
+    out[0] = r * w; out[1] = g * w; out[2] = b * w;
+    return out;
+  }
+
   /** Radiance straight up. */
   zenith(out: Vec3 = [0, 0, 0]): Vec3 {
     this.tmp3[0] = 0; this.tmp3[1] = 1; this.tmp3[2] = 0;

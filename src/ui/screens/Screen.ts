@@ -27,6 +27,8 @@ export interface ScreenContext {
   startLesson?(id: string): void;
   /** Activities › Bush trips: loading screen, host.startBushLeg(tripId, legIndex), then the flight view. */
   startBushLeg?(tripId: string, legIndex: number): void;
+  /** Debrief "Retry" / pause menu "Restart activity": loading screen, host.restartActivity(), then the flight view. */
+  restartActivity?(): void;
   /** Main menu "Resume flight": back to the flight and out of the pause menu (Esc/back keeps it open). */
   resumeFlight?(): void;
 }

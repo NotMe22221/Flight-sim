@@ -103,8 +103,10 @@ export abstract class GroundLayer {
   readonly grounded: Uint8Array;
   groundedCount = 0;
   cursor = 0;
-  /** completed passes over all items */
+  /** completed passes over all items (counted once something is grounded) */
   passes = 0;
+  /** times the cursor wrapped, grounded or not (pass ends for round-robin bookkeeping) */
+  wraps = 0;
   minG = Infinity;
   maxG = -Infinity;
   private sumG = 0;
@@ -160,6 +162,7 @@ export abstract class GroundLayer {
       used += c;
       if (++this.cursor >= this.n) {
         this.cursor = 0;
+        this.wraps++;
         if (this.groundedCount > 0) {
           if (this.passes === 0) this.onFirstPass();
           this.passes++;

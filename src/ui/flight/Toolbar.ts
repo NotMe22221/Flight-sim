@@ -77,6 +77,11 @@ export class Toolbar {
   }
 
   setActive(id: string, on: boolean): void { this.buttons.get(id)?.classList.toggle('active', on); }
+  /** Shows / hides one item (the Objectives button exists only during an activity). */
+  setItemVisible(id: string, on: boolean): void {
+    const wrap = this.buttons.get(id)?.parentElement;
+    if (wrap) wrap.style.display = on ? '' : 'none';
+  }
   setCameraMode(mode: CameraMode): void {
     if (!this.cameraMenu) return;
     for (const b of Array.from(this.cameraMenu.querySelectorAll<HTMLElement>('button'))) b.classList.toggle('active', b.dataset.mode === mode);

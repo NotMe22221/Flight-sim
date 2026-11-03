@@ -30,7 +30,7 @@ export class TrainingTab implements ActivityTabView {
   constructor(private readonly ctx: ScreenContext) {
     this.gate = new StartGate(ctx);
     this.list = h('div', { class: 'act-list scroll', role: 'listbox', aria: { label: 'Lessons' } });
-    this.detail = h('aside', { class: 'panel act-detail' });
+    this.detail = h('aside', { class: 'panel act-detail split' });
     this.el = h('div', { class: 'screen-body act-body' },
       h('div', { class: 'act-left' },
         h('div', { class: 'act-intro muted', text: 'Learn to fly the Cessna 172 with an instructor: each lesson is a series of steps with live objectives, coaching and a graded debrief.' }),
@@ -111,7 +111,7 @@ export class TrainingTab implements ActivityTabView {
     if (plane) kv.push(h('span', { class: 'kv-k', text: 'Aircraft' }), h('span', { class: 'kv-v', text: plane }));
     if (vm.duration) kv.push(h('span', { class: 'kv-k', text: 'Duration' }), h('span', { class: 'kv-v', text: vm.duration }));
     if (vm.difficulty) kv.push(h('span', { class: 'kv-k', text: 'Level' }), h('span', { class: 'kv-v', text: vm.difficulty }));
-    this.detail.append(
+    const body = h('div', { class: 'act-detail-body scroll' },
       h('div', { class: 'row' }, h('span', { class: 'badge badge-accent', text: 'Lesson' }), h('span', { class: 'spacer' }),
         vm.completed ? h('span', { class: 'badge badge-ok' }, icon('check'), ' Completed') : null),
       h('h2', { class: 'act-detail-title', text: vm.title }),
@@ -120,12 +120,13 @@ export class TrainingTab implements ActivityTabView {
       h('div', { class: 'kv' }, ...kv),
       h('div', { class: 'section-label', text: `Lesson plan · ${vm.steps.length} steps` }),
       h('ol', { class: 'act-steps' }, ...vm.steps.map((t) => h('li', { text: t }))),
-      h('div', { class: 'act-best big' }, icon('trophy'), vm.status),
-      h('span', { class: 'spacer' }),
+      h('div', { class: 'act-best big' }, icon('trophy'), vm.status));
+    const foot = h('div', { class: 'act-detail-foot' },
       h('div', { class: 'muted act-note', text: canStart
         ? 'Your instructor talks you through each step. Objectives and live hints appear in flight; Esc pauses (restart a step or abort).'
         : 'Lessons are not available in this build.' }),
       h('div', { class: 'row act-actions' }, this.startBtn));
+    this.detail.append(body, foot);
   }
 
   private start(def: ActivityDef): void {

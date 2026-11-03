@@ -55,8 +55,11 @@ export class PointsBuilder {
 const SODIUM: readonly [number, number, number] = [1, 0.56, 0.22];
 const WARM_WHITE: readonly [number, number, number] = [1, 0.84, 0.62];
 
-/** Walk a polyline and call `at(x, z, nx, nz)` every `spacing` metres starting at `phase`. */
-export function walkPolyline(line: readonly number[], spacing: number, phase: number, at: (x: number, z: number, nx: number, nz: number, k: number) => void): void {
+/**
+ * Walk a polyline and call `at(x, z, nx, nz, k, seg)` every `spacing` metres starting at
+ * `phase` (`seg`: index of the segment the point lies on, from vertex seg to seg + 1).
+ */
+export function walkPolyline(line: readonly number[], spacing: number, phase: number, at: (x: number, z: number, nx: number, nz: number, k: number, seg: number) => void): void {
   let next = phase;
   let dist = 0;
   let k = 0;
@@ -67,7 +70,7 @@ export function walkPolyline(line: readonly number[], spacing: number, phase: nu
     const dx = (bx - ax) / len, dz = (bz - az) / len;
     while (next <= dist + len) {
       const t = next - dist;
-      at(ax + dx * t, az + dz * t, dz, -dx, k++);
+      at(ax + dx * t, az + dz * t, dz, -dx, k++, i / 2);
       next += spacing;
     }
     dist += len;
@@ -125,9 +128,12 @@ export const TAXI_CENTRE_LIGHT_H = 0.3;
  * (`onRunway`) and inside aprons (`onApron`), plus floodlight masts along apron edges.
  * Real centre-line lights are flush with the pavement; the sprites stand just above the draped
  * surfaces so the depth test keeps them.
+ * `apronEdges[r]` (per ring vertex, tile-edge bits as in `BuildingInput.outerEdge`) marks the
+ * segments that only exist because the apron was clipped to the tile: the apron continues in
+ * the neighbouring tile there, so no masts.
  */
 export function buildAirportLights(taxiways: readonly TaxiwayLine[], apronRings: readonly number[][], onRunway: ZoneFn, onApron: ZoneFn, pb: PointsBuilder,
-  floodMasts: { x: number; z: number; nx: number; nz: number }[]): void {
+  floodMasts: { x: number; z: number; nx: number; nz: number }[], apronEdges?: readonly (Uint8Array | undefined)[]): void {
   for (const t of taxiways) {
     if (!t.lit) continue;
     const off = t.halfWidth + 0.8;
@@ -143,10 +149,12 @@ export function buildAirportLights(taxiways: readonly TaxiwayLine[], apronRings:
       pb.push(x, z, TAXI_CENTRE_LIGHT_H, GREEN[0], GREEN[1], GREEN[2]);
     });
   }
-  for (const ring of apronRings) {
+  apronRings.forEach((ring, r) => {
     const closed = ring.concat(ring.slice(0, 2));
-    if (polylineLength(closed) < 200) continue;
-    walkPolyline(closed, 110, 40, (x, z, nx, nz) => {
+    if (polylineLength(closed) < 200) return;
+    const edge = apronEdges?.[r], nv = ring.length / 2;
+    walkPolyline(closed, 110, 40, (x, z, nx, nz, _k, seg) => {
+      if (edge && (edge[seg] & edge[(seg + 1) % nv]) !== 0) return; // tile-clipping edge
       // exterior rings are clockwise from above: the left normal of travel points outward
       const ix = -nx, iz = -nz;
       const mx = x + nx * 4, mz = z + nz * 4;
@@ -154,5 +162,5 @@ export function buildAirportLights(taxiways: readonly TaxiwayLine[], apronRings:
       pb.push(mx, mz, 22, FLOOD[0], FLOOD[1], FLOOD[2]);
       floodMasts.push({ x: mx, z: mz, nx: ix, nz: iz });
     });
-  }
+  });
 }

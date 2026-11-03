@@ -96,6 +96,27 @@ export function ambientFloor(sunElDeg: number, moonFraction: number, moonElDeg: 
 /** Linear hue of the night ambient floor (night-adapted blue). */
 export const NIGHT_AMBIENT_COLOR: Readonly<Vec3> = [0.42, 0.52, 1.0];
 
+/**
+ * Split of the skylight on three's built-in materials between the baked environment map (image-based light,
+ * diffuse AND specular, `scene.environmentIntensity`) and the hemisphere light (a share of its intensity), so
+ * that together they give the terrain's skylight `skyLum` (luminance of the hemisphere colour × intensity, the
+ * terrain's `ambientIrradiance` without the night floor) at every sun height. `envLum` is the luminance of the
+ * baked environment's irradiance on an up-facing surface at intensity 1. The dome's irradiance falls ≈ 27×
+ * from noon to sunset while the skylight curve falls ≈ 2×, so one constant intensity is right at one sun
+ * height only (0.4 matched a 40° sun and left built-ins at a third of the terrain's skylight at dusk). The
+ * environment carries (1 − `minHemiShare`) of the skylight, capped at `maxEnv` (reflections never brighter
+ * than the sky they mirror); the hemisphere light (≥ `minHemiShare`) makes up the rest.
+ */
+export function skylightBalance(
+  skyLum: number, envLum: number, minHemiShare: number, maxEnv: number, out: { envIntensity: number; hemiShare: number },
+): { envIntensity: number; hemiShare: number } {
+  const sky = Number.isFinite(skyLum) ? Math.max(skyLum, 0) : 0;
+  const k = envLum > 1e-6 && Number.isFinite(envLum) ? clamp(((1 - minHemiShare) * sky) / envLum, 0, maxEnv) : 0;
+  out.envIntensity = k;
+  out.hemiShare = sky > 1e-6 ? clamp(1 - (k * envLum) / sky, minHemiShare, 1) : 1;
+  return out;
+}
+
 /** Illuminance (three light units) of a sunlit up-facing surface at midday; the day exposure applies there. */
 export const DAY_ILLUMINANCE = 1.8;
 

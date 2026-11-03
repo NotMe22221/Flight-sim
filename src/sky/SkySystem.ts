@@ -19,8 +19,8 @@ import { CloudLayers, type CloudLayersOptions } from './clouds';
 import { installBuiltinHeightFog, setBuiltinHeightFog } from './builtinFog';
 import {
   DEFAULT_EXPOSURE, type ExposureOptions, MIN_FOG_INV_H, NIGHT_AMBIENT_COLOR, adaptExposure, ambientFloor, capBySky, cloudCoverFraction,
-  encodeDisplayColor, exposureForIlluminance, fogBetaFromVisibility, hazeColor, hazeScaleHeight, hemisphereIntensity, mieFromVisibility, mixVec3,
-  moonLightIntensity, normalizeColor, starVisibility, sunLightIntensity, surfaceIlluminance, turbidityFromVisibility,
+  encodeDisplayColor, exposureForIlluminance, fogBetaFromVisibility, hazeColor, hazeScaleHeight, hemisphereIntensity, luminance, mieFromVisibility, mixVec3,
+  moonLightIntensity, normalizeColor, skylightBalance, starVisibility, sunLightIntensity, surfaceIlluminance, turbidityFromVisibility,
 } from './lighting';
 import { MoonDisc } from './moon';
 import { Precipitation, type PrecipitationOptions } from './precipitation';
@@ -31,10 +31,13 @@ import { StarField } from './stars';
 import { type SkyLighting, createSkyLighting } from './types';
 import { windAt } from './wind';
 
-/** Fraction of the hemisphere skylight kept for built-in materials while the environment map lights them. */
+/** Least share of the hemisphere skylight kept for built-in materials while the baked environment lights them. */
 const HEMI_SHARE_WITH_ENV = 0.25;
-/** scene.environmentIntensity for the baked sky (built-in materials' image-based light). */
-const ENV_MAP_INTENSITY = 0.4;
+/**
+ * Upper bound of scene.environmentIntensity for the baked sky: the intensity itself follows the terrain's
+ * skylight (`skylightBalance`), but reflections are never brighter than the sky they mirror.
+ */
+const ENV_MAP_INTENSITY_MAX = 1;
 
 export interface SkySystemOptions {
   /** exposure targets (day ≈ 0.5–0.7, night ≈ 1.5) and adaptation time */
@@ -136,6 +139,10 @@ export class SkySystem {
   private lastBakeCover = -1;
   private sinceBakeS = Infinity;
   private baked = false;
+  /** luminance of the baked environment's irradiance on an up-facing surface at intensity 1 (dome scale) */
+  private envIrradianceLum = 0;
+  private readonly envIrradiance: Vec3 = [0, 0, 0];
+  private readonly skyBalance = { envIntensity: 0, hemiShare: 1 };
   private lastShadowFar = -1;
   /** external drifts (from a WeatherSystem) so cloud visuals and FDM density share one field */
   private cloudDrifts: readonly number[] | null = null;
@@ -421,11 +428,9 @@ export class SkySystem {
     this.hemiLight.color.setRGB(this.tmpC[0], this.tmpC[1], this.tmpC[2]);
     this.hemiLight.groundColor.setRGB(this.tmpB[0] * 0.35, this.tmpB[1] * 0.35, this.tmpB[2] * 0.35);
     const hi = hemisphereIntensity(el, cloudCover);
-    // Built-in materials already receive the sky's diffuse light from the baked environment map
-    // (image-based lighting); a full-strength hemisphere light on top double-counts the sky and
-    // tints everything blue. Keep only a fraction of it while an environment map is bound. The
-    // terrain shades from ambientIrradiance below, which keeps the full skylight.
-    this.hemiLight.intensity = this.scene.environment ? hi * HEMI_SHARE_WITH_ENV : hi;
+    // (the hemisphere intensity of built-in materials is set after the environment bake below; the terrain
+    // shades from ambientIrradiance, which keeps the full skylight)
+    this.hemiLight.intensity = hi;
     this.ambientLight.color.setRGB(NIGHT_AMBIENT_COLOR[0], NIGHT_AMBIENT_COLOR[1], NIGHT_AMBIENT_COLOR[2]);
     this.ambientLight.intensity = ambientFloor(el, mp.illuminatedFraction, mp.elevation);
     L.ambientIntensity = hi + this.ambientLight.intensity;
@@ -506,6 +511,7 @@ export class SkySystem {
       su.uSkyZenith.value.copy(L.skyColorZenith);
       su.uSkyHorizon.value.copy(L.skyColorHorizon);
       su.uSkyExposure.value = this.exposure;
+      su.uSkyGroundY.value = L.groundY;
     }
 
     // ── stars & moon ──
@@ -529,6 +535,33 @@ export class SkySystem {
     this.envOvercast.visible = this.envOvercast.material.opacity > 0.01;
     this.sinceBakeS += dt;
     if (this.opts.environmentMap) this.maybeBakeEnvironment(turbidity, mie, cloudCover, time.timeScale);
+
+    // ── skylight on built-in materials ──
+    // They receive the sky's light from the baked environment map (image-based lighting) AND the hemisphere
+    // light; together these must give the terrain's skylight (ambientIrradiance), or the aircraft and runway
+    // paint tint sky-blue at noon (both at full strength) or go dark at dusk (one constant environment scale:
+    // the dome dims ≈ 27× toward sunset, the skylight curve ≈ 2×). See `skylightBalance`.
+    const env = this.scene.environment;
+    if (env && this.envTarget && env === this.envTarget.texture) {
+      const hc = this.hemiLight.color;
+      const hemiLum = 0.2126 * hc.r + 0.7152 * hc.g + 0.0722 * hc.b;
+      skylightBalance(hi * hemiLum, this.envIrradianceLum, HEMI_SHARE_WITH_ENV, ENV_MAP_INTENSITY_MAX, this.skyBalance);
+      this.scene.environmentIntensity = this.skyBalance.envIntensity;
+      this.hemiLight.intensity = hi * this.skyBalance.hemiShare;
+    } else if (env) {
+      this.hemiLight.intensity = hi * HEMI_SHARE_WITH_ENV; // someone else's environment map: its scale is unknown
+    }
+  }
+
+  /**
+   * Irradiance the baked environment gives an up-facing surface (the dome as baked, with the overcast shell
+   * blended over it), measured from the CPU twin at each bake.
+   */
+  private measureEnvironment(): void {
+    const E = this.preetham.irradianceUp(this.envIrradiance);
+    const shell = this.envOvercast.visible ? this.envOvercast.material.opacity : 0;
+    const grey = this.envOvercast.material.color.r;
+    this.envIrradianceLum = (1 - shell) * luminance(E) + shell * Math.PI * grey;
   }
   private readonly moonTint = new THREE.Color();
 
@@ -562,13 +595,16 @@ export class SkySystem {
     if (this.envTarget) this.envTarget.dispose();
     this.envTarget = rt;
     this.scene.environment = rt.texture;
-    // The baked dome is in the sky's radiance scale, which overpowers the sun light on built-in
-    // materials at full strength (everything turned sky-blue: white paint read light blue, asphalt
-    // navy). Interim calibration from real-app probes; see README known limitations.
-    this.scene.environmentIntensity = ENV_MAP_INTENSITY;
+    // The baked dome is in the sky's radiance scale, which overpowers the sun light on built-in materials
+    // at full strength (white paint read light blue, asphalt navy): `update` scales it to the terrain's
+    // skylight from this measurement (`skylightBalance`).
+    this.measureEnvironment();
   }
 
   dispose(): void {
+    // unlink what this sky published process-wide: three's built-in height fog and the shared uniforms
+    if (this.opts.builtinHeightFog) setBuiltinHeightFog(0, MIN_FOG_INV_H, 0, this.lighting.sunDirThree, this.glowEncoded, false);
+    if (this.sharedUniforms) { this.sharedUniforms.uSkyLinked.value = 0; this.sharedUniforms.uCloudShadowStrength.value = 0; }
     if (this.envTarget && this.scene.environment === this.envTarget.texture) this.scene.environment = null;
     this.envTarget?.dispose();
     this.pmrem?.dispose();

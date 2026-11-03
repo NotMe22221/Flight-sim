@@ -6,6 +6,8 @@ import { createScenery } from './index';
 import { NEAR_DROP_M } from './materials';
 import { resetTileSourceCache } from './source';
 import { KSFO_FRAME, makeHost, worldFetch, type HeightFn } from './testUtil';
+import { qualityProfile } from './config';
+import { tileToLonLat } from '../geo/mercator';
 
 const TEMPLATE = 'http://fixtures/{z}/{x}/{y}.pbf';
 const flat = (h: number): HeightFn => () => h;
@@ -128,6 +130,44 @@ describe('SceneryManager (sync path)', () => {
         expect(Math.abs(baseAlt - lowest)).toBeLessThan(0.3);
       }
     }
+    m.dispose();
+  });
+
+  it('follows a local terrain refinement within about two seconds with the default ground budget', async () => {
+    // the terrain refines one terrain tile at a time: here the ground under one scenery tile
+    // (not the one under the camera) rises by 6 m, and its buildings must follow promptly
+    const frame = KSFO_FRAME();
+    let box: { w: number; e: number; s: number; n: number } | null = null;
+    const terrain: HeightFn = (lat, lon) => 4 + (box && lon > box.w && lon < box.e && lat > box.s && lat < box.n ? 6 : 0);
+    const host = makeHost(frame, terrain);
+    const m = manager(host, { stream: { radiusM: 2500, groundSamplesPerFrame: 20000, frameBudgetMs: 1e9 } });
+    const cam = new THREE.Vector3(-3500, 300, -300); // over the synthetic downtown
+    await pump(m, cam, 400, 0.8, () => m.stats().tilesPending === 0 && m.stats().tilesLoaded > 3 && m.tileObjects().every((o) => !o.settling));
+    // back to the shipped 'high' budget, then refine the ground under the second most distant city tile
+    m.setStreamOverrides({ groundSamplesPerFrame: qualityProfile('high').stream.groundSamplesPerFrame, frameBudgetMs: 1e9 });
+    await pump(m, cam, 5);
+    const objs = m.tileObjects().filter((o) => (o.result.buildings?.count ?? 0) > 50).sort((a, b) => a.distM - b.distM);
+    expect(objs.length).toBeGreaterThan(2);
+    const target = objs[objs.length - 2];
+    const nw = tileToLonLat(target.result.x, target.result.y, 14), se = tileToLonLat(target.result.x + 1, target.result.y + 1, 14);
+    box = { w: nw.lon, e: se.lon, s: se.lat, n: nw.lat };
+    const b = target.result.buildings!;
+    const p = new THREE.Vector3();
+    const worst = () => {
+      target.group.updateMatrixWorld(true);
+      let w = 0;
+      for (let i = 0; i < b.count; i++) {
+        p.set(b.centroids[i * 2], target.buildingGround(i), b.centroids[i * 2 + 1]).applyMatrix4(target.group.matrixWorld);
+        w = Math.max(w, Math.abs(p.y - host.groundUp(-p.z, p.x)!));
+      }
+      return w;
+    };
+    expect(worst()).toBeGreaterThan(5);
+    let frames = 0;
+    let hotAt = -1;
+    while (frames < 2000 && worst() > 0.3) { m.update(1 / 60, cam, camera, 0.8); frames++; if (hotAt < 0 && target.hotSamples > 0) hotAt = frames; }
+    (await import('node:fs')).writeFileSync('/tmp/claude-0/-home-user-Flight-sim/7bee71d5-9f1f-55ef-9ffc-73df5cf9c113/scratchpad/rev-scenery/dbg.txt', JSON.stringify({ hotAt, frames, ready: m.tileObjects().length, cycle: (target as unknown as { cycleCost: number }).cycleCost, st: m.stats() }));
+    expect(frames, 'frames until every building of the refined tile sits on the new ground').toBeLessThan(150);
     m.dispose();
   });
 

@@ -47,7 +47,7 @@ export interface TerrainSharedUniforms extends SkySharedUniforms {
   uFogDensity: { value: number };
   /** 1 / haze scale height, 1/m */
   uFogFalloff: { value: number };
-  /** render-frame y of the fog's reference height (ground under the camera) */
+  /** render-frame y of the fog's reference height (ground under the camera; the sky's `uSkyGroundY` replaces it once linked) */
   uFogGroundY: { value: number };
   /** render-frame position of the earth's centre (local vertical = normalize(p − centre)) */
   uEarthCenter: { value: Vector3 };
@@ -88,7 +88,9 @@ ${HAZE_LOBE_GLSL}
 float terrainFogFactor(vec3 origin, vec3 dir, float dist) {
   float invH = max(uFogFalloff, 1e-7);
   float k = dist * dir.y * invH;
-  float e0 = exp(-min(max(origin.y - uFogGroundY, 0.0) * invH, 80.0));
+  // the sky's ground reference once linked (the built-in materials and cloud planes use it too)
+  float groundY = uSkyLinked > 0.5 ? uSkyGroundY : uFogGroundY;
+  float e0 = exp(-min(max(origin.y - groundY, 0.0) * invH, 80.0));
   float g = abs(k) < 1e-3 ? 1.0 - k * (0.5 - k / 6.0) : (1.0 - exp(-clamp(k, -80.0, 80.0))) / k;
   return 1.0 - exp(-max(uFogDensity * e0 * dist * g, 0.0));
 }

@@ -40,3 +40,11 @@ describe('TerrainSystem ocean clock (review)', () => {
     ts.dispose();
   });
 });
+
+describe('terrain fog ground reference (review)', () => {
+  it('terrain and ocean fog use the sky’s ground reference once a sky is linked (same as the built-in fog)', () => {
+    for (const src of [TERRAIN_SHADERS.terrainFragment, TERRAIN_SHADERS.waterFragment]) {
+      expect(src).toMatch(/uSkyLinked > 0\.5 \? uSkyGroundY : uFogGroundY/);
+    }
+  });
+});

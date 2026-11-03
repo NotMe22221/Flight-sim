@@ -71,6 +71,8 @@ export class UiManager {
       beginLoading: () => this.beginFlightLoading(),
       enterFlight: () => { this._inFlight = true; this.navigate('flight'); },
       restore: (saved) => { this.router.restore(saved[0] === 'loading' ? ['main'] : saved); this.applyRoute(); },
+      // a free flight or a landing challenge replaces a running lesson / bush leg without a debrief
+      endActivity: () => this.flight.endActivityQuietly(),
     });
     this.ctx = {
       host,
@@ -84,6 +86,18 @@ export class UiManager {
       toast: (text, kind, durationMs) => this.toasts.push({ text, kind, ...(durationMs ? { durationMs } : {}) }),
       resetLayout: () => { this.layout.reset(); this.flight.panels.resetPositions(); },
       startChallenge: (id) => { void this.launcher.startChallenge(id); },
+      startLesson: (id) => {
+        const start = host.startLesson;
+        if (start) void this.launcher.startActivity(() => start.call(host, id), 'Could not start the lesson');
+      },
+      startBushLeg: (tripId, legIndex) => {
+        const start = host.startBushLeg;
+        if (start) void this.launcher.startActivity(() => start.call(host, tripId, legIndex), `Could not start leg ${legIndex + 1}`);
+      },
+      restartActivity: () => {
+        const restart = host.restartActivity;
+        if (restart) void this.launcher.startActivity(() => restart.call(host), 'Could not restart the activity');
+      },
       resumeFlight: () => {
         if (!this._inFlight) return;
         this.navigate('flight');
@@ -255,6 +269,10 @@ export class UiManager {
       ev.on('aircraft:crash', (p) => this.flight.onCrash(p.reason)),
       ev.on('autopilot:changed', (p) => this.flight.onAutopilot(p.state)),
       ev.on('flight:reset', (p) => this.onFlightReset(p.spawn)),
+      ev.on('activity:started', (p) => this.flight.onActivityStarted(p)),
+      ev.on('activity:instruction', (p) => this.flight.onActivityInstruction(p)),
+      ev.on('activity:progress', (p) => this.flight.onActivityProgress(p)),
+      ev.on('activity:finished', (p) => this.flight.onActivityFinished(p)),
     );
   }
 

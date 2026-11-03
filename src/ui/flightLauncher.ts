@@ -20,6 +20,8 @@ export interface FlightLauncherDeps {
   enterFlight: () => void;
   /** The spawn failed: return to `saved`. */
   restore: (saved: ScreenId[]) => void;
+  /** End a running activity (lesson, bush leg) quietly before a free flight or a challenge replaces it. */
+  endActivity?: () => void;
 }
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -39,6 +41,7 @@ export class FlightLauncher {
     const { host, selection } = this.d;
     const sel = selection.sel;
     this.challenge.end();
+    this.d.endActivity?.();
     return this.run(async () => {
       const w = sel.weather;
       // a new flight starts in the chosen weather (no in-flight blend from the previous flight's)
@@ -59,10 +62,22 @@ export class FlightLauncher {
   async startChallenge(id: string): Promise<boolean> {
     const start = this.d.host.startChallenge;
     if (this.busy || !start) return false;
+    this.d.endActivity?.();
     this.challenge.begin(id); // its 'flight:reset' fires before the promise resolves
     const ok = await this.run(() => start.call(this.d.host, id), 'Could not start the challenge');
     if (!ok) this.challenge.end();
     return ok;
+  }
+
+  /**
+   * Activities › Flight training / Bush trips (and the debrief's Retry / Next leg): the flight
+   * loading screen while the runner sets the flight up, then the flight view. `start` is the host
+   * call (startLesson, startBushLeg, restartActivity). Resolves false when busy or on failure.
+   */
+  async startActivity(start: () => Promise<void>, failText = 'Could not start the activity'): Promise<boolean> {
+    if (this.busy) return false;
+    this.challenge.end(); // a lesson's landings are not a challenge's
+    return this.run(start, failText);
   }
 
   onFlightReset(spawn: SpawnState): void { this.challenge.onFlightReset(spawn); }

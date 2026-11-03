@@ -53,8 +53,11 @@ const MAX_RETRIES = 3;
 const MOVE_RESELECT_M = 150;
 const RESELECT_S = 0.5;
 const RESAMPLE_CHUNK = 48;
-/** share of the ground budget spent on re-sampling once tiles are placed */
+/** share of the ground budget spent on background re-sampling once tiles are placed */
 const RESAMPLE_SHARE = 0.3;
+/** terrain-change probes per frame over all resident tiles, and per tile visit */
+const PROBE_SAMPLES_PER_FRAME = 32;
+const PROBE_CHUNK = 16;
 
 export class SceneryManager implements SceneryLike {
   readonly root = new THREE.Group();
@@ -86,6 +89,7 @@ export class SceneryManager implements SceneryLike {
   private readonly lastSelect = new THREE.Vector3(NaN, NaN, NaN);
   private readonly geo = { lat: 0, lon: 0, alt: 0 };
   private resampleCursor = 0;
+  private probeCursor = 0;
   private night = 0;
   private disposed = false;
   private visible = true;
@@ -188,7 +192,7 @@ export class SceneryManager implements SceneryLike {
   attribution(): string[] { return [ATTRIBUTION]; }
 
   stats(): Record<string, number> {
-    let loaded = 0, pending = 0, empty = 0, buildings = 0, trees = 0, lights = 0, triangles = 0, waiting = 0;
+    let loaded = 0, pending = 0, empty = 0, buildings = 0, trees = 0, lights = 0, triangles = 0, waiting = 0, hot = 0;
     for (const e of this.entries.values()) {
       if (e.state === 'ready') loaded++;
       else if (e.state === 'loading') pending++;
@@ -199,6 +203,7 @@ export class SceneryManager implements SceneryLike {
         lights += e.obj.lightCount;
         triangles += e.obj.drawnTriangles();
         waiting += e.obj.pendingBuildings;
+        if (e.obj.hotSamples > 0) hot++;
       }
     }
     for (const w of this.wanted) {
@@ -207,7 +212,7 @@ export class SceneryManager implements SceneryLike {
     }
     return {
       tilesLoaded: loaded, tilesPending: pending, tilesFailed: this.failedCount, tilesEmpty: empty, tilesWanted: this.wanted.length,
-      buildings, trees, lights, triangles, buildingsWaiting: waiting, inFlight: this.loader.inFlight,
+      buildings, trees, lights, triangles, buildingsWaiting: waiting, tilesHot: hot, inFlight: this.loader.inFlight,
       workerMode: this.loader.mode === 'worker' ? 1 : 0, updateMs: this.lastUpdateMs,
       groundSamples: this.groundSamplesLast, groundUsPerSample: Math.round(this.groundUsPerSample * 100) / 100,
     };
@@ -371,13 +376,30 @@ export class SceneryManager implements SceneryLike {
       left -= o.groundStep(left, this.sampler, true);
       if (this.now() - t0 > budgetMs) return;
     }
-    // 2) gradual re-sampling (a share of the budget): half of it for the tile under the camera,
-    //    where the terrain refines first and any mismatch is most visible, then round-robin
-    //    over every resident tile
+    // 2) watch the terrain under the resident tiles (a few probe samples per frame); a tile whose
+    //    ground moved ("hot": the terrain refined there) is re-sampled first, nearest first, with
+    //    the rest of the budget, so its buildings, pavement, lights and trees follow within a second
+    const n = this.ready.length;
+    let probe = Math.min(left, PROBE_SAMPLES_PER_FRAME);
+    for (let k = 0; k < n && probe > 0; k++) {
+      this.probeCursor = (this.probeCursor + 1) % n;
+      const o = this.ready[this.probeCursor].obj;
+      if (!o) continue;
+      const u = o.checkTerrain(this.sampler, Math.min(probe, PROBE_CHUNK));
+      probe -= u; left -= u;
+    }
+    for (let i = 0; i < this.wanted.length && left > 0; i++) {
+      const o = this.entries.get(this.wanted[i].key)?.obj;
+      if (!o || o.hotSamples <= 0) continue;
+      left -= o.groundStep(Math.min(left, o.hotSamples), this.sampler, false);
+      if (this.now() - t0 > budgetMs) return;
+    }
+    // 3) gradual background re-sampling (a share of the budget): half of it for the tile under
+    //    the camera, where the terrain refines first and any mismatch is most visible, then
+    //    round-robin over every resident tile
     left = Math.min(left, Math.ceil(this.stream.groundSamplesPerFrame * RESAMPLE_SHARE));
     const nearest = this.wanted.length > 0 ? this.entries.get(this.wanted[0].key)?.obj : null;
     if (nearest && !nearest.settling && left > 1) left -= nearest.groundStep(Math.ceil(left / 2), this.sampler, false);
-    const n = this.ready.length;
     for (let k = 0; k < n && left > 0; k++) {
       this.resampleCursor = (this.resampleCursor + 1) % n;
       const o = this.ready[this.resampleCursor].obj;

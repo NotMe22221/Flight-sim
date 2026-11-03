@@ -10,11 +10,12 @@ import { AtcWindow } from './AtcWindow';
 import { Checklist } from './Checklist';
 import { FloatingPanel, type LayoutStore } from './FloatingPanel';
 import { NavLog } from './NavLog';
+import { ObjectivesPanel } from './ObjectivesPanel';
 import { CAMERA_MODES, Toolbar } from './Toolbar';
 import { VfrMap } from './VfrMap';
 
-export type PanelId = 'atc' | 'checklist' | 'navlog' | 'vfrmap' | 'weather';
-export const PANEL_IDS: readonly PanelId[] = ['atc', 'checklist', 'navlog', 'vfrmap', 'weather'];
+export type PanelId = 'atc' | 'checklist' | 'navlog' | 'vfrmap' | 'weather' | 'objectives';
+export const PANEL_IDS: readonly PanelId[] = ['atc', 'checklist', 'navlog', 'vfrmap', 'weather', 'objectives'];
 
 export interface FlightPanelsDeps {
   host: UiHost;
@@ -31,6 +32,8 @@ const ATC_INTERVAL_MS = 1000;
 export class FlightPanels {
   readonly toolbar: Toolbar;
   readonly atc: AtcWindow;
+  /** activity objectives (lessons, bush legs); its toolbar button shows while an activity is on */
+  readonly objectives: ObjectivesPanel;
   private panels = new Map<PanelId, FloatingPanel>();
   private checklist: Checklist;
   private navlog: NavLog;
@@ -42,7 +45,7 @@ export class FlightPanels {
   constructor(private readonly d: FlightPanelsDeps) {
     const W = typeof window !== 'undefined' ? window.innerWidth : 1280;
     const H = typeof window !== 'undefined' ? window.innerHeight : 800;
-    const mk = (id: PanelId, title: string, icon: 'headset' | 'checklist' | 'list' | 'map' | 'cloudSun', w: number, hgt: number, x: number, y: number, tight = false) => {
+    const mk = (id: PanelId, title: string, icon: 'headset' | 'checklist' | 'list' | 'map' | 'cloudSun' | 'target', w: number, hgt: number | undefined, x: number, y: number, tight = false) => {
       const p = new FloatingPanel(d.layer, d.layout, { id, title, icon, width: w, height: hgt, defaultPos: { x, y }, tight, onVisibility: (v) => this.toolbar?.setActive(id, v) });
       this.panels.set(id, p);
       return p;
@@ -52,15 +55,20 @@ export class FlightPanels {
     const nlP = mk('navlog', 'Nav log', 'list', 460, 260, 16, Math.max(80, H - 330));
     const vfrP = mk('vfrmap', 'VFR map', 'map', 420, 420, Math.max(16, W - 436), Math.max(80, H - 500), true);
     const wxP = mk('weather', 'Weather & time', 'cloudSun', 420, 560, Math.max(16, Math.round(W / 2 - 210)), 70);
+    // top-left like MSFS's objectives; height follows the content (no fixed height)
+    const objP = mk('objectives', 'Objectives', 'target', 340, undefined, 16, 70);
+    objP.el.classList.add('objectives-panel');
     this.atc = new AtcWindow(atcP.body, d.host);
     this.checklist = new Checklist(clP.body);
     this.navlog = new NavLog(nlP.body, d.host, d.units);
     this.vfr = new VfrMap(vfrP.body, d.host, d.units);
     this.weather = new WeatherPanel(d.ctx, { compact: true });
     wxP.body.appendChild(this.weather.el);
+    this.objectives = new ObjectivesPanel(objP.body, d.host);
 
     this.toolbar = new Toolbar(d.layer, [
       { id: 'camera', label: 'Camera', icon: 'camera', onClick: () => { /* menu handled by the toolbar */ }, title: 'Camera views' },
+      { id: 'objectives', label: 'Objectives', icon: 'target', onClick: () => this.toggle('objectives'), title: 'Activity objectives' },
       { id: 'atc', label: 'ATC', icon: 'headset', onClick: () => this.toggle('atc'), title: 'ATC (Scroll Lock)' },
       { id: 'checklist', label: 'Checklist', icon: 'checklist', onClick: () => this.toggle('checklist'), title: 'Checklist' },
       { id: 'navlog', label: 'Nav log', icon: 'list', onClick: () => this.toggle('navlog'), title: 'Nav log' },
@@ -69,6 +77,13 @@ export class FlightPanels {
       { id: 'controls', label: 'Controls', icon: 'keyboard', onClick: () => d.onHelp(), title: 'Controls cheat sheet' },
       { id: 'menu', label: 'Menu', icon: 'pause', onClick: () => d.onMenu(), title: 'Pause menu (Esc)' },
     ], { modes: CAMERA_MODES, onPick: (mode) => d.host.setCamera(mode) });
+    this.toolbar.setItemVisible('objectives', false);
+  }
+
+  /** The Objectives toolbar button exists only while an activity is on (running or just finished). */
+  setActivityAvailable(on: boolean): void {
+    this.toolbar.setItemVisible('objectives', on);
+    if (!on) this.hide('objectives');
   }
 
   isVisible(id: PanelId): boolean { return this.panels.get(id)?.visible ?? false; }
@@ -96,6 +111,7 @@ export class FlightPanels {
     if (this.isVisible('navlog')) this.navlog.update(s, nowMs);
     if (this.isVisible('vfrmap')) this.vfr.update(s, nowMs);
     if (this.isVisible('weather')) this.weather.update(s, nowMs);
+    if (this.isVisible('objectives')) this.objectives.update(nowMs);
   }
 
   dispose(): void {

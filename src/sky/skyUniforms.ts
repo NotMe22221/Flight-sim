@@ -37,6 +37,11 @@ export interface SkySharedUniforms {
   uSkyHorizon: { value: Color };
   /** current tone-mapping exposure (informational; three applies it in `tonemapping_fragment`) */
   uSkyExposure: { value: number };
+  /**
+   * render-y of the ground the sky's height fog is referenced to (`SkyLighting.groundY`, under the aircraft):
+   * terrain and ocean fog use it too, so they fade exactly like the built-in materials and cloud planes
+   */
+  uSkyGroundY: { value: number };
   /** number of cloud layers casting shadows (0 … MAX_SHADOW_LAYERS) */
   uCloudShadowCount: { value: number };
   uCloudShadowA: { value: Vector4[] };
@@ -58,6 +63,7 @@ export function createSkySharedUniforms(): SkySharedUniforms {
     uSkyZenith: { value: new Color(0.1, 0.25, 0.6) },
     uSkyHorizon: { value: new Color(0.6, 0.7, 0.8) },
     uSkyExposure: { value: 0.6 },
+    uSkyGroundY: { value: 0 },
     uCloudShadowCount: { value: 0 },
     uCloudShadowA: { value: a },
     uCloudShadowB: { value: b },
@@ -80,6 +86,7 @@ uniform float uSkyLinked;
 uniform vec3 uSkyIrradiance;
 uniform vec3 uSkyZenith;
 uniform vec3 uSkyHorizon;
+uniform float uSkyGroundY;
 uniform float uCloudShadowCount;
 uniform vec4 uCloudShadowA[ ${MAX_SHADOW_LAYERS} ];
 uniform vec4 uCloudShadowB[ ${MAX_SHADOW_LAYERS} ];
