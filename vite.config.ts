@@ -17,5 +17,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // flight-model sweeps (trim grids, stall bisection) take 1-3 s alone; give loaded CI runners headroom
+    testTimeout: 60_000,
   },
 });

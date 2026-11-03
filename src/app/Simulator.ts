@@ -33,6 +33,7 @@ import { ReplayController } from './ReplayController';
 import { ReplayBar } from './replayBar';
 import { CockpitInteraction } from './cockpitInteraction';
 import { SlewController, SLEW_THROTTLE_CENTRE } from './slew';
+import { StressMonitor, crashIsRecoverable } from './damage';
 import type { RebaseTransform } from '../world/rebase';
 import { createRenderer, type RendererBundle } from './renderer';
 
@@ -118,6 +119,9 @@ export class Simulator {
   private fpsAcc = 0;
   private fpsFrames = 0;
   private autoStartT = -1;
+  private readonly stress = new StressMonitor();
+  private crashReported = false;
+  private screenshotPending = false;
   private droneHold: { pitch: number; roll: number; yaw: number; throttle: number } | null = null;
   private nearbyAirports: Airport[] = [];
   private nearbyTimer = Infinity;
@@ -276,6 +280,17 @@ export class Simulator {
     env.turbulence.w20Kt = 0;
     if (this.assists.unlimitedFuel && s.fuelKg.some((f, i) => f < this.config.mass.tanks[i].capacityKg - 1)) this.fdm.setFuelFraction(1);
     this.fdm.step(h, this.effective, env);
+    if (s.crashed) {
+      // crash damage off (MSFS assist): ignore the crash and carry on
+      if (!this.assists.crashDamage && crashIsRecoverable(this.fdm.crashReason)) this.fdm.clearCrash();
+      else if (!this.crashReported) {
+        this.crashReported = true;
+        this.events.emit('aircraft:crash', { reason: this.fdm.crashReason || 'impact' });
+      }
+    } else if (this.assists.stressDamage) {
+      const why = this.stress.check(h, s, this.config.limits);
+      if (why) this.fdm.failStructure(why);
+    }
     this.touchdown.step(h, s);
     this.replay.record(h, s, this.effective);
     const t = this.world.maybeRebase(s.posNED);
@@ -408,6 +423,7 @@ export class Simulator {
     if ((this.frameCount & 15) === 0) this.events.emit('terrain:progress', { ready: snap.terrainReady });
     tn = performance.now(); this.mark('instruments', tn - tm); tm = tn;
     this.gfx.renderer.render(this.scene, this.cameras.camera);
+    if (this.screenshotPending) { this.screenshotPending = false; this.saveScreenshot(); }
     this.mark('render', performance.now() - tm);
   }
 
@@ -429,7 +445,8 @@ export class Simulator {
       case 'timeDusk': this.setTimePreset('dusk'); break;
       case 'timeNight': this.setTimePreset('night'); break;
       case 'resetFlight': case 'activeRunwayRespawn': if (this.lastSpawn) void this.respawn(); break;
-      case 'repairRefuel': this.fdm.clearCrash(); this.fdm.setFuelFraction(1); break;
+      case 'repairRefuel': this.fdm.clearCrash(); this.crashReported = false; this.stress.reset(); this.fdm.setFuelFraction(1); break;
+      case 'screenshot': this.screenshotPending = true; break;
       case 'engineAutoStart': if (!s.engine.running) this.autoStartT = 0; break;
       case 'engineShutdown': this.input.controls.mixture = 0; this.input.controls.magnetos = 0; this.events.emit('engine:stopped', { reason: 'shutdown' }); break;
       case 'altimeterInc': this.fdm.setAltimeter(s.qnhSetPa + 0.01 * INHG); break;
@@ -597,6 +614,8 @@ export class Simulator {
     c.flapsIndex = opts.flapsIndex ?? 0;
     c.lights = { nav: true, beacon: spawn.engineRunning, strobe: !spawn.onGround, landing: !spawn.onGround, taxi: spawn.onGround && spawn.engineRunning, panel: 0 };
     this.fdm.clearCrash();
+    this.crashReported = false;
+    this.stress.reset();
     this.fdm.reset(spawn, this.world.env);
     if (!spawn.onGround) {
       // trim with the approach flaps already set (not a flap motor that has barely started moving)
@@ -664,6 +683,27 @@ export class Simulator {
       this.time.simTimeS += PHYSICS_DT;
     }
     copyPose(this.fdm.state, this.prev);
+  }
+
+  /**
+   * Save the 3D view as a PNG (F12). Called right after render() in the same task, so the drawing
+   * buffer is still intact without preserveDrawingBuffer. DOM overlays (menus, HUD) are not included.
+   */
+  private saveScreenshot(): void {
+    const canvas = this.gfx.renderer.domElement;
+    if (typeof document === 'undefined' || !canvas.toBlob) return;
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, '0');
+    const name = `flightsim-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      this.events.emit('ui:toast', { text: `Screenshot saved: ${name}`, kind: 'info', durationMs: 3000 });
+    }, 'image/png');
   }
 
   private onCrash(reason: string): void {

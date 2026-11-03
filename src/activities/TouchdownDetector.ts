@@ -94,10 +94,8 @@ export class TouchdownDetector {
         }
         break;
     }
-    if (s.crashed && this.phase !== 'ground') {
-      this.events.emit('aircraft:crash', { reason: 'impact' });
-      this.phase = 'ground';
-    }
+    // the simulator reports the crash itself (with the flight model's reason); just end the landing
+    if (s.crashed && this.phase !== 'ground') this.phase = 'ground';
     this.prevOnGround = onGround;
   }
 
