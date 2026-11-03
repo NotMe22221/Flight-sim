@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { EventBus } from '../core/events';
-import { clamp, wrap360 } from '../core/math';
+import { clamp, wrap360, wrapTwoPi } from '../core/math';
 import { defaultControlInputs, type AircraftConfig, type AircraftState, type Airport, type AssistanceOptions, type ControlInputs, type InputSnapshot, type SimAction, type SimSnapshot, type SpawnState, type TimeState, type WeatherPresetId } from '../core/types';
 import { DEG, FPM, FT, INHG, KT, RAD } from '../core/units';
 import { Fdm } from '../fdm/fdm';
@@ -32,6 +32,8 @@ import { RadioStack } from './radios';
 import { ReplayController } from './ReplayController';
 import { ReplayBar } from './replayBar';
 import { CockpitInteraction } from './cockpitInteraction';
+import { SlewController, SLEW_THROTTLE_CENTRE } from './slew';
+import type { RebaseTransform } from '../world/rebase';
 import { createRenderer, type RendererBundle } from './renderer';
 
 export interface SimulatorOptions {
@@ -95,6 +97,8 @@ export class Simulator {
   private cockpitUi: CockpitInteraction | null = null;
   readonly steam: SteamPanel;
   readonly plugins: SimPlugins = {};
+  /** slew mode pose and motion (active while `slew` is true) */
+  readonly slewCtl = new SlewController();
   /** effective controls after assists and autopilot, fed to the flight model */
   readonly effective: ControlInputs = defaultControlInputs();
   /** automation overrides applied after the input layer (tests, smoke test, scripted demos) */
@@ -206,7 +210,7 @@ export class Simulator {
     this.composeControls(dt);
     const t1 = performance.now();
 
-    const running = this.inFlight && !this.paused && !this.replayer.active;
+    const running = this.inFlight && !this.paused && !this.replayer.active && !this.slew;
     const scale = running ? this.time.timeScale : 0;
     let alpha = 1;
     if (running) {
@@ -217,6 +221,7 @@ export class Simulator {
       if (scale > 8) this.time.utcMs += dt * (scale - 8) * 1000; // time compression beyond physics speed moves only the clock
     }
     interpolateState(this.prev, this.fdm.state, running ? alpha : 1, this.interp);
+    if (this.slew && !this.replayer.active) this.slewFrame(dt);
     if (this.replayer.active) this.replayer.update(dt, this.interp, this.world.frame);
     this.replayBar?.update(this.inFlight);
     this.cockpitUi?.update();
@@ -274,17 +279,85 @@ export class Simulator {
     this.touchdown.step(h, s);
     this.replay.record(h, s, this.effective);
     const t = this.world.maybeRebase(s.posNED);
-    if (t) {
-      this.fdm.rebase(t.rotation, t.translationNED);
-      const shift = nedToThree(t.translationNED, this.v3);
-      this.tmpV.set(shift[0], shift[1], shift[2]);
-      this.sky.notifyRebase(this.tmpV);
-      this.weather.notifyRebase(shift[0], shift[2]);
-      this.cameras.shiftOrigin(this.tmpV.clone().negate());
-      this.replay.clear();
-      copyPose(this.fdm.state, this.prev);
-      this.events.emit('frame:rebased', { frame: this.world.frame.info, translationNED: t.translationNED, rotation: t.rotation });
+    if (t) this.applyRebase(t);
+  }
+
+  /** Re-express everything in the new floating-origin frame after the world rebased. */
+  private applyRebase(t: RebaseTransform): void {
+    this.fdm.rebase(t.rotation, t.translationNED);
+    const shift = nedToThree(t.translationNED, this.v3);
+    this.tmpV.set(shift[0], shift[1], shift[2]);
+    this.sky.notifyRebase(this.tmpV);
+    this.weather.notifyRebase(shift[0], shift[2]);
+    this.cameras.shiftOrigin(this.tmpV.clone().negate());
+    this.replay.clear();
+    copyPose(this.fdm.state, this.prev);
+    this.events.emit('frame:rebased', { frame: this.world.frame.info, translationNED: t.translationNED, rotation: t.rotation });
+  }
+
+  // ─────────────────────────────── slew ───────────────────────────────
+
+  private readonly groundUp = (n: number, e: number): number => this.world.env.groundHeight(n, e);
+  private readonly slewIn = { pitch: 0, roll: 0, yaw: 0, throttle: SLEW_THROTTLE_CENTRE };
+
+  /** Enter or leave slew mode (Y). Leaving restarts the flight model where the aircraft now is. */
+  setSlew(on: boolean): void {
+    if (on === this.slew) return;
+    const c = this.input.controls;
+    if (on) {
+      if (!this.inFlight || this.replayer.active) return;
+      this.slewCtl.enter(this.fdm.state, c.throttle);
+      c.throttle = SLEW_THROTTLE_CENTRE; // centred lever = hold altitude
+      this.autopilot.engage(false);
+      this.slew = true;
+      return;
     }
+    this.slew = false;
+    const sl = this.slewCtl;
+    sl.exit();
+    const qnh = this.fdm.state.qnhSetPa;
+    const onGround = sl.aglM < 10; // hovering just above the ground (e.g. positioned over a runway): set it down
+    c.throttle = sl.entryThrottle;
+    const minAirspeed = this.config.limits.Vs1Kt * 1.4 * KT;
+    const spawn: SpawnState = {
+      geo: { lat: sl.geo.lat, lon: sl.geo.lon, alt: onGround ? sl.geo.alt - sl.restAglM : sl.geo.alt },
+      headingRad: wrapTwoPi(sl.heading),
+      speedMs: onGround ? 0 : Math.max(sl.entrySpeedMs, minAirspeed),
+      onGround,
+      engineRunning: sl.engineRunning,
+    };
+    this.fdm.clearCrash();
+    this.fdm.reset(spawn, this.world.env);
+    if (!onGround) {
+      this.fdm.snapControls(c);
+      const a = this.fdm.state.atmosphere;
+      this.fdm.trim(casFromTas(spawn.speedMs, a.pressurePa, a.speedOfSound), 0, this.world.env);
+      const tr = this.fdm.trimResult;
+      if (tr) { c.throttle = tr.throttle; c.pitchTrim = tr.pitchTrim; }
+    }
+    this.fdm.setAltimeter(qnh);
+    copyPose(this.fdm.state, this.prev);
+    this.loop.reset();
+    this.touchdown.reset(onGround);
+    this.replay.clear();
+  }
+
+  /** One display frame of slew: move with the pilot's controls, keep the floating origin near, show the pose. */
+  private slewFrame(dt: number): void {
+    const sdt = this.paused ? 0 : dt;
+    const u = this.slewIn, c = this.input.controls, o = this.overrides;
+    const hold = this.cameras.state.mode === 'drone'; // the stick flies the drone
+    u.pitch = hold ? 0 : o.pitch ?? c.pitch;
+    u.roll = hold ? 0 : o.roll ?? c.roll;
+    u.yaw = hold ? 0 : o.yaw ?? c.yaw;
+    u.throttle = hold ? SLEW_THROTTLE_CENTRE : o.throttle ?? c.throttle;
+    this.slewCtl.update(sdt, u, this.world.frame, this.groundUp);
+    const t = this.world.maybeRebase(this.slewCtl.positionNED(this.world.frame));
+    if (t) this.applyRebase(t);
+    this.slewCtl.writeState(this.interp, this.world.frame);
+    // the clock keeps running while slewing
+    this.time.utcMs += sdt * this.time.timeScale * 1000;
+    this.time.simTimeS += sdt * this.time.timeScale;
   }
 
   private updateVisuals(dt: number, inp: InputSnapshot): void {
@@ -386,7 +459,7 @@ export class Simulator {
       case 'assistAutoRudderToggle': this.assists.autoRudder = !this.assists.autoRudder; break;
       case 'assistTakeoffToggle': this.assists.assistedTakeoff = !this.assists.assistedTakeoff; break;
       case 'assistLandingToggle': this.assists.assistedLanding = !this.assists.assistedLanding; break;
-      case 'slewToggle': this.slew = !this.slew; break;
+      case 'slewToggle': this.setSlew(!this.slew); break;
       default: {
         const m = /^atcOption(\d)$/.exec(a);
         if (m) this.plugins.atc?.select(m[1] === '0' ? 10 : Number(m[1]));
@@ -496,6 +569,8 @@ export class Simulator {
   /** Common spawn path: new origin, terrain prefetch, airport geometry, flight-model reset, systems reset. */
   private async beginFlight(airport: Airport | null, end: RunwayEndRef | null, spawn: SpawnState, opts: { fuelFraction?: number; payloadKg?: number; flapsIndex?: number }): Promise<void> {
     this.inFlight = false;
+    this.slew = false;
+    this.slewCtl.exit();
     this.paused = true;
     const g = spawn.geo;
     if (airport) await this.nav.loadRegion(airport.position, 40);

@@ -22,6 +22,10 @@ export interface SimAutomation {
   /** Scripted pilot: full-power takeoff from the current runway position and climb-out. */
   flyScriptedTakeoff(seconds: number): Promise<unknown>;
   state(): unknown;
+  /** the pose being displayed (interpolated, or the slew pose), as the instruments see it */
+  displayState(): unknown;
+  /** enter / leave slew mode, as the Y key does */
+  setSlew(on: boolean): void;
   terrainReady(): number;
   /** screen-space (CSS px) centre of a steam-panel instrument, e.g. 'alt', or null if off-screen */
   panelPoint(id: string): { x: number; y: number } | null;
@@ -73,6 +77,8 @@ export function installAutomation(sim: Simulator): SimAutomation {
       return { liftoffM, aglM: s.altitudeAglM, kias: s.aero.ias / 0.514444, crashed: s.crashed };
     },
     state: () => JSON.parse(JSON.stringify(sim.aircraft)),
+    displayState: () => JSON.parse(JSON.stringify(sim.snapshot.aircraft)),
+    setSlew: (on) => sim.setSlew(on),
     terrainReady: () => sim.snapshot.terrainReady,
     look: (y, p) => { sim.cameras.state.lookYaw = y; sim.cameras.state.lookPitch = p; },
     panelPoint: (id) => {

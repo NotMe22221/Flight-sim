@@ -54,12 +54,19 @@ in Settings → Controls (gamepads and joysticks are detected automatically).
 | Throttle cut / − / + / full | `F1` / `F2` / `F3` / `F4` | same |
 | Flaps up / down | `F6` / `F7` | same |
 | Brakes / parking brake | `.` / `Ctrl+.` | `Num Del` / `Ctrl+Num Del` |
-| Elevator trim nose down / up | | `Num 7` / `Num 1` |
+| Elevator trim nose down / up | `[` / `]` | `Num 7` / `Num 1` |
 | Engine auto-start / shutdown | `Ctrl+E` / `Ctrl+Shift+E` | |
 | Cameras: next / chase / drone | `C` / `S` / `Insert` | `End` |
 | Autopilot master / HDG / ALT | `Z` / `Ctrl+H` / `Shift+T` | `Z` / `Ctrl+H` / `Ctrl+T` |
-| Pause / sim rate | `Pause` / `Ctrl+Num ±` | |
+| Pause / sim rate | `P` / `Ctrl+=` `Ctrl+-` | `Pause` / `Ctrl+Num +` `Ctrl+Num -` |
+| Slew mode (reposition) | `Y` | `Y` |
 | Menu | `Esc` | |
+
+**Slew mode** (`Y`) freezes the flight model and moves the aircraft directly, as in MSFS: stick
+forward and back to move, stick left and right to turn, rudder to slide sideways, throttle above or
+below 50 % to climb or descend. Speeds grow with height above the ground. Press `Y` again to fly on
+from the new position: the aircraft is trimmed for level flight, or set down on its wheels when it
+is within 10 m of the ground.
 
 The full tables are in `src/input/README.md`.
 
