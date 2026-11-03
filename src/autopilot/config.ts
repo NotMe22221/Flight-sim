@@ -81,9 +81,14 @@ export interface AutopilotGains {
   /** VOR intercept angle at full-scale CDI deflection (1.0); cap */
   vorInterceptRad: number;
   vorInterceptMaxRad: number;
-  /** distance below which the VOR gain is scaled down linearly (cone of confusion) */
+  /**
+   * VOR gain schedule ∝ DME distance / `vorScaleDistanceM`, clamped to [vorScaleMin, vorScaleMax]:
+   * scaled down close to the station (cone of confusion) and up far from it, where a CDI dot is
+   * wider (a constant angular gain would intercept a 2 nm offset at 25 nm with only ~15°)
+   */
   vorScaleDistanceM: number;
   vorScaleMin: number;
+  vorScaleMax: number;
   /** LOC: intercept angle per dot at the reference distance; scaled ∝ distance / ref, clamped */
   locInterceptRadPerDot: number;
   locRefDistanceM: number;
@@ -222,6 +227,7 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     vorInterceptMaxRad: 45 * DEG,
     vorScaleDistanceM: 10 * NM,
     vorScaleMin: 0.3,
+    vorScaleMax: 3,
     locInterceptRadPerDot: 15 * DEG,
     locRefDistanceM: 6 * NM,
     locScaleMin: 0.3,

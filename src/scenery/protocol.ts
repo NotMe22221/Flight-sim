@@ -27,8 +27,10 @@ export interface BuildingsData {
   roofs: MeshData;
   /** per building: [wallStart, wallCount, plainStart, plainCount, roofStart, roofCount] in vertices */
   ranges: Uint32Array;
-  /** per building: BUILDING_SAMPLES (x, z) ground sample points, local metres (unused slots repeat the centroid) */
+  /** per building: BUILDING_SAMPLES (x, z) ground sample points, local metres (centroid first) */
   samples: Float32Array;
+  /** per building: how many of its samples to use (1 = centroid only, for small footprints) */
+  sampleCount: Uint8Array;
   /** per building: footprint centroid (x, z) */
   centroids: Float32Array;
   /** index count of the important buildings at the start of each index buffer [walls, plain, roofs] */
@@ -131,7 +133,7 @@ export function transferables(r: TileBuildResult): ArrayBuffer[] {
   if (r.buildings) {
     const b = r.buildings;
     mesh(b.walls); mesh(b.plain); mesh(b.roofs);
-    add(b.ranges); add(b.samples); add(b.centroids); add(b.bigIndexCount);
+    add(b.ranges); add(b.samples); add(b.sampleCount); add(b.centroids); add(b.bigIndexCount);
   }
   for (const d of [r.surfaces, r.markings, r.lightPools]) if (d) { mesh(d.mesh); add(d.lift); }
   if (r.trees) { add(r.trees.conifer); add(r.trees.coniferColor); add(r.trees.broadleaf); add(r.trees.broadleafColor); }

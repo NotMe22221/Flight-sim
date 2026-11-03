@@ -26,12 +26,13 @@ export const gpsInterceptTrack = (desiredTrackRad: number, crossTrackM: number, 
   desiredTrackRad - clamp(g.gpsInterceptRadPerM * crossTrackM, -g.gpsInterceptMaxRad, g.gpsInterceptMaxRad);
 
 /**
- * VOR course intercept from the CDI needle (−1..1 full scale, + = fly right). The gain is
- * scaled down close to the station (needle sensitivity grows as 1/distance).
+ * VOR course intercept from the CDI needle (−1..1 full scale, + = fly right). The needle is
+ * angular, so the gain is scheduled with distance (constant intercept angle per metre of
+ * cross-track): scaled down close to the station, up far from it.
  * @param distanceM DME distance or ≤ 0 when unknown
  */
 export const vorInterceptTrack = (courseRad: number, cdi: number, distanceM: number, g: AutopilotGains): number => {
-  const scale = distanceM > 0 ? clamp(distanceM / g.vorScaleDistanceM, g.vorScaleMin, 1) : 1;
+  const scale = distanceM > 0 ? clamp(distanceM / g.vorScaleDistanceM, g.vorScaleMin, g.vorScaleMax) : 1;
   return courseRad + clamp(g.vorInterceptRad * scale * cdi, -g.vorInterceptMaxRad, g.vorInterceptMaxRad);
 };
 

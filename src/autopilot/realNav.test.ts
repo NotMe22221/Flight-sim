@@ -68,15 +68,15 @@ describe('autopilot with the real nav receivers on the C172S model', () => {
     expect(sim.s.engaged).toBe(true);
   });
 
-  it('NAV on a VOR: converges inbound (TO) and outbound (FROM) from 2 nm off course', () => {
-    for (const leg of ['to', 'from'] as const) {
+  it('NAV on a VOR: converges inbound (TO, 25 and 40 nm) and outbound (FROM) from 2 nm off course', () => {
+    for (const [leg, distNm] of [['to', 25], ['to', 40], ['from', 8]] as const) {
       const sim = new ZohSim(3000 * FT, 100, 90, 2);
       const mv = magvarDeg(sim);
       const p0 = { lat: sim.ac.geo.lat, lon: sim.ac.geo.lon, alt: 4 };
       const onCourse = destinationPoint(p0, 0, 2 * NM, 4); // course line 2 nm north: the aircraft is right of an eastbound course
       const station: Navaid = {
         id: 'TST', type: 'VOR-DME', name: 'TEST', frequencyKHz: 113900, magneticVariationDeg: mv, rangeNm: 130,
-        position: leg === 'to' ? destinationPoint(onCourse, 90, 25 * NM, 4) : destinationPoint(onCourse, 270, 8 * NM, 4),
+        position: destinationPoint(onCourse, leg === 'to' ? 90 : 270, distNm * NM, 4),
       };
       const tuning = { activeKHz: 113900, standbyKHz: 113900, obsDeg: wrap360(90 - mv) };
       const rx = sim.nav1 as NavRadioStateEx;
@@ -88,9 +88,10 @@ describe('autopilot with the real nav receivers on the C172S model', () => {
       sim.ap.setLateral('NAV'); // from ROL, before the first frame: captured on that frame (intercept law)
       sim.frame();
       expect(sim.s.lateral).toBe('NAV');
-      let maxBank = 0;
-      sim.run(240, (s) => { maxBank = Math.max(maxBank, Math.abs(s.ac.euler[0])); });
-      expect(Math.abs(rx.cdi)).toBeLessThan(0.1); // within 1° of the radial
+      let maxBank = 0, overshoot = 0;
+      sim.run(240, (s) => { maxBank = Math.max(maxBank, Math.abs(s.ac.euler[0])); overshoot = Math.max(overshoot, rx.cdi); });
+      expect(Math.abs(rx.cdi)).toBeLessThan(0.1); // within 1° of the radial after 4 min
+      expect(overshoot).toBeLessThan(0.1); // approached from the right: no swing through to the left side
       expect(Math.abs(wrapPi(sim.ac.trackRad - 90 * DEG))).toBeLessThan(5 * DEG);
       expect(maxBank).toBeLessThan(25.5 * DEG);
       expect(sim.s.lateral).toBe('NAV');

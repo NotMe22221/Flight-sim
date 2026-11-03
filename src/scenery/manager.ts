@@ -53,6 +53,8 @@ const MAX_RETRIES = 3;
 const MOVE_RESELECT_M = 150;
 const RESELECT_S = 0.5;
 const RESAMPLE_CHUNK = 48;
+/** share of the ground budget spent on re-sampling once tiles are placed */
+const RESAMPLE_SHARE = 0.3;
 
 export class SceneryManager implements SceneryLike {
   readonly root = new THREE.Group();
@@ -348,7 +350,8 @@ export class SceneryManager implements SceneryLike {
       left -= o.groundStep(left, this.sampler, true);
       if (this.now() - t0 > budgetMs) return;
     }
-    // 2) gradual re-sampling round-robin over every resident tile
+    // 2) gradual re-sampling round-robin over every resident tile (a share of the budget)
+    left = Math.min(left, Math.ceil(this.stream.groundSamplesPerFrame * RESAMPLE_SHARE));
     const n = this.ready.length;
     for (let k = 0; k < n && left > 0; k++) {
       this.resampleCursor = (this.resampleCursor + 1) % n;

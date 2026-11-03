@@ -113,6 +113,8 @@ export abstract class GroundLayer {
 
   /** Sample item i; true when it got a ground height. */
   protected abstract sampleItem(i: number, s: GroundSampler, pl: TilePlacement): boolean;
+  /** Samples item i costs (default: the layer's fixed cost). */
+  protected costOf(_i: number): number { return this.cost; }
   /** Upload the dirty range. */
   abstract flush(): void;
 
@@ -120,10 +122,12 @@ export abstract class GroundLayer {
   step(budget: number, s: GroundSampler, pl: TilePlacement): number {
     if (this.n === 0) { if (this.passes === 0) this.passes = 1; return 0; }
     let used = 0;
-    while (used + this.cost <= budget) {
+    while (used < budget) {
       const i = this.cursor;
+      const c = this.costOf(i);
+      if (used > 0 && used + c > budget) break;
       if (this.sampleItem(i, s, pl) && !this.grounded[i]) { this.grounded[i] = 1; this.groundedCount++; }
-      used += this.cost;
+      used += c;
       if (++this.cursor >= this.n) {
         this.cursor = 0;
         if (this.groundedCount > 0) {

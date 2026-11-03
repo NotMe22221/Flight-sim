@@ -12,7 +12,9 @@ import { hash01, hash2 } from './tileMath';
 /** Window cells per texture repeat (both directions); see materials.ts. */
 export const FACADE_CELLS = 8;
 /** Walls start this far below the sampled base so slopes never show a gap (m). */
-export const WALL_SKIRT_M = 1.5;
+export const WALL_SKIRT_M = 2;
+/** Footprints smaller than this (half length, m) are grounded from their centroid alone (the skirt covers the slope). */
+export const SINGLE_SAMPLE_HALF_M = 9;
 /** Pitched roofs only for buildings up to this height (m). */
 export const PITCHED_MAX_HEIGHT_M = 12;
 
@@ -100,6 +102,7 @@ export function buildBuildings(inputs: readonly BuildingInput[], opts: Buildings
   const roofs = new MeshBuilder(true, true, 2048);
   const ranges: number[] = [];
   const samples: number[] = [];
+  const sampleCount: number[] = [];
   const centroids: number[] = [];
   const bigIndex = new Uint32Array(3);
   let bigDone = false;
@@ -115,7 +118,7 @@ export function buildBuildings(inputs: readonly BuildingInput[], opts: Buildings
     ranges.push(w0, walls.vertexCount - w0, p0, plain.vertexCount - p0, r0, roofs.vertexCount - r0);
     const c = ringCentroid(p.input.outer);
     centroids.push(c.x, c.y);
-    pushSamples(p.input.outer, c.x, c.y, samples);
+    sampleCount.push(pushSamples(p.input.outer, c.x, c.y, samples));
     count++;
   }
   if (!bigDone) { bigIndex[0] = walls.indexCount; bigIndex[1] = plain.indexCount; bigIndex[2] = roofs.indexCount; }
@@ -126,6 +129,7 @@ export function buildBuildings(inputs: readonly BuildingInput[], opts: Buildings
     roofs: roofs.finish(),
     ranges: Uint32Array.from(ranges),
     samples: Float32Array.from(samples),
+    sampleCount: Uint8Array.from(sampleCount),
     centroids: Float32Array.from(centroids),
     bigIndexCount: bigIndex,
     count,
@@ -134,8 +138,8 @@ export function buildBuildings(inputs: readonly BuildingInput[], opts: Buildings
 
 function rollback(m: MeshBuilder, v: number, i: number): void { m.vertexCount = v; m.indexCount = i; }
 
-/** Centroid plus the oriented box corners pulled 15 % inward. */
-function pushSamples(outer: number[], cx: number, cy: number, out: number[]): void {
+/** Centroid plus the oriented box corners pulled 15 % inward; returns how many to use. */
+function pushSamples(outer: number[], cx: number, cy: number, out: number[]): number {
   const box = orientedBox(outer);
   out.push(cx, cy);
   const wx = -box.uy, wy = box.ux;
@@ -145,6 +149,7 @@ function pushSamples(outer: number[], cx: number, cy: number, out: number[]): vo
     const [a, b] = corners[k % 4];
     out.push(box.cx + box.ux * a + wx * b, box.cy + box.uy * a + wy * b);
   }
+  return box.halfLen <= SINGLE_SAMPLE_HALF_M ? 1 : BUILDING_SAMPLES;
 }
 
 function wallColour(p: Prepared, seed: number): [number, number, number] {

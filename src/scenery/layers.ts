@@ -18,6 +18,7 @@ export class BuildingLayer extends GroundLayer {
   readonly attrs: THREE.BufferAttribute[];
   private readonly ranges: Uint32Array;
   private readonly samples: Float32Array;
+  private readonly sampleCount: Uint8Array;
   private readonly lo = [Infinity, Infinity, Infinity];
   private readonly hi = [-Infinity, -Infinity, -Infinity];
   /** tallest template y (m) for bounding volumes */
@@ -28,6 +29,7 @@ export class BuildingLayer extends GroundLayer {
     this.ground = new Float32Array(d.count).fill(NaN);
     this.ranges = d.ranges;
     this.samples = d.samples;
+    this.sampleCount = d.sampleCount;
     this.template = [d.walls.position, d.plain.position, d.roofs.position];
     this.gpu = this.template.map((t) => new Float32Array(t.length));
     this.attrs = this.gpu.map((g) => new THREE.BufferAttribute(g, 3));
@@ -38,6 +40,8 @@ export class BuildingLayer extends GroundLayer {
   }
 
   /** All vertices of building b onto its first vertex (zero-area triangles: not drawn). */
+  protected override costOf(b: number): number { return this.sampleCount[b] || BUILDING_SAMPLES; }
+
   private collapse(b: number): void {
     const t = this.template!;
     for (let m = 0; m < 3; m++) {
@@ -53,7 +57,8 @@ export class BuildingLayer extends GroundLayer {
     const prev = this.ground[b];
     const guess = Number.isFinite(prev) ? prev : this.meanGround;
     let g = Infinity;
-    for (let k = 0; k < BUILDING_SAMPLES; k++) {
+    const n = this.sampleCount[b] || BUILDING_SAMPLES;
+    for (let k = 0; k < n; k++) {
       const o = (b * BUILDING_SAMPLES + k) * 2;
       const y = s.sample(pl, this.samples[o], this.samples[o + 1], guess);
       if (Number.isNaN(y)) return Number.isFinite(prev);
