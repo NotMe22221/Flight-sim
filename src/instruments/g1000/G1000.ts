@@ -362,10 +362,11 @@ export class G1000 {
   stopTimer(): void { this.model.stopTimer(); }
   resetTimer(): void { this.model.resetTimer(); }
 
-  /** Flight reset: snap the instrument dynamics (when owned) and forget AFCS flash history. */
+  /** Flight reset: snap the instrument dynamics (when owned), forget AFCS flash history, close windows. */
   reset(s: SimSnapshot): void {
     if (this.ownsModel) this.model.reset(s);
     this.pfd.afcs.reset();
+    this.fms.resetUi();
     this.invalidate();
   }
 

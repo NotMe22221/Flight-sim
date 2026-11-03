@@ -159,8 +159,8 @@ DOM classes and the CSS-importing barrel) in Node to prove nothing touches the D
 - Binding conflicts are detected per device by identical labels from `host.bindings()`.
 - DOM classes are not unit-tested (no DOM in the test environment); they are covered by
   import-safety tests and manual/browser checks.
-- Graphics › Shadows and Terrain detail are only as effective as the host's `setGraphics`
-  (the current SimUiHost applies quality, render scale, FOV, imagery and clouds).
+- Graphics settings are only as effective as the host's `setGraphics` (the current SimUiHost
+  applies everything except Terrain detail).
 - Runway idents are shown as the nav data spells them ('1R/19L' for OurAirports' KSFO data).
 - Without `host.cancelRebind` a pending rebind is ended by a synthesized Esc (works with the
   bundled input module, which cancels a capture on Esc).

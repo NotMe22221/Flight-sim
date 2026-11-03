@@ -1,7 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { NavDb } from '../../nav';
 import { loadTestNav, makeRig } from '../testing/g1000Rig';
+import { MockCanvasFactory, type MockContext2D } from '../testing/mockCanvas';
+import { makeSampleSnapshot } from '../testing/sampleSnapshot';
 import { ConfirmWindow, MenuWindow } from './fmsWindows';
+import { G1000 } from './G1000';
 import { PFD_MENUS, MFD_MENUS } from './fmsSoftkeys';
 
 let nav: NavDb;
@@ -50,6 +53,32 @@ describe('rendering every page and dialog', () => {
       expect(ctx.texts()).toContain(sc.expect);
     });
   }
+
+  it('works without a nav database or flight planner (messages instead of data), and reset closes windows', () => {
+    const factory = new MockCanvasFactory();
+    const g = new G1000({ createCanvas: (w, h) => factory.create(w, h) });
+    const s = makeSampleSnapshot();
+    const mfd = (g.mfdCanvas as unknown as { ctx: MockContext2D }).ctx;
+    const steps: (() => void)[] = [
+      () => g.handleInput({ type: 'button', display: 'mfd', id: 'DIRECT' }),
+      () => { g.handleInput({ type: 'char', char: 'K' }); g.handleInput({ type: 'button', display: 'mfd', id: 'ENT' }); },
+      () => g.handleInput({ type: 'button', display: 'mfd', id: 'PROC' }),
+      () => g.handleInput({ type: 'button', display: 'mfd', id: 'ENT' }),
+      () => g.handleInput({ type: 'button', display: 'mfd', id: 'NRST' }),
+      () => g.handleInput({ type: 'button', display: 'mfd', id: 'FPL' }),
+      () => g.handleInput({ type: 'push', display: 'mfd', id: 'FMS' }),
+      () => g.handleInput({ type: 'button', display: 'mfd', id: 'CLR' }),
+      () => g.handleInput({ type: 'button', display: 'pfd', id: 'PROC' }),
+      () => g.handleInput({ type: 'softkey', display: 'pfd', index: 9 }),
+    ];
+    for (const step of steps) { step(); expect(() => g.update(s, 0.1)).not.toThrow(); }
+    expect(mfd.balanced).toBe(true);
+    expect(g.fms.pfdWindow()).not.toBeNull();
+    g.reset(s);
+    expect(g.fms.pfdWindow()).toBeNull();
+    expect(g.fms.mfdPopups.length).toBe(0);
+    expect(g.fms.mfd.title).toBe('MAP - NAVIGATION MAP');
+  });
 
   it('menus and confirmations stack over a page on both displays', () => {
     const r = makeRig(nav, TEN);

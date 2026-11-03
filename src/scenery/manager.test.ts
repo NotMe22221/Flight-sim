@@ -80,7 +80,7 @@ describe('SceneryManager (sync path)', () => {
     const terrain: HeightFn = (lat, lon) => 20 + 15 * Math.sin(lat * 400) * Math.cos(lon * 300);
     const host = makeHost(frameA, terrain);
     const m = manager(host, { stream: { radiusM: 1200, groundSamplesPerFrame: 20000, frameBudgetMs: 1e9 } });
-    const cam = new THREE.Vector3(0, 200, 0);
+    const cam = new THREE.Vector3(-5000, 200, 0); // over the synthetic city
     await pump(m, cam, 400, 0.8, () => m.stats().tilesPending === 0 && m.stats().tilesLoaded > 0 && m.tileObjects().every((o) => !o.settling));
     const probe = (frame: LocalFrame) => {
       const out: { lat: number; lon: number; alt: number }[] = [];
@@ -110,15 +110,21 @@ describe('SceneryManager (sync path)', () => {
       expect(Math.abs(after[i].alt - before[i].alt)).toBeLessThan(0.02);
     }
     // and the ground under the buildings still agrees after a few re-sampling frames in the new frame
-    await pump(m, new THREE.Vector3(-18000, 200, 14000), 30);
+    await pump(m, new THREE.Vector3(-23000, 200, 14000), 30);
     for (const o of m.tileObjects()) {
       const b = o.result.buildings;
       if (!b) continue;
       o.group.updateMatrixWorld(true);
       for (let i = 0; i < b.count; i += 53) {
-        const p = new THREE.Vector3(b.centroids[i * 2], o.buildingGround(i), b.centroids[i * 2 + 1]).applyMatrix4(o.group.matrixWorld);
-        const g = frameB.threeToGeodetic(p.x, p.y, p.z);
-        expect(Math.abs(g.alt - terrain(g.lat, g.lon))).toBeLessThan(1);
+        // the base is the lowest terrain under the building's ground samples
+        let lowest = Infinity, baseAlt = 0;
+        for (let k = 0; k < b.sampleCount[i]; k++) {
+          const p = new THREE.Vector3(b.samples[(i * 5 + k) * 2], o.buildingGround(i), b.samples[(i * 5 + k) * 2 + 1]).applyMatrix4(o.group.matrixWorld);
+          const g = frameB.threeToGeodetic(p.x, p.y, p.z);
+          lowest = Math.min(lowest, terrain(g.lat, g.lon));
+          baseAlt = g.alt;
+        }
+        expect(Math.abs(baseAlt - lowest)).toBeLessThan(0.3);
       }
     }
     m.dispose();
@@ -136,7 +142,6 @@ describe('SceneryManager (sync path)', () => {
       const first = m.tileObjects();
       expect(first.length).toBeGreaterThan(0);
       // fly 6 km west over the city: new tiles stream in, the old ones are evicted (budget 4)
-      vi.spyOn(performance, 'now').mockImplementation(() => Date.now() + 1e7);
       await pump(m, new THREE.Vector3(-6000, 300, -1000), 400, 0.8, () => m.stats().tilesPending === 0 && m.tileObjects().length > 0 && first.every((o) => o.isDisposed));
       expect(m.tileObjects().length).toBeLessThanOrEqual(Math.max(4, m.stats().tilesWanted));
       expect(first.some((o) => o.isDisposed)).toBe(true);

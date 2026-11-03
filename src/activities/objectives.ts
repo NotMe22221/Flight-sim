@@ -16,7 +16,7 @@ import { clamp } from '../core/math';
 import type { AircraftState, Airport, ControlInputs, Runway } from '../core/types';
 import { FPM, FT, KT, NM, RAD } from '../core/units';
 import { aimAlongM, relativeToRunway, type RunwayEndRef, type RunwayRelative } from './runwayFrame';
-import { ftSpeech, ftText, headingText, ktText, spellHeading } from './speech';
+import { ftSpeech, ftText, headingText, ktText, spellHeading, spellNumber } from './speech';
 
 // ───────────────────────────────── shared data types ─────────────────────────────────
 
@@ -627,8 +627,8 @@ class TurnObjective extends Objective {
     const mid = Math.round((this.s.bankMinDeg + this.s.bankMaxDeg) / 2);
     this.hints = {
       start: right ? line(`Roll right to turn to heading ${h}`, `Roll right. Turn to ${hs}.`) : line(`Roll left to turn to heading ${h}`, `Roll left. Turn to ${hs}.`),
-      shallow: line(`Bank a little more: about ${mid}°`, `Steepen the bank a little, to about ${mid} degrees.`),
-      steep: line(`Too steep: reduce the bank to about ${mid}°`, `Too steep. Reduce the bank to about ${mid} degrees.`),
+      shallow: line(`Bank a little more: about ${mid}°`, `Steepen the bank a little, to about ${spellNumber(mid)} degrees.`),
+      steep: line(`Too steep: reduce the bank to about ${mid}°`, `Too steep. Reduce the bank to about ${spellNumber(mid)} degrees.`),
       rollout: line(`Roll out on heading ${h}`, `Roll out now, on ${hs}.`),
       overshoot: line(`Overshot: turn back to heading ${h}`, `You overshot. Turn back to ${hs}.`),
     };

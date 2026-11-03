@@ -223,6 +223,17 @@ export class G1000Fms implements FmsContext {
   pfdFplWindow(): FplWindow { return (this.pfdFpl ??= new FplWindow(this)); }
   pfdNrstWindow(): NearestWindow { return (this.pfdNrst ??= new NearestWindow(this, 'apt', true)); }
 
+  /** Power-up state of the UI: windows closed, top-level softkeys, map page (flight reset). */
+  resetUi(): void {
+    this.pfdStack.length = 0; this.mfdStack.length = 0;
+    this.pfdMenu = 'root'; this.mfdMenu = 'root'; this.codeEntry = '';
+    this.fplPage.cursor = false; this.fplPage.entry = null; this.nrstPage.cursor = false;
+    this.loadedApproach = null; this.approachArmed = false;
+    this.pfd.identS = 0;
+    this.setMfdPage(0);
+    syncSoftkeys(this);
+  }
+
   // ───────────────────────────── per-frame ─────────────────────────────
 
   update(s: SimSnapshot, r: InstrumentReadings, dt: number): void {

@@ -89,6 +89,7 @@ export class SceneryManager implements SceneryLike {
   private night = 0;
   private disposed = false;
   private visible = true;
+  /** frame of the last bookkeeping prune */
   private lastEvictCheck = 0;
   private failedCount = 0;
   /** last frame's main-thread time (ms) */
@@ -146,7 +147,8 @@ export class SceneryManager implements SceneryLike {
         const o = this.ready[i].obj;
         if (o) o.updateLod(cam, this.stream, this.night);
       }
-      if (t0 - this.lastEvictCheck > 1000) { this.lastEvictCheck = t0; this.evict(); }
+      if (this.ready.length > this.stream.maxResidentTiles) this.evict();
+      if (this.frameNo - this.lastEvictCheck > 600) { this.lastEvictCheck = this.frameNo; this.pruneEntries(); }
     } catch (e) {
       this.logOnce('update', `[scenery] update failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -397,8 +399,11 @@ export class SceneryManager implements SceneryLike {
       e.state = 'idle';
       this.entries.delete(e.key);
     }
-    // forget stale bookkeeping entries (empty / failed / idle) far behind
-    if (this.entries.size > 4 * max + 200) {
+  }
+
+  /** Forget stale bookkeeping entries (empty / failed / idle tiles far behind) and old parking data. */
+  private pruneEntries(): void {
+    if (this.entries.size > 4 * this.stream.maxResidentTiles + 200) {
       for (const [k, e] of this.entries) if (!e.obj && e.state !== 'loading' && e.lastWanted < this.selectGen - 120) this.entries.delete(k);
     }
     if (this.parkingCache.size > 400) this.parkingCache.clear();
