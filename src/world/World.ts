@@ -54,28 +54,37 @@ export class World {
     return -this.frame.alt0 - (n * n + e * e) / (2 * EARTH_R);
   }
 
-  /** Ground "up" coordinate under a NED point, never below the sea surface. Null before terrain data exists. */
+  /**
+   * Ground "up" coordinate under a NED point, never below the sea surface except on runways (fields
+   * below sea level, e.g. EHAM at −3 m, keep their real elevation). Null before terrain data exists.
+   */
   groundHeight(n: number, e: number): number | null {
     const sea = this.seaLevelUp(n, e);
     const h = this.terrain?.heightAtLocalNED(n, e) ?? null;
     if (h === null) return null;
-    return h < sea ? sea : h;
+    return h < sea && !this.onRunway(n, e) ? sea : h;
   }
 
   private groundNormal(n: number, e: number, out: Vec3): Vec3 | null {
     const h = this.terrain?.heightAtLocalNED(n, e) ?? null;
-    if (h === null || h < this.seaLevelUp(n, e)) { out[0] = 0; out[1] = 0; out[2] = -1; return out; }
+    if (h === null || (h < this.seaLevelUp(n, e) && !this.onRunway(n, e))) { out[0] = 0; out[1] = 0; out[2] = -1; return out; }
     return this.terrain?.groundNormalNED(n, e, out) ?? null;
   }
 
-  /** Surface type at a NED point for tyre friction and water detection. */
-  surfaceAt(n: number, e: number): Environment['surface'] {
+  /** Is the NED point on a runway rectangle (with the small shoulder margin)? */
+  private onRunway(n: number, e: number): boolean {
     for (const r of this.runwayRects) {
       const dn = n - r.cN, de = e - r.cE;
       const along = dn * r.aN + de * r.aE;
       const across = -dn * r.aE + de * r.aN;
-      if (Math.abs(along) <= r.halfLen && Math.abs(across) <= r.halfWidth) return 'paved';
+      if (Math.abs(along) <= r.halfLen && Math.abs(across) <= r.halfWidth) return true;
     }
+    return false;
+  }
+
+  /** Surface type at a NED point for tyre friction and water detection. */
+  surfaceAt(n: number, e: number): Environment['surface'] {
+    if (this.onRunway(n, e)) return 'paved';
     const h = this.terrain?.heightAtLocalNED(n, e) ?? null;
     if (h !== null && h < this.seaLevelUp(n, e) - 0.3) return 'water';
     return 'grass';

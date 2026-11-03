@@ -39,6 +39,20 @@ describe('World', () => {
     expect(w.groundHeight(land[0], land[1])! - w.seaLevelUp(land[0], land[1])).toBeCloseTo(4, 3); // 4 m MSL
   });
 
+  it('keeps a runway below sea level at its real elevation (EHAM-style fields are not floated to MSL)', () => {
+    let w!: World;
+    w = new World(fakeTerrain(() => w), nav, null, 37.613538, -122.35716);
+    w.airports.ensureAirport(ksfo);
+    w.syncRunways();
+    // the east end of 10L/28R lies over the fake terrain's -3 m area
+    const p = w.frame.geodeticToNED(37.614101, -122.3585, 0);
+    expect(w.surfaceAt(p[0], p[1])).toBe('paved');
+    expect(w.groundHeight(p[0], p[1])).toBeCloseTo(-3, 6);
+    // off the runway the same terrain is open water at the sea surface
+    const q = w.frame.geodeticToNED(37.6100, -122.3585, 0);
+    expect(w.groundHeight(q[0], q[1])).toBeCloseTo(w.seaLevelUp(q[0], q[1]), 6);
+  });
+
   it('falls back to the spawn elevation before terrain loads', () => {
     const w = new World(null, nav, null, 37.613538, -122.35716);
     w.setOrigin(37.613538, -122.35716, 4);

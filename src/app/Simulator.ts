@@ -440,7 +440,7 @@ export class Simulator {
     const L = this.sky.lighting;
     this.ambient.copy(L.skyColorZenith).multiplyScalar(L.ambientIntensity);
     this.terrain?.setSun(L.sunDirThree, L.sunColor, L.sunIntensity, this.ambient);
-    this.terrain?.setFog(L.fogColor, L.fogDensity, L.fogHeightFalloff);
+    this.terrain?.setFog(L.fogColor, L.fogDensity, L.fogHeightFalloff, L.sunGlowColor);
     let tn = performance.now(); this.mark('sky', tn - tm); tm = tn;
     this.world.update(dt, camPos, this.cameras.camera, s.geo, this.v3, this.sky.sun.elevationRad);
     this.plugins.scenery?.update(dt, camPos, this.cameras.camera, this.sky.sun.elevationRad);
