@@ -48,7 +48,10 @@ export function scoreLanding(td: TouchdownRecord, rollout: RolloutRecord, rwy: R
   const zone = 1 - clamp(Math.abs(td.alongTrackM - rwy.aimPointM) / 300, 0, 1);
   const remaining = Math.max(rwy.lengthM - td.alongTrackM, 1);
   const stop = rollout.stopped ? 1 - clamp(rollout.stopDistanceM / remaining, 0, 1) : 0;
-  const crashed = vsFpm < -1200 || td.offRunway || td.peakG > 3.8;
+  // Structural failure is the flight model's call (gear collapse at ~1000-1100 fpm raises
+  // aircraft:crash before scoring). Peak g at the CG is not a crash criterion: a firm 600 fpm
+  // arrival legitimately peaks at ~5 g on the C172's stiff spring-steel legs.
+  const crashed = vsFpm < -1200 || td.offRunway;
   const raw = 0.3 * centre + 0.35 * smooth + 0.15 * zone + 0.2 * stop;
   const score = crashed ? 0 : Math.round(10000 * raw);
   const a = Math.abs(vsFpm);

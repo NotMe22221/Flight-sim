@@ -225,8 +225,10 @@ export interface AircraftConfig {
   gear: GearSpec[];
   controls: {
     elevator: { minDeg: number; maxDeg: number; tauS: number; rateDegPerS: number };
-    aileron: { upDeg: number; downDeg: number; tauS: number; rateDegPerS: number };
-    rudder: { maxDeg: number; tauS: number; rateDegPerS: number };
+    /** rigNorm: ground-adjusted rigging (bent tabs), as a fraction of full roll command; + = roll right */
+    aileron: { upDeg: number; downDeg: number; tauS: number; rateDegPerS: number; rigNorm?: number };
+    /** rigNorm: ground-adjustable rudder tab, as a fraction of full pedal; + = yaw right */
+    rudder: { maxDeg: number; tauS: number; rateDegPerS: number; rigNorm?: number };
     flaps: { detentsDeg: number[]; transitS: number[] };
     trim: { elevatorFraction: [number, number]; rateNormPerS: number };
     nosewheelSteerDeg: number;

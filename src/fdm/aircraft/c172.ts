@@ -222,8 +222,10 @@ export const C172S: AircraftConfig = {
   ],
   controls: {
     elevator: { minDeg: -28, maxDeg: 23, tauS: 0.06, rateDegPerS: 80 },
-    aileron: { upDeg: 20, downDeg: 15, tauS: 0.05, rateDegPerS: 100 },
-    rudder: { maxDeg: 16, tauS: 0.05, rateDegPerS: 100 },
+    // Rigged (as on the real aircraft, with bent tabs) so that 105 KCAS cruise is hands-off: wings
+    // level with the ball centred. Climb power still needs right rudder; idle needs a little left.
+    aileron: { upDeg: 20, downDeg: 15, tauS: 0.05, rateDegPerS: 100, rigNorm: 0.037 },
+    rudder: { maxDeg: 16, tauS: 0.05, rateDegPerS: 100, rigNorm: 0.027 },
     flaps: { detentsDeg: [0, 10, 20, 30], transitS: [2.9, 2.9, 2.9] },
     trim: { elevatorFraction: [0.43, 0.39], rateNormPerS: 0.15 },
     nosewheelSteerDeg: 10,

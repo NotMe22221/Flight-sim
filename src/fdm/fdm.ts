@@ -190,6 +190,18 @@ export class Fdm implements FlightModel {
   /** Clear a crash so the simulation can continue (e.g. "repair" in the UI); usually followed by reset(). */
   clearCrash(): void { this.crashed = false; this.crashReason = ''; this.state.crashed = false; }
 
+  /**
+   * Move every actuator (surfaces, flaps, trim tab) straight to the commanded position, skipping the
+   * actuator rate limits. Use after reset() and before trim() for an air spawn, so the trim solves
+   * for the configuration the flight starts in rather than a flap motor that has barely moved.
+   */
+  snapControls(inputs: ControlInputs): void {
+    const u = this.sanitizeInputs(inputs);
+    this.snapActuators(u);
+    this.lastInputs = { ...u, lights: { ...u.lights } };
+    this.updateOutputs();
+  }
+
   reset(spawn: SpawnState, env: Environment): void {
     this.env = env;
     const frame = this.frameFor(env);
@@ -284,7 +296,11 @@ export class Fdm implements FlightModel {
     const mixture = this.lastInputs.mixture > 0 ? this.lastInputs.mixture : 1;
     const ctl: PropulsionControls = { throttle: 0.6, mixture, magnetos: 3, starter: false, fuelAvailable: this.totalFuel() > 0 };
     this.ctl.mixture = mixture; this.ctl.magnetos = 3; this.ctl.starter = false; this.ctl.fuelAvailable = ctl.fuelAvailable;
-    this.daL = this.daR = this.dr = 0;
+    // lateral controls at their rigged neutral (the trim is longitudinal only)
+    const rc = this.config.controls;
+    this.aileronCommand(rc.aileron.rigNorm ?? 0);
+    this.daL = this.ailCmdL; this.daR = this.ailCmdR;
+    this.dr = -(rc.rudder.rigNorm ?? 0) * rc.rudder.maxDeg * DEG;
     this.steer = 0; this.brakeL = this.brakeR = 0;
     let omega = 2300 * TWO_PI / 60, map = this.atm.pressurePa * 0.8;
     const x = [0.05, 0, 0.6];
@@ -490,9 +506,9 @@ export class Fdm implements FlightModel {
   private snapActuators(u: ControlInputs): void {
     const c = this.config.controls;
     this.de = this.elevatorCommand(u);
-    this.aileronCommand(u.roll);
+    this.aileronCommand(this.rollCommand(u));
     this.daL = this.ailCmdL; this.daR = this.ailCmdR;
-    this.dr = -clamp(u.yaw, -1, 1) * c.rudder.maxDeg * DEG;
+    this.dr = -this.yawCommand(u) * c.rudder.maxDeg * DEG;
     this.flapDeg = c.flaps.detentsDeg[clamp(Math.round(u.flapsIndex), 0, c.flaps.detentsDeg.length - 1)];
     this.trimDe = this.trimDeflection(u.pitchTrim);
   }
@@ -522,6 +538,16 @@ export class Fdm implements FlightModel {
     return clamp(stick + this.trimDeflection(u.pitchTrim), c.minDeg * DEG, c.maxDeg * DEG);
   }
 
+  /** Roll command at the ailerons: stick + aileron trim + ground rigging, −1..1. */
+  private rollCommand(u: ControlInputs): number {
+    return u.roll + 0.15 * clamp(u.aileronTrim, -1, 1) + (this.config.controls.aileron.rigNorm ?? 0);
+  }
+
+  /** Yaw command at the rudder: pedals + rudder trim + ground rigging, −1..1. */
+  private yawCommand(u: ControlInputs): number {
+    return clamp(u.yaw + 0.3 * clamp(u.rudderTrim, -1, 1) + (this.config.controls.rudder.rigNorm ?? 0), -1, 1);
+  }
+
   /** Differential aileron deflections for a roll command, into ailCmdL / ailCmdR (rad). */
   private aileronCommand(roll: number): void {
     const c = this.config.controls.aileron;
@@ -534,11 +560,10 @@ export class Fdm implements FlightModel {
     const c = this.config.controls;
     this.trimDe = this.trimDeflection(u.pitchTrim);
     this.de = lagRate(this.de, this.elevatorCommand(u), c.elevator.tauS, c.elevator.rateDegPerS * DEG, dt);
-    this.aileronCommand(u.roll + 0.15 * clamp(u.aileronTrim, -1, 1));
+    this.aileronCommand(this.rollCommand(u));
     this.daL = lagRate(this.daL, this.ailCmdL, c.aileron.tauS, c.aileron.rateDegPerS * DEG, dt);
     this.daR = lagRate(this.daR, this.ailCmdR, c.aileron.tauS, c.aileron.rateDegPerS * DEG, dt);
-    const yawCmd = clamp(u.yaw + 0.3 * clamp(u.rudderTrim, -1, 1), -1, 1);
-    this.dr = lagRate(this.dr, -yawCmd * c.rudder.maxDeg * DEG, c.rudder.tauS, c.rudder.rateDegPerS * DEG, dt);
+    this.dr = lagRate(this.dr, -this.yawCommand(u) * c.rudder.maxDeg * DEG, c.rudder.tauS, c.rudder.rateDegPerS * DEG, dt);
     // flap motor
     const det = c.flaps.detentsDeg;
     const target = det[clamp(Math.round(u.flapsIndex), 0, det.length - 1)];

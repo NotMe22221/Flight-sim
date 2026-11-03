@@ -74,6 +74,12 @@ describe('landingScore', () => {
     const off = scoreLanding({ verticalSpeedMs: -100 * FPM, peakG: 1.1, lateralOffsetM: 40, alongTrackM: 305, lateralDriftMs: 0, crabDeg: 0, offRunway: true, bounces: 0 }, { stopDistanceM: 500, stopped: true }, rwy);
     expect(off.score).toBe(0);
   });
+  it('a firm 650 fpm arrival peaking at 5 g is graded Hard, not a crash (gear collapse is the FDM\'s call)', () => {
+    const firm = scoreLanding({ verticalSpeedMs: -650 * FPM, peakG: 5.3, lateralOffsetM: 0, alongTrackM: 305, lateralDriftMs: 0, crabDeg: 0, offRunway: false, bounces: 0 }, { stopDistanceM: 500, stopped: true }, rwy);
+    expect(firm.crashed).toBe(false);
+    expect(firm.grade).toBe('Hard');
+    expect(firm.score).toBeGreaterThan(0);
+  });
 });
 
 /** Drive a synthetic approach and rollout on 28R. */

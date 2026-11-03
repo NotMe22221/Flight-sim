@@ -524,9 +524,8 @@ export class Simulator {
     this.fdm.clearCrash();
     this.fdm.reset(spawn, this.world.env);
     if (!spawn.onGround) {
-      // trim with the approach flaps set
-      const u = { ...c };
-      this.fdm.step(PHYSICS_DT, u, this.world.env);
+      // trim with the approach flaps already set (not a flap motor that has barely started moving)
+      this.fdm.snapControls(c);
       const cas = casFromTas(spawn.speedMs, this.fdm.state.atmosphere.pressurePa, this.fdm.state.atmosphere.speedOfSound);
       this.fdm.trim(cas, spawn.gammaRad ?? 0, this.world.env);
       const tr = this.fdm.trimResult;
