@@ -649,6 +649,25 @@ export class Simulator {
     await this.beginFlight(airport, end, { geo: { lat: pos.lat, lon: pos.lon, alt: elev }, headingRad: hdg * DEG, speedMs: 0, onGround: true, engineRunning: !opts.coldAndDark }, opts);
   }
 
+  /**
+   * Cold & dark at a parking stand: the nearest gate or apron stand from the OSM scenery (when the
+   * scenery plugin and its data are available), else the runway threshold as before.
+   */
+  async spawnAtParking(airport: Airport, opts: { fuelFraction?: number; payloadKg?: number } = {}): Promise<void> {
+    let spot: { lat: number; lon: number; headingDeg: number; name: string } | null = null;
+    const query = this.plugins.scenery?.parkingSpots;
+    if (query) {
+      try {
+        const timeout = new Promise<[]>((res) => setTimeout(() => res([]), 6000));
+        const spots = await Promise.race([query.call(this.plugins.scenery, airport.position.lat, airport.position.lon, 3000), timeout]);
+        spot = spots[0] ?? null;
+      } catch { spot = null; }
+    }
+    if (!spot) { await this.spawnAtRunway(airport, null, { ...opts, coldAndDark: true }); return; }
+    await this.beginFlight(airport, null, { geo: { lat: spot.lat, lon: spot.lon, alt: airport.elevationM }, headingRad: spot.headingDeg * DEG, speedMs: 0, onGround: true, engineRunning: false }, opts);
+    this.events.emit('ui:toast', { text: `Parked at ${spot.name || 'the apron'}, ${airport.icao}. Cold & dark: Ctrl+E to start.`, kind: 'info', durationMs: 6000 });
+  }
+
   /** Spawn established on final for a landing challenge. */
   async startChallenge(id: string): Promise<void> {
     const c = LANDING_CHALLENGES.find((x) => x.id === id);

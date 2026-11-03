@@ -42,7 +42,8 @@ export class SimUiHost implements UiHost {
 
   async spawn(choice: SpawnChoice, aircraftId: string, options: { fuelFraction: number; payloadKg: number }): Promise<void> {
     this.sim.setPanel(aircraftId === C172S_G1000.id ? 'g1000' : 'steam');
-    await this.sim.spawnAtRunway(choice.airport, choice.runwayEnd?.endIdent ?? null, { coldAndDark: choice.coldAndDark || !choice.runwayEnd, fuelFraction: options.fuelFraction, payloadKg: options.payloadKg });
+    if (!choice.runwayEnd) await this.sim.spawnAtParking(choice.airport, { fuelFraction: options.fuelFraction, payloadKg: options.payloadKg });
+    else await this.sim.spawnAtRunway(choice.airport, choice.runwayEnd.endIdent, { coldAndDark: choice.coldAndDark, fuelFraction: options.fuelFraction, payloadKg: options.payloadKg });
   }
 
   startChallenge(id: string): Promise<void> { return this.sim.startChallenge(id); }
@@ -92,6 +93,7 @@ export class SimUiHost implements UiHost {
     this.sim.terrain?.setImagery(g.imagery);
     this.sim.sky.clouds.group.visible = g.clouds;
     this.sim.setShadows(g.shadows);
+    this.sim.plugins.scenery?.setQuality?.(g.quality);
   }
 
   setAudio(a: AudioSettings): void { this.audioSettings = { ...a }; this.onAudioSettings?.(this.audioSettings); }
@@ -113,7 +115,8 @@ export class SimUiHost implements UiHost {
     // the terrain system reports its own (provider-specific) lines: use them instead of the generic one
     const terrain = this.sim.terrain?.attribution() ?? [];
     const base = terrain.length ? CREDITS.filter((c) => !c.startsWith('Terrain:')) : CREDITS;
-    return [...base, ...terrain];
+    // OSM scenery: ODbL / OpenMapTiles / OpenFreeMap attribution when the plugin is loaded
+    return [...base, ...terrain, ...(this.sim.plugins.scenery?.attribution?.() ?? [])];
   }
 
   captureInput(captured: boolean): void { this.sim.input.setCaptured(captured); }
