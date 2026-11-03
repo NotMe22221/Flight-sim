@@ -491,7 +491,12 @@ export class Simulator {
 
     const snap = this.refreshSnapshot();
     // only the panel on display is stepped and redrawn (each has its own instrument model)
-    if (this.panelVariant === 'steam') { if (this.steam.update(snap, dt)) this.steamTex.needsUpdate = true; }
+    if (this.panelVariant === 'steam') {
+      // the steam panel's COM1 windows show the radio stack ATC uses (the G1000 syncs its own box)
+      const com = this.radios.state.com1, box = this.steam.com1;
+      box.activeKHz = Math.round(com.activeMHz * 1000); box.standbyKHz = Math.round(com.standbyMHz * 1000);
+      if (this.steam.update(snap, dt)) this.steamTex.needsUpdate = true;
+    }
     else if (this.plugins.g1000?.update(snap, dt) && this.g1000Tex) this.g1000Tex.needsUpdate = true;
     this.plugins.hud?.update(snap, dt);
     this.plugins.audio?.update(dt, s, this.cameras.state, this.weather.state);

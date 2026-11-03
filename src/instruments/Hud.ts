@@ -12,7 +12,7 @@ import type { SimSnapshot } from '../core/types';
 import type { CanvasSurface, Ctx2D } from './canvas';
 import { get2d, releaseSurface } from './canvas';
 import { FLASH_PERIOD_S } from './g1000/afcsBox';
-import { drawAltitudeBlock, drawApModes, drawHeadingTape, drawSpeedBlock, createStripLayout, layoutStrip } from './hud/flightStrip';
+import { drawAltAlert, drawAltitudeBlock, drawApModes, drawHeadingTape, drawSpeedBlock, createStripLayout, layoutStrip } from './hud/flightStrip';
 import { hudScale } from './hud/primitives';
 import { drawControls, drawFlags, drawStatus } from './hud/statusStrip';
 import { HudSmoothing, createHudValues } from './hud/values';
@@ -57,6 +57,10 @@ export class Hud {
   private lastSig = -1;
   private redrawn = false;
   private disposed = false;
+  /** autopilot disconnect flash: last seen disconnectT, flash end time, 1 red / 2 amber */
+  private lastDisconnectT: number | undefined = undefined;
+  private apFlashUntil = 0;
+  private apFlashKind: 0 | 1 | 2 = 0;
 
   constructor(options: HudOptions = {}) {
     this.canvas = (options.createCanvas ?? createCanvas)(1, 1);
@@ -100,6 +104,7 @@ export class Hud {
     const d = Number.isFinite(dt) && dt > 0 ? Math.min(dt, 1) : 0;
     this.time += d;
     this.smoothing.update(s, d, this.values);
+    this.trackDisconnect(s);
     this.acc += d;
     const period = 1 / Math.max(this.hz, 1e-3);
     if (this.acc + 5e-4 < period) return;
@@ -114,8 +119,20 @@ export class Hud {
   /** Force a repaint on the next update. */
   invalidate(): void { this.acc = Infinity; this.lastSig = -1; }
 
-  /** Flight reset: snap the display lags. */
-  reset(): void { this.smoothing.reset(); this.invalidate(); }
+  /** Flight reset: snap the display lags; an old disconnect never flashes. */
+  reset(): void { this.smoothing.reset(); this.lastDisconnectT = undefined; this.apFlashKind = 0; this.invalidate(); }
+
+  /** Flash a red (autopilot let go) or amber (pilot) 'AP' for 5 s when the autopilot disconnects. */
+  private trackDisconnect(s: SimSnapshot): void {
+    const ap = s.autopilot, t = ap.disconnectT;
+    if (this.lastDisconnectT === undefined) { this.lastDisconnectT = t ?? NaN; return; } // first look: no flash
+    if (t !== undefined && t !== this.lastDisconnectT && !Number.isNaN(t)) {
+      this.apFlashKind = ap.disconnectReason === 'pilot' ? 2 : 1;
+      this.apFlashUntil = this.time + 5;
+    }
+    this.lastDisconnectT = t ?? NaN;
+    if (ap.engaged || this.time >= this.apFlashUntil) this.apFlashKind = 0;
+  }
 
   dispose(): void {
     if (this.disposed) return;
@@ -136,10 +153,11 @@ export class Hud {
       drawSpeedBlock(ctx, L, v);
       drawHeadingTape(ctx, L, v);
       drawAltitudeBlock(ctx, L, v);
-      drawApModes(ctx, L, s.autopilot);
+      drawAltAlert(ctx, L, s.autopilot.altAlert ?? 'none', this.blinkOn);
+      drawApModes(ctx, L, s.autopilot, this.apFlashKind, this.blinkOn);
       drawControls(ctx, w, h, k, v);
     }
-    drawFlags(ctx, w, L.apY + L.apH + 12 * k, k, v, this.blinkOn);
+    drawFlags(ctx, w, L.apY + L.apH + 12 * k, k, v, this.blinkOn, this.showStatus);
     if (this.showStatus) drawStatus(ctx, w, h, k, v.terrainReady, this.statusText, this.showData);
   }
 
@@ -154,6 +172,9 @@ export class Hud {
     h.bool(v.lowFuel).bool(v.crashed).bool(v.paused).bool(v.slew).num(v.terrainReady, 0.01);
     h.bool(ap.engaged).bool(ap.flightDirector).bool(ap.yawDamper).str(ap.lateral).str(ap.vertical).str(ap.armedLateral).str(ap.armedVertical);
     h.num(ap.altitudeTargetM, 1).num(ap.verticalSpeedTargetMs, 0.1).num(ap.iasTargetMs, 0.2);
+    // LVL, disconnect flash and altitude alerter (both flash with blinkOn)
+    const alert = ap.altAlert ?? 'none';
+    h.bool(ap.lvl === true).num(this.apFlashKind).bool((this.apFlashKind !== 0 || alert !== 'none') && this.blinkOn).str(alert).bool(this.showStatus);
     return h.value;
   }
 }

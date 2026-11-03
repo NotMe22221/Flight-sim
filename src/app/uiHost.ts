@@ -8,6 +8,7 @@ import { AIRCRAFT, C172S_G1000 } from './aircraftCatalog';
 import { fetchOpenMeteo, OPEN_METEO_ATTRIBUTION, weatherFromPreset } from '../sky';
 import type { AudioSettings, BindingInfo, GraphicsSettings, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
 import type { Simulator } from './Simulator';
+import { magneticDeclinationDeg } from '../geo/magvar';
 
 const CREDITS = [
   'Terrain: Mapzen/Tilezen Terrain Tiles on AWS Open Data — 3DEP, GMTED2010 and SRTM courtesy of the U.S. Geological Survey; ETOPO1 © NOAA; EU-DEM produced using Copernicus data; © offene Daten Österreichs – DGM; © Kartverket; LINZ; Geoscience Australia; INEGI; ArcticDEM (NSF).',
@@ -52,6 +53,9 @@ export class SimUiHost implements UiHost {
     this.sim.weather.setState(w, this.sim.inFlight && !opts?.immediate ? 30 : 0);
     this.sim.events.emit('weather:changed', { state: this.sim.weather.state });
   }
+
+  /** Magnetic variation (east +) for showing runway headings and bearings in °M, as MSFS does. */
+  magneticVariationDeg(lat: number, lon: number): number { return magneticDeclinationDeg(lat, lon, 0, this.sim.time.utcMs); }
 
   /** COM1 frequencies for the ATC panel header. */
   comRadio(): { activeMHz: number; standbyMHz: number } | null {

@@ -73,7 +73,8 @@ function flag(ctx: Ctx2D, cx: number, yTop: number, k: number, n: number, text: 
  * Centre flags under the strip. `blinkOn` drives the flashing of the STALL flag. Returns the
  * number of flags drawn.
  */
-export function drawFlags(ctx: Ctx2D, widthCss: number, yTop: number, k: number, v: HudValues, blinkOn: boolean): number {
+/** `modeFlags` = false leaves PAUSED / SLEW to a UI that shows them itself. */
+export function drawFlags(ctx: Ctx2D, widthCss: number, yTop: number, k: number, v: HudValues, blinkOn: boolean, modeFlags = true): number {
   const cx = widthCss / 2;
   let n = 0;
   if (v.crashed) n = flag(ctx, cx, yTop, k, n, 'CRASHED', C.red);
@@ -83,8 +84,8 @@ export function drawFlags(ctx: Ctx2D, widthCss: number, yTop: number, k: number,
   if (v.flapOverspeed) n = flag(ctx, cx, yTop, k, n, 'FLAP SPEED', C.amber, '#111');
   if (v.gearOverspeed) n = flag(ctx, cx, yTop, k, n, 'GEAR SPEED', C.amber, '#111');
   if (v.lowFuel) n = flag(ctx, cx, yTop, k, n, 'LOW FUEL', C.amber, '#111');
-  if (v.paused) n = flag(ctx, cx, yTop, k, n, 'PAUSED', C.panelStrong);
-  if (v.slew) n = flag(ctx, cx, yTop, k, n, 'SLEW', C.panelStrong);
+  if (modeFlags && v.paused) n = flag(ctx, cx, yTop, k, n, 'PAUSED', C.panelStrong);
+  if (modeFlags && v.slew) n = flag(ctx, cx, yTop, k, n, 'SLEW', C.panelStrong);
   return n;
 }
 

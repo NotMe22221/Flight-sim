@@ -140,8 +140,13 @@ export class AudioSystem implements AudioMixer {
   updateSnapshot(dt: number, snap: SimSnapshot): void {
     this.setControls(snap.inputs);
     this.graph.setMuted(snap.paused);
+    // altitude alerter chime when the autopilot's alerter starts (approaching or deviating)
+    const aa = snap.autopilot?.altAlert ?? 'none';
+    if (aa !== this.lastAltAlert && aa !== 'none') this.altitudeAlert();
+    this.lastAltAlert = aa;
     this.update(dt, snap.aircraft, snap.camera, snap.weather);
   }
+  private lastAltAlert: 'none' | 'approach' | 'deviation' = 'none';
 
   /** Master volume, linear 0..2 (default 0.5 ≈ −6 dBFS). */
   setMasterVolume(v: number): void { this.graph.setMasterVolume(v); }

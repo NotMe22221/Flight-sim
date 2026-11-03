@@ -134,8 +134,16 @@ export class CockpitInteraction {
     return null;
   }
 
+  /** Only events aimed at the 3D view: UI panels floating over the instrument panel keep theirs. */
+  private onCanvas(e: Event): boolean {
+    if (e.target === this.sim.gfx.renderer.domElement) return true;
+    if (this.hover || this.glassTip) { this.hover = null; this.clearGlass(); this.tip.style.display = 'none'; }
+    return false;
+  }
+
   private readonly onMove = (e: PointerEvent): void => {
     this.lastMove = { x: e.clientX, y: e.clientY, valid: true };
+    if (!this.onCanvas(e)) return;
     const p = this.glass();
     if (p) {
       const uv = this.glassUv(e.clientX, e.clientY);
@@ -151,6 +159,7 @@ export class CockpitInteraction {
   };
 
   private readonly onWheel = (e: WheelEvent): void => {
+    if (!this.onCanvas(e)) return;
     const p = this.glass();
     if (p) {
       const uv = this.glassUv(e.clientX, e.clientY);
@@ -171,6 +180,7 @@ export class CockpitInteraction {
   };
 
   private readonly onClick = (e: MouseEvent): void => {
+    if (!this.onCanvas(e)) return;
     const p = this.glass();
     if (p) {
       const uv = this.glassUv(e.clientX, e.clientY);

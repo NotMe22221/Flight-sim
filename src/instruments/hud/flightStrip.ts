@@ -54,6 +54,18 @@ export function drawSpeedBlock(ctx: Ctx2D, L: StripLayout, v: HudValues): void {
   value(ctx, ints.get(v.gsKt), x + w - 34 * k, y + h - 10 * k, 13 * k, C.text);
 }
 
+/**
+ * Altitude alerter on the altitude block's label: black on cyan while approaching the selected
+ * altitude, amber on a deviation after capture (flashing).
+ */
+export function drawAltAlert(ctx: Ctx2D, L: StripLayout, alert: 'none' | 'approach' | 'deviation', blinkOn: boolean): void {
+  if (alert === 'none' || !blinkOn) return;
+  const { k, y, altX: x } = L;
+  ctx.fillStyle = alert === 'approach' ? C.cyan : C.amber;
+  ctx.fillRect(x + 6 * k, y + 4 * k, 30 * k, 16 * k);
+  label(ctx, 'ALT', x + 10 * k, y + 12 * k, 12 * k, '#111');
+}
+
 /** Altitude block: indicated altitude large, vertical speed and (low) AGL below. */
 export function drawAltitudeBlock(ctx: Ctx2D, L: StripLayout, v: HudValues): void {
   const { k, y, h, altX: x, altW: w } = L;
@@ -122,13 +134,27 @@ const TENS: string[] = [];
 for (let i = 0; i < 36; i++) TENS.push(String(i));
 
 /** Autopilot mode line under the strip; hidden while both AP and FD are off. */
-export function drawApModes(ctx: Ctx2D, L: StripLayout, ap: AutopilotState): void {
-  if (!ap.engaged && !ap.flightDirector) return;
+/**
+ * Autopilot mode line (GFC 700 order: AP/FD, YD, lateral, armed lateral, vertical, reference, armed vertical).
+ * `flash` = 1 red / 2 amber flashes 'AP' after a disconnect (autopilot let go / pilot disconnected);
+ * LVL recovery shows 'LVL' in both mode fields.
+ */
+export function drawApModes(ctx: Ctx2D, L: StripLayout, ap: AutopilotState, flash: 0 | 1 | 2 = 0, blinkOn = true): void {
+  if (!ap.engaged && !ap.flightDirector && !flash) return;
   const { k, apY: y, apH: h } = L;
   const w = L.tapeW, x = L.tapeX, cy = y + h / 2;
   panel(ctx, x, y, w, h, k, C.panelStrong);
-  label(ctx, ap.engaged ? 'AP' : 'FD', x + 10 * k, cy, 14 * k, ap.engaged ? C.green : C.text, 'left', true);
+  const lvl = ap.lvl === true;
+  if (ap.engaged) label(ctx, 'AP', x + 10 * k, cy, 14 * k, C.green, 'left', true);
+  else if (flash) { if (blinkOn) label(ctx, 'AP', x + 10 * k, cy, 14 * k, flash === 1 ? C.red : C.amber, 'left', true); }
+  else label(ctx, 'FD', x + 10 * k, cy, 14 * k, C.text, 'left', true);
+  if (!ap.engaged && !ap.flightDirector) return; // only the disconnect flash
   if (ap.yawDamper) label(ctx, 'YD', x + 36 * k, cy, 12 * k, C.green, 'left', true);
+  if (lvl) {
+    label(ctx, 'LVL', x + 64 * k, cy, 14 * k, C.green, 'left', true);
+    label(ctx, 'LVL', x + 160 * k, cy, 14 * k, C.green, 'left', true);
+    return;
+  }
   if (ap.lateral !== 'OFF') label(ctx, ap.lateral, x + 64 * k, cy, 14 * k, C.green, 'left', true);
   if (ap.armedLateral && ap.armedLateral !== 'OFF') label(ctx, ap.armedLateral, x + 108 * k, cy, 12 * k, C.text);
   if (ap.vertical !== 'OFF') label(ctx, ap.vertical, x + 160 * k, cy, 14 * k, C.green, 'left', true);
