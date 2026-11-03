@@ -336,7 +336,8 @@ export class Simulator {
       case 'engineShutdown': this.input.controls.mixture = 0; this.input.controls.magnetos = 0; this.events.emit('engine:stopped', { reason: 'shutdown' }); break;
       case 'altimeterInc': this.fdm.setAltimeter(s.qnhSetPa + 0.01 * INHG); break;
       case 'altimeterDec': this.fdm.setAltimeter(s.qnhSetPa - 0.01 * INHG); break;
-      case 'altimeterStd': this.fdm.setAltimeter(101325); break;
+      // B (MSFS): set the altimeter to the local QNH; pressing it again when already set selects standard
+      case 'altimeterStd': this.fdm.setAltimeter(Math.abs(s.qnhSetPa - this.weather.state.qnhPa) < 30 ? 101325 : this.weather.state.qnhPa); break;
       case 'apToggle': ap.engage(!aps.engaged); break;
       case 'fdToggle': aps.flightDirector = !aps.flightDirector; break;
       case 'yawDamper': aps.yawDamper = !aps.yawDamper; break;
