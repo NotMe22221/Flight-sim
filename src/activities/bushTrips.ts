@@ -10,7 +10,7 @@ import { FT, NM } from '../core/units';
 import { greatCircleDistance, initialBearingDeg } from '../geo/wgs84';
 import type { ActivityDef, TimePreset } from './activityTypes';
 import type { Line, ObjectiveSpec } from './objectives';
-import { ftSpeech, ftText, nmText, spellRunway } from './speech';
+import { ftSpeech, ftText, nmText, spellNumber, spellRunway } from './speech';
 
 export interface TripAirport {
   icao: string;
@@ -249,8 +249,10 @@ export function bushLegActivity(trip: BushTrip, legIndex: number, opts: BushLegO
         id: 'depart',
         title: `Depart ${dep.icao} runway ${leg.departureRunway}`,
         instruction: {
-          text: `${leg.briefing.text} Depart runway ${leg.departureRunway}; suggested cruise ${ftText(leg.cruiseFt)}, ${nmText(Math.round(legRouteNm(trip, legIndex)))} via the landmarks. Highest terrain near the route: ${leg.terrain.name}, ${ftText(leg.terrain.ft)}.`,
-          speech: `${leg.briefing.speech ?? leg.briefing.text} Depart ${spellRunway(leg.departureRunway)}, and cruise at ${ftSpeech(leg.cruiseFt)}. The highest terrain near the route is ${leg.terrain.name}, at ${ftSpeech(leg.terrain.ft)}.`,
+          // a short opening line: the full briefing (about 400 characters, 25 s as a subtitle) stays in the
+          // Activities screen and the leg's description
+          text: `Leg ${legIndex + 1} to ${dest.name}: depart runway ${leg.departureRunway}, cruise ${ftText(leg.cruiseFt)}, ${nmText(Math.round(legRouteNm(trip, legIndex)))} via the landmarks. Highest terrain near the route: ${leg.terrain.name}, ${ftText(leg.terrain.ft)}.`,
+          speech: `Leg ${spellNumber(legIndex + 1)}, to ${dest.name.replace(/ \(.*\)$/, '')}. Depart ${spellRunway(leg.departureRunway)}, and cruise at ${ftSpeech(leg.cruiseFt)}. The highest terrain near the route is ${leg.terrain.name}, at ${ftSpeech(leg.terrain.ft)}.`,
         },
         // airborne and 200 ft up is a takeoff: a leg flown low (never 500 ft AGL) must not dead-end in this step
         objectives: [{ type: 'reach', label: `Take off from ${dep.icao} runway ${leg.departureRunway}`, all: [{ c: 'onGround', value: false }, { c: 'agl', minFt: 200 }], confirmS: 2, progress: { metric: 'aglFt', to: 200 } }],

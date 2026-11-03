@@ -327,7 +327,7 @@ describe('bush trip leg: wrong airport, restart and crash', () => {
     expect(runner.running).toBe(true);
     expect(runner.stepIndex).toBe(0);
     expect(rec.of('activity:finished').length).toBe(0);
-    expect(rec.of('activity:instruction').filter((x) => x.text.startsWith('Leg 1: Half Moon Bay to Reid-Hillview')).length).toBe(2);
+    expect(rec.of('activity:instruction').filter((x) => x.text.startsWith('Leg 1 to Reid-Hillview')).length).toBe(2);
     expect(host.calls.filter((c) => c === 'route 4').length).toBe(2); // the reset cleared the flight plan: reloaded
 
     // a crash ends it: not completed, the next leg stays locked, the attempt is counted once
@@ -354,13 +354,16 @@ describe('bush trip leg: wrong airport, restart and crash', () => {
     expect(runner.result?.reason).toBe('Flight changed');
   });
 
-  it('builds the leg activity with fuel carried over and the briefing in the first instruction', () => {
+  it('builds the leg activity with fuel carried over and a short opening line (the briefing stays in the description)', () => {
     const def = bushLegActivity(PACIFIC_COAST, 1, { fuelFraction: 0.62 });
     expect(def.setup).toMatchObject({ spawn: 'runway', icao: 'KRHV', runway: '31R', fuelFraction: 0.62, weather: 'high-level' });
     expect(def.trip).toEqual({ tripId: 'pacific-coast', legIndex: 1 });
     expect(def.steps.map((s) => s.id)).toEqual(['depart', 'enroute']);
     expect(def.steps[0].instruction.text).toContain('Highest terrain near the route: Loma Prieta, 3,786 ft.');
     expect(def.steps[0].instruction.speech).toContain('five thousand five hundred feet');
+    expect(def.steps[0].instruction.text.startsWith('Leg 2 to Watsonville')).toBe(true);
+    expect(def.steps[0].instruction.text.length).toBeLessThan(200); // a subtitle of a few seconds, not 25
+    expect(def.description).toBe(PACIFIC_COAST.legs[1].briefing.text);
     expect(bushLegActivity(PACIFIC_COAST, 0, { fuelFraction: 0 }).setup).toMatchObject({ fuelFraction: 0.05 });
     expect(() => bushLegActivity(PACIFIC_COAST, 99)).toThrow();
   });
