@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Airport, Geodetic, NavDatabase, Navaid, Runway } from '../core/types';
 import { LocalFrame } from '../geo/wgs84';
-import { AirportsLayer } from './AirportsLayer';
+import * as THREE from 'three';
+import { AirportsLayer, runwayBulge } from './AirportsLayer';
 
 const rw = (ident: string, a: Geodetic, b: Geodetic, headingDeg: number, lengthM: number): Runway => ({
   ident, threshold: a, end: b, headingDeg, lengthM, widthM: 61, surface: 'asphalt', lighted: true, displacedThresholdM: 0,
@@ -50,6 +51,27 @@ describe('AirportsLayer (Node, no DOM)', () => {
     expect(seg.icao).toBe('KSFO');
     layer.dispose();
     expect(layer.isBuilt('KSFO')).toBe(false);
+  });
+
+  it('pavement faces up (not back-face culled) and follows the earth-curvature bulge mid-runway', () => {
+    const frame = new LocalFrame(37.613538, -122.35716, 4);
+    const layer = new AirportsLayer(frame, fakeNav);
+    layer.update(10, ksfo.position, [0, 0, 0], -0.2);
+    let slab: THREE.Mesh | undefined;
+    layer.group.traverse((o) => { if (o.name === 'runway:10L/28R') slab = o as THREE.Mesh; });
+    expect(slab).toBeDefined();
+    const geo = slab!.geometry;
+    const nrm = geo.getAttribute('normal');
+    for (let i = 0; i < nrm.count; i++) expect(nrm.getY(i)).toBeGreaterThan(0.99);
+    // 3618 m runway in segments of at most 250 m; the middle row sits ~0.26 m above the corner chord
+    const pos = geo.getAttribute('position');
+    const rows = pos.count / 2;
+    expect(rows - 1).toBeGreaterThanOrEqual(Math.ceil(3618 / 250));
+    const mid = Math.floor((rows - 1) / 2);
+    const t = mid / (rows - 1);
+    const chordY = pos.getY(0) + (pos.getY(pos.count - 2) - pos.getY(0)) * t;
+    expect(pos.getY(mid * 2) - chordY).toBeCloseTo(runwayBulge(3618, t), 3);
+    expect(runwayBulge(3618, 0.5)).toBeGreaterThan(0.25);
   });
 
   it('PAPI colours follow the aircraft glide angle', () => {

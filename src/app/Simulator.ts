@@ -169,7 +169,6 @@ export class Simulator {
   private readonly qThree = new THREE.Quaternion();
   private readonly v3: [number, number, number] = [0, 0, 0];
   private readonly tmpV = new THREE.Vector3();
-  private readonly ambient = new THREE.Color();
   readonly snapshot: SimSnapshot;
 
   constructor(readonly opts: SimulatorOptions) {
@@ -472,8 +471,8 @@ export class Simulator {
     this.sky.update({ time: this.time, aircraft: s, weather: this.weather.state, frame: this.world.frame.info }, camPos, dt);
     this.model.setSunElevation(this.sky.sun.elevationRad);
     const L = this.sky.lighting;
-    this.ambient.copy(L.skyColorZenith).multiplyScalar(L.ambientIntensity);
-    this.terrain?.setSun(L.sunDirThree, L.sunColor, L.sunIntensity, this.ambient);
+    // the sky's ambient irradiance is in the same light units as the terrain shading
+    this.terrain?.setSun(L.sunDirThree, L.sunColor, L.sunIntensity, L.ambientIrradiance);
     this.terrain?.setFog(L.fogColor, L.fogDensity, L.fogHeightFalloff, L.sunGlowColor);
     let tn = performance.now(); this.mark('sky', tn - tm); tm = tn;
     this.world.update(dt, camPos, this.cameras.camera, s.geo, this.v3, this.sky.sun.elevationRad);

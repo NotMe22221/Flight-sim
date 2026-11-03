@@ -36,6 +36,10 @@ interface AirportObjects {
 }
 
 const COLOR_WHITE = new THREE.Color(1, 0.98, 0.9);
+
+const EARTH_R = 6_371_000;
+/** Height of the earth's arc above the straight end-to-end chord at fraction t of a runway of length L (m). */
+export const runwayBulge = (lengthM: number, t: number): number => (lengthM * lengthM * t * (1 - t)) / (2 * EARTH_R);
 const COLOR_RED = new THREE.Color(1, 0.12, 0.08);
 const COLOR_GREEN = new THREE.Color(0.1, 1, 0.3);
 
@@ -57,7 +61,8 @@ export class AirportsLayer {
     this.opts = { ...DEFAULTS, ...options };
     this.group.name = 'airports';
     const asphaltTex = makeAsphaltTexture();
-    this.asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, color: 0x6a6a6a, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    // aged asphalt albedo ~0.10-0.15 (0x6a6a6a x texture rendered near-black at noon)
+    this.asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, color: 0x8a8a8a, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     this.markings = new THREE.MeshStandardMaterial({ color: 0xf2f2ea, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
     this.lightSprite = makeLightSprite();
     this.lightMaterial = new THREE.PointsMaterial({ size: 3.2, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true, alphaTest: 0.01 });
@@ -196,17 +201,36 @@ export class AirportsLayer {
     this.built.delete(icao);
   }
 
-  /** Pavement: a quad between the four corners (slope baked in), tiled asphalt texture. */
+  /**
+   * Pavement: a strip between the four corners (slope baked in) in segments of at most 250 m, each
+   * raised by the earth-curvature bulge of the arc over the end-to-end chord so long runways follow
+   * the curved, flattened terrain (a single quad sags 0.26 m mid-runway on a 3.6 km runway).
+   * Wound counter-clockwise seen from above (normals up).
+   */
   private buildSlab(g: RunwayGeometry, rw: Runway): THREE.Mesh {
     const [al, ar, br, bl] = g.corners;
-    const pos = new Float32Array([...al, ...ar, ...br, ...bl]);
+    const n = Math.max(1, Math.ceil(g.lengthM / 250));
     const repeatU = Math.max(1, Math.round(g.widthM / 12));
     const repeatV = Math.max(1, Math.round(g.lengthM / 12));
-    const uv = new Float32Array([0, 0, repeatU, 0, repeatU, repeatV, 0, repeatV]);
+    const pos = new Float32Array((n + 1) * 2 * 3), uv = new Float32Array((n + 1) * 2 * 2);
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, b = runwayBulge(g.lengthM, t);
+      for (let k = 0; k < 3; k++) {
+        pos[i * 6 + k] = al[k] + (bl[k] - al[k]) * t;
+        pos[i * 6 + 3 + k] = ar[k] + (br[k] - ar[k]) * t;
+      }
+      pos[i * 6 + 1] += b; pos[i * 6 + 4] += b;
+      uv[i * 4] = 0; uv[i * 4 + 1] = t * repeatV; uv[i * 4 + 2] = repeatU; uv[i * 4 + 3] = t * repeatV;
+    }
+    const idx: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const l0 = i * 2, r0 = l0 + 1, l1 = l0 + 2, r1 = l0 + 3;
+      idx.push(l0, r0, r1, l0, r1, l1);
+    }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    geo.setIndex([0, 2, 1, 0, 3, 2]);
+    geo.setIndex(idx);
     geo.computeVertexNormals();
     const mat = this.asphalt;
     const mesh = new THREE.Mesh(geo, rw.surface === 'grass' ? grassMaterial() : mat);
@@ -222,12 +246,17 @@ export class AirportsLayer {
     const lift = 0.03;
     const slopeAt = (t: number) => g.ends[0].pos[1] + (g.ends[1].pos[1] - g.ends[0].pos[1]) * t;
     const horiz = Math.hypot(g.ends[1].pos[0] - g.ends[0].pos[0], g.ends[1].pos[2] - g.ends[0].pos[2]);
-    // Quad in runway coordinates: s along from A (m), c across from centreline (m, + right of A→B travel)
+    // Quad in runway coordinates: s along from A (m), c across from centreline (m, + right of A→B travel);
+    // long quads are split into ≤ 250 m pieces that follow the pavement's curvature bulge
     const pushQuad = (s0: number, s1: number, c0: number, c1: number) => {
       const a = g.ends[0].pos;
-      const p = (s: number, c: number): Vec3 => [a[0] + g.along[0] * s + g.across[0] * c, slopeAt(s / horiz) + lift, a[2] + g.along[2] * s + g.across[2] * c];
-      const p0 = p(s0, c0), p1 = p(s0, c1), p2 = p(s1, c1), p3 = p(s1, c0);
-      quads.push(...p0, ...p1, ...p2, ...p0, ...p2, ...p3);
+      const p = (s: number, c: number): Vec3 => [a[0] + g.along[0] * s + g.across[0] * c, slopeAt(s / horiz) + runwayBulge(horiz, s / horiz) + lift, a[2] + g.along[2] * s + g.across[2] * c];
+      const pieces = Math.max(1, Math.ceil((s1 - s0) / 250));
+      for (let i = 0; i < pieces; i++) {
+        const sa = s0 + ((s1 - s0) * i) / pieces, sb = s0 + ((s1 - s0) * (i + 1)) / pieces;
+        const p0 = p(sa, c0), p1 = p(sa, c1), p2 = p(sb, c1), p3 = p(sb, c0);
+        quads.push(...p0, ...p1, ...p2, ...p0, ...p2, ...p3);
+      }
     };
     const W = g.widthM, L = horiz;
     // Edge stripes
