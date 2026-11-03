@@ -343,8 +343,8 @@ export function compileCondition(spec: ConditionSpec): Condition {
     case 'flaps':
       return new BandCondition(spec, (x) => x.state.surfaces.flapDeg,
         spec.minDeg === undefined ? undefined : spec.minDeg - 0.5, spec.maxDeg === undefined ? undefined : spec.maxDeg + 0.5,
-        spec.minDeg === undefined ? null : line(`Flaps down to ${spec.minDeg}°`, `Set flaps ${spec.minDeg}.`),
-        spec.maxDeg === undefined ? null : spec.maxDeg <= 0.5 ? line('Flaps up', 'Flaps up.') : line(`Flaps up to ${spec.maxDeg}°`, `Raise the flaps to ${spec.maxDeg}.`), 5);
+        spec.minDeg === undefined ? null : line(`Flaps down to ${spec.minDeg}°`, `Set flaps ${spellNumber(spec.minDeg)}.`),
+        spec.maxDeg === undefined ? null : spec.maxDeg <= 0.5 ? line('Flaps up', 'Flaps up.') : line(`Flaps up to ${spec.maxDeg}°`, `Raise the flaps to ${spellNumber(spec.maxDeg)}.`), 5);
     case 'onGround':
       return new FlagCondition(spec, (x) => x.state.onGround === spec.value, null);
     case 'groundSpeed':
