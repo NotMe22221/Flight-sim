@@ -1,6 +1,8 @@
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import type { Airport, NavDatabase, Navaid, Runway, Vec3 } from '../core/types';
 import type { TerrainSystem } from '../terrain/TerrainSystem';
+import type { PavementArea } from './pavement';
 import { World } from './World';
 
 const rw: Runway = { ident: '10L/28R', threshold: { lat: 37.628742, lon: -122.39341, alt: 1.5 }, end: { lat: 37.613538, lon: -122.35716, alt: 4 }, headingDeg: 118, lengthM: 3618, widthM: 61, surface: 'asphalt', lighted: true, displacedThresholdM: 0 };
@@ -57,6 +59,38 @@ describe('World', () => {
     const w = new World(null, nav, null, 37.613538, -122.35716);
     w.setOrigin(37.613538, -122.35716, 4);
     expect(w.env.groundHeight(0, 0)).toBe(4);
+  });
+
+  it('spawn window: frames updated with the previous (far) aircraft position keep the spawn airport, its runways and its pavement flattened', () => {
+    // beginFlight awaits the terrain prefetch while the frame loop runs World.update with the aircraft
+    // state from before the spawn (the initial state, or the last flight hundreds of km away)
+    const near: NavDatabase = { ...nav, nearestAirports: (g) => (Math.abs(g.lat - 37.62) < 1 && Math.abs(g.lon + 122.37) < 1 ? [ksfo] : []) };
+    const pushed = { runways: [] as number[], pavement: [] as number[] };
+    let w!: World;
+    const terrain = fakeTerrain(() => w) as unknown as Record<string, unknown>;
+    terrain.setRunways = (s: unknown[]) => { pushed.runways.push(s.length); };
+    terrain.setPavement = (s: unknown[]) => { pushed.pavement.push(s.length); };
+    w = new World(terrain as unknown as TerrainSystem, near, null, 37.613538, -122.35716);
+    const d = 0.001, lat = 37.617, lon = -122.38; // an apron beside 10L/28R
+    const apron: PavementArea = { key: '14/1/1/a0', kind: 'apron', rings: [[lon - d, lat - d, lon + d, lat - d, lon + d, lat + d, lon - d, lat + d]], line: [], widthM: 0 };
+    w.setPavementSource(() => ({ pavementRevision: () => 1, pavementAreas: () => [apron] }));
+    // Simulator.beginFlight up to its prefetch
+    w.setOrigin(lat, lon, 4);
+    w.airports.ensureAirport(ksfo);
+    w.syncRunways();
+    w.syncPavement(true);
+    expect(pushed.runways.at(-1)).toBe(1);
+    expect(pushed.pavement.at(-1)).toBe(1);
+    // frames while the prefetch is pending (airport refresh every 4 s, flattening sync every 2 s)
+    const cam = new THREE.PerspectiveCamera();
+    for (let i = 0; i < 6; i++) w.update(1.5, new THREE.Vector3(0, 2, 0), cam, { lat: 0, lon: 0, alt: 0 }, [0, 0, 0], 0);
+    expect(w.airports.isBuilt('KSFO')).toBe(true);
+    expect(pushed.runways.at(-1)).toBe(1);
+    expect(pushed.pavement.at(-1)).toBe(1);
+    // once the aircraft has flown far from it, the spawn airport goes like any other
+    w.airports.ensureAirport({ ...ksfo, icao: 'KOTHER', position: { lat: 0.1, lon: 0.1, alt: 0 }, runways: [] });
+    for (let i = 0; i < 4; i++) w.update(1.5, new THREE.Vector3(0, 2, 0), cam, { lat: 0, lon: 0, alt: 0 }, [0, 0, 0], 0);
+    expect(w.airports.isBuilt('KSFO')).toBe(false);
   });
 
   it('rebases beyond 20 km, keeping the frame anchored under the aircraft', () => {

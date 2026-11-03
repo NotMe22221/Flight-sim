@@ -86,6 +86,8 @@ export class AirportsLayer {
   readonly group = new THREE.Group();
   private readonly opts: AirportsLayerOptions;
   private built = new Map<string, AirportObjects>();
+  /** the airport of the last `ensureAirport` (the spawn airport): never disposed by `refresh` */
+  private pinned: string | null = null;
   private sinceRefresh = Infinity;
   private asphalt: THREE.MeshStandardMaterial;
   private markings: THREE.MeshStandardMaterial;
@@ -129,8 +131,15 @@ export class AirportsLayer {
     for (const ap of airports) this.buildAirport(ap);
   }
 
-  /** Ensure a specific airport exists (e.g. the spawn airport) even before the first refresh. */
+  /**
+   * Ensure a specific airport exists (e.g. the spawn airport) even before the first refresh. It
+   * stays built until the next `ensureAirport`: while a spawn awaits its terrain the frame loop
+   * still refreshes around the previous aircraft position (the initial state, or the last flight
+   * far away), which used to dispose the spawn airport and with it its runway and pavement
+   * flattening, so the aircraft started on unflattened ground and the ground jumped seconds later.
+   */
   ensureAirport(airport: Airport): void {
+    this.pinned = airport.icao;
     if (!this.built.has(airport.icao)) this.buildAirport(airport);
   }
 
@@ -189,7 +198,7 @@ export class AirportsLayer {
     const near = this.nav.nearestAirports(aircraftGeo, this.opts.maxAirports, this.opts.buildRadiusNm).filter((a) => a.runways.length > 0);
     const keep = new Set(near.map((a) => a.icao));
     for (const [icao, obj] of this.built) {
-      if (keep.has(icao)) continue;
+      if (keep.has(icao) || icao === this.pinned) continue;
       const d = distanceNm(aircraftGeo, obj.airport.position);
       if (d > this.opts.disposeRadiusNm) this.disposeAirport(icao);
     }

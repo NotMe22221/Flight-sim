@@ -15,7 +15,7 @@ scene.add(world.group);
 
 // spawn: new origin, spawn airport, then flattening input before the terrain prefetch
 world.setOrigin(lat, lon, elevationM);
-world.airports.ensureAirport(airport);
+world.airports.ensureAirport(airport);          // stays built until the next ensureAirport
 world.syncRunways();
 world.syncPavement(true);                       // aprons / taxiways known near the spawn
 await terrain.prefetch(lat, lon, 2500);
@@ -33,7 +33,7 @@ world.update(dt, cameraPosThree, camera, aircraftGeo, aircraftPosThree, sunEleva
 | File | Role |
 |---|---|
 | `World.ts` | Frame, rebasing, `Environment` sources (`groundHeight` clamped to the sea surface except on runways, `surfaceAt`: paved on runways and on the flattened aprons / taxiways), runway + pavement sync to the terrain, `groundShift`. |
-| `AirportsLayer.ts`, `runwayGeometry.ts`, `runwayIdents.ts` | Runway slabs (0.12 m up, curved along their length in ≤ 50 m segments, 12 mm near the camera), markings, edge / threshold / approach lights, REIL, PAPI; airports built within 45 nm (max 14). `flatteningSegments()` and `builtAirports()` feed the terrain. |
+| `AirportsLayer.ts`, `runwayGeometry.ts`, `runwayIdents.ts` | Runway slabs (0.12 m up, curved along their length in ≤ 50 m segments, 12 mm near the camera), markings, edge / threshold / approach lights, REIL, PAPI; airports built within 45 nm (max 14), disposed beyond 60 nm, except the airport of the last `ensureAirport` (the spawn airport): while a spawn awaits its terrain prefetch the frame loop still refreshes around the previous aircraft position, which used to dispose the spawn airport and with it its runway and pavement flattening (the aircraft then started on unflattened ground and the ground jumped seconds later). `flatteningSegments()` and `builtAirports()` feed the terrain. Albedos for the sky's calibrated light: `ASPHALT_SRGB` (texture noise sRGB 44–68, linear ≈ 0.04: ≈ 70 / 255 sunlit at a clear noon, was ≈ 156), `RUNWAY_MARKING_COLOR` 0xc4c4bc for markings and designators (≈ 226, a little below white paint; 0xf2f2ea clipped), `TURF_COLOR` (grass runways). |
 | `pavement.ts` | Scenery pavement → terrain flattening specs: `PavementArea` (the scenery's published pieces), `PavementSource`, `airportPavementPlane`, `PavementRegistry`, `PavementIndex` (point-on-pavement lookup for tyre friction). |
 | `environment.ts`, `rebase.ts`, `LandingGuide.ts` | Environment object with fallbacks, rebase transform, landing path hints. |
 
@@ -89,7 +89,8 @@ reset the reference.
 ## Tests
 
 `npx vitest run src/world` — `World.test.ts` (sea clamp, water, paved runways, below-sea runways,
-fallback ground, rebase), `pavement.test.ts` (KSFO plane within 0.35 m of every threshold, a single
+fallback ground, rebase; spawn window: frames updated with the previous far-away aircraft position
+keep the spawn airport built and its runway and pavement flattening pushed, until the next spawn), `pavement.test.ts` (KSFO plane within 0.35 m of every threshold, a single
 runway contained exactly and level across, flat without runways, slope clamp; registry: duplicates
 across tiles collapse, areas far from every airport are ignored, one plane object per airport,
 no-op on unchanged input, accepted areas survive the scenery dropping them, go with their airport,
@@ -104,7 +105,9 @@ chunk with a shared uniform; slab / markings / designator end at 12 / 14 / 16 mm
 above the OSM taxiways' 10 mm; the drawn slab, interpolated between its per-vertex drops, is
 ≤ 13.5 mm up under the wheels anywhere along KSFO 28R for a cockpit or chase camera — with the former
 250 m segments it was 27 mm mid-segment; only with the camera near the ground), plus runway geometry,
-landing guide, rebase and environment tests. `src/app/groundShift.test.ts`
+landing guide, rebase and environment tests; `pavementAlbedo.test.ts` renders the asphalt, markings and
+turf through SkySystem's clear-noon light (asphalt 55–90 and neutral, markings 212–232 and below the
+paint, turf a mid green). `src/app/groundShift.test.ts`
 runs the C172 flight model on a World whose terrain jumps ±0.5 m under it: with the re-seat a
 parked and a taxiing aircraft keep their gear compression (no crash, |vz| < 0.2 m/s); without it
 the same reload collapses the gear or drops the aircraft.

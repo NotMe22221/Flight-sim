@@ -145,10 +145,15 @@ none).
 ### Lighting
 
 Diffuse scenery materials are `MeshStandardMaterial` / `MeshLambertMaterial` lit by the sky
-module's sun, hemisphere, ambient and fog. Two deliberate choices keep them consistent with
-the terrain shader: image-based lighting is off (`envMapIntensity` 0, 0.03 for glass) because
-the sky's PMREM is several times brighter than its sun light, and the hemisphere/ambient
-irradiance is desaturated to 35 % (`patchMaterial`). Night: windows are emissive (about a
+module's sun, environment map, hemisphere, ambient and fog. Two deliberate choices keep them
+consistent with the terrain shader: the image-based light is the skylight and nothing more
+(`ENV_DIFFUSE` 1, `ENV_SPECULAR` 0, `ENV_SPECULAR_GLASS` 0.03 on the windowed facades, applied with
+the sky's `applyIblScale` — three r187 ignores `envMapIntensity` for materials lit by
+`scene.environment`, so the former `envMapIntensity` 0 / 0.03 never applied), and the
+hemisphere/ambient irradiance is desaturated to 35 % (`patchMaterial`). Since the sky's light
+calibration the environment's diffuse light is the calibrated skylight (the hemisphere light is
+≈ 0 by day), so an IBL share of 0 would leave walls facing away from the sun black at noon; only
+the sky reflections (the old reason for 0) are off. Night: windows are emissive (about a
 quarter lit, warm tones, deterministic per window), streetlights / airport lights are additive
 point sprites (not tone-mapped so blue stays blue, a minimum pixel size so distant lights stay
 visible) and apron floodlight pools are additive decals; all fade with the sun from +3° to −4°.
@@ -245,7 +250,9 @@ lon/lat inside the tile, identical from parking-only builds; the manager publish
 streamed and parking-only tiles once each with a revision, and the world registry keeps it near
 KSFO without duplicates. `terrainSignal.test.ts`: with the change signal the probe grids stay idle,
 a changed z15 terrain tile marks exactly the scenery tile above it, whose buildings follow within
-a few frames, and a log that no longer reaches back marks every tile.
+a few frames, and a log that no longer reaches back marks every tile. `iblShare.test.ts`: the
+IBL shares (diffuse 1, reflections 0 / 0.03 on glass) on every lit scenery material, chained after
+the scenery patches (both run, both cache keys kept).
 
 ## Integration (app side)
 

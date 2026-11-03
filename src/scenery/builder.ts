@@ -35,6 +35,15 @@ export const POOL_LIFT_M = 0.4;
 export const DEFAULT_RUNWAY_HALF_WIDTH_M = 30;
 export const RUNWAY_MARGIN_M = 12;
 
+/**
+ * Pavement and taxiway-line albedos (sRGB 0–1; the vertex colours store them linear, × the pavement texture
+ * ≈ 0.77) for the sky's calibrated light (src/sky/README.md "Calibration": white paint ≈ 238 / 255 at a clear
+ * noon): weathered concrete aprons ≈ 105–125 sunlit at noon, a bit lighter than the runway asphalt; taxiway
+ * asphalt like the runway's (≈ 70); yellow lines a little below white paint. The earlier concrete (sRGB
+ * 0.5–0.56) and asphalt (0.33) were tuned against a ≈ 4 × too dim sun and rendered ≈ 174 and ≈ 102.
+ */
+export const PAVEMENT_SRGB = { concrete: 0.36, concreteSpread: 0.04, asphalt: 0.25, yellow: [0.72, 0.55, 0.1] } as const;
+
 const toLin = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 const lin8 = (c: number): number => Math.round(toLin(c) * 255);
 
@@ -164,12 +173,13 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
   const areaLift = liftFn(TAXIWAY_AREA_LIFT_M, NEAR_RUNWAY_LIFT_M + 0.002);
   const ribbonLift = liftFn(RIBBON_LIFT_M, NEAR_RUNWAY_LIFT_M + 0.004);
   const surfaces = new DrapeBuilder(10, 4096);
-  // weathered concrete (sRGB ≈ 0.5, slightly warm: the sky light adds blue) and dark asphalt
+  // weathered concrete (PAVEMENT_SRGB, slightly warm: the sky light adds blue) and dark asphalt
   const concrete = (k: number): DrapeStyle => {
-    const v = 0.5 + 0.06 * hash01(seed, k);
+    const v = PAVEMENT_SRGB.concrete + PAVEMENT_SRGB.concreteSpread * hash01(seed, k);
     return { r: lin8(v), g: lin8(v * 0.985), b: lin8(v * 0.95), lift: apronLift, drop: null, dropMode: 'all' };
   };
-  const asphalt = (lift: (x: number, z: number) => number): DrapeStyle => ({ r: lin8(0.33), g: lin8(0.33), b: lin8(0.33), lift, drop: null, dropMode: 'all' });
+  const a8 = lin8(PAVEMENT_SRGB.asphalt);
+  const asphalt = (lift: (x: number, z: number) => number): DrapeStyle => ({ r: a8, g: a8, b: a8, lift, drop: null, dropMode: 'all' });
   f.aprons.forEach((p, i) => drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, concrete(i)));
   for (const p of f.helipads) drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, { ...concrete(97), lift: areaLift });
   for (const p of f.taxiwayPolys) drapePolygon(surfaces, p.outer, p.holes, s.drapeCellM, asphalt(areaLift));
@@ -181,7 +191,8 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
   const markings = new DrapeBuilder(10, 1024);
   const apronDeep = apronInterior(f, s.ribbonStepM + 2);
   const markLift = (px: number, pz: number): number => (apronDeep(px, pz) ? apronLift(px, pz) : ribbonLift(px, pz)) + MARKING_LIFT_M;
-  const yellow: DrapeStyle = { r: lin8(0.86), g: lin8(0.66), b: lin8(0.12), lift: markLift, drop: nearRunway, dropMode: 'any' };
+  const [yr, yg, yb] = PAVEMENT_SRGB.yellow;
+  const yellow: DrapeStyle = { r: lin8(yr), g: lin8(yg), b: lin8(yb), lift: markLift, drop: nearRunway, dropMode: 'any' };
   for (const t of taxiLines) drapeRibbon(markings, t.line, 0.25, s.ribbonStepM, yellow);
   result.markings = markings.finish();
 
