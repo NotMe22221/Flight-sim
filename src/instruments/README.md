@@ -119,6 +119,28 @@ own `com1/com2` already changed), `comSwap`, `cdiSource` {source, navSource: 'gp
 FLC `apIasDec/Inc`), `baroStd`, `xpdr` {code, mode, ident}. NAV frequencies and courses are read
 back from `snapshot.nav1/nav2` every update (several detents within one frame accumulate).
 
+**Wiring** (`wiring.ts`, structural types only, no `src/app` import): `applyG1000Command(c, host)`
+applies one command to a `G1000Host` and returns false when the host has nothing to apply it to:
+
+| Host member | Simulator source | Commands |
+|---|---|---|
+| `navTuning` | `sim.radios.tuning` (kHz, OBS deg) | `navStandby`, `navSwap`, `navCourse` (and `navActive` without `tuneNavActive`) |
+| `tuneNavActive(i, kHz)` | `sim.radios.tuneNav` (immediate station lookup, ILS auto-course) | `navActive`, `navSwap` |
+| `com1` | `sim.radios.state.com1` (MHz) | `comStandby`/`comSwap` radio 1 (COM2 exists only on the G1000) |
+| `setNavSource(src)` | `sim.autopilot.setNavSource` | `cdiSource` |
+| `action(a)` | `sim.handleAction` | `action` (repeated `count` times) |
+| `setAltimeterStd()` | `sim.fdm.setAltimeter(101325)` | `baroStd` |
+| `transponder(code, mode, ident)` | ATC, optional | `xpdr` |
+
+`syncCom1(g.com1, sim.radios.state.com1)` copies the stack's COM1 (e.g. after a keyboard swap or
+an ATC handoff) into the G1000's COM1 box; call it before `g.update()`. `wiring.test.ts` runs the
+whole recipe against the real `RadioStack` and `GfcAutopilot`.
+
+**Lifecycle**: `nav` / `planner` may be omitted (or bound later with `setNavDatabase` /
+`setPlanner`): D→, NRST and PROC then open with empty lists and FPL shows no plan, nothing
+throws. `reset(snapshot)` (new flight, panel swap) closes every window and softkey sub-menu and
+returns the MFD to the MAP page.
+
 **Flight plan**: every edit goes through the `FlightPlanner` (`insert`, `remove`,
 `directToWaypoint`, `cancelDirectTo`, `activateLeg`, `setObs`, `clear`), so `snapshot.plan`, the
 autopilot's GPS/NAV source and the HSI follow on the next frame. Off-route D→ keeps the stored
@@ -211,6 +233,10 @@ model it does not own, so the lags are not advanced twice).
 * `g1000/pages.test.ts`: 20 page/dialog scenarios draw without throwing with balanced
   save/restore and show their title; stacked menus/confirms; dead bus; idle displays with a
   window open are not redrawn; softkey menu shapes and inert keys.
+* `g1000/wiring.test.ts`: `applyG1000Command` maps every command onto a host and reports missing
+  targets; end to end with the real `RadioStack` + `GfcAutopilot` + `FlightPlanner`: NAV knob
+  detents reach the standby frequency, COM wheel tuning, PROC ILS ACTIVATE tunes the localizer
+  and switches the autopilot to NAV1, CDI softkey → NAV2 → GPS, AFCS key and HDG wheel actions.
 * `g1000/G1000.test.ts`: first `update` returns true and a second within 33 ms returns false;
   ≤ 30 Hz cadence; unchanged frames skipped; forced refresh after `maxIdleS`; CDI cycling; MFD
   content (EIS, data fields, legs, airports, range); nav-database airports; zoom steps; track-up;
@@ -252,8 +278,6 @@ The layout was also checked visually by rendering the PFD, MFD and HUD in headle
 * Both G1000 screens are powered by the avionics bus (`avionicsPowered`). In the real 172S the
   PFD runs from the essential bus with the master switch alone; `ElectricalState` has no such bus.
 * The steam panel redraws (and its texture uploads) at `SteamPanel.hz` without change detection.
-* Flight reset: `src/app` does not yet call `SteamPanel.reset` / `G1000.reset` / `Hud.reset`, so
-  DG drift, the elapsed timer and AFCS flash history carry over to the next flight.
 * Time compression: the instruments get the frame `dt`, so DG drift and the hour meters advance
   at wall-clock rate, not at the compressed sim rate (they do stop while paused).
 * The AI's erection and roll-precession errors are always to the right (the spec uses |p|); the
