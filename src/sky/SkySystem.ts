@@ -25,7 +25,7 @@ import {
 } from './lighting';
 import { MoonDisc } from './moon';
 import { Precipitation, type PrecipitationOptions } from './precipitation';
-import { DEFAULT_PREETHAM, INSCATTER_KNEE, NIGHT_GLOW_GLSL, type PreethamParams, PreethamSky, SKY_RADIANCE_SCALE } from './preetham';
+import { DEFAULT_PREETHAM, INSCATTER_KNEE, NIGHT_GLOW_GLSL, type PreethamParams, PreethamSky, SKY_RADIANCE_SCALE, TWILIGHT_GLSL, skyExtraDayFade, twilightColors } from './preetham';
 import { defaultWeather } from './presets';
 import { SKY_UNIFORMS, type SkySharedUniforms, cloudShadowAt, createSkySharedUniforms } from './skyUniforms';
 import { StarField } from './stars';
@@ -201,6 +201,8 @@ export class SkySystem {
   private readonly tmpA: Vec3 = [0, 0, 0];
   private readonly tmpB: Vec3 = [0, 0, 0];
   private readonly tmpC: Vec3 = [0, 0, 0];
+  private readonly twZenith: Vec3 = [0, 0, 0];
+  private readonly twBand: Vec3 = [0, 0, 0];
   private readonly transmittance: Vec3 = [1, 1, 1];
   private readonly zenith: Vec3 = [0, 0, 0];
   private readonly horizon: Vec3 = [0, 0, 0];
@@ -401,20 +403,28 @@ export class SkySystem {
     this.params.turbidity = turbidity;
     this.params.mieCoefficient = mie;
     this.preetham.setSun(this.sunDir, this.params);
-    // night sky: airglow + light pollution near the horizon (fades in through nautical twilight, a little
-    // brighter under moonlight); the dome shader adds the same glow
-    const night = 1 - smoothstep(-14, -3, el);
+    // night sky: airglow + light pollution near the horizon (a little brighter under moonlight), and the
+    // twilight (deep-blue dome, warm band toward the sun) that carries the dome from Sky.js's sunset, whose sun
+    // term is cut off ≈ 1–2° below the horizon, down into the night glow. Both are composed with the sunlit
+    // in-scatter by a smooth maximum (no effect on a day sky) and fade out by day; keyed on the apparent
+    // elevation like the dome. The dome shader evaluates the same terms (patchSkyDome).
+    const elApp = sp.apparentElevation;
+    const dayFade = skyExtraDayFade(elApp);
     const moonUp = clamp(mp.illuminatedFraction, 0, 1) * smoothstep(-2, 10, mp.elevation);
-    const kh = night * (1 + 1.5 * moonUp), kz = night * (1 + 3 * moonUp);
+    const kh = dayFade * (1 + 1.5 * moonUp), kz = dayFade * (1 + 3 * moonUp);
     this.tmpA[0] = NIGHT_GLOW_HORIZON[0] * kh; this.tmpA[1] = NIGHT_GLOW_HORIZON[1] * kh; this.tmpA[2] = NIGHT_GLOW_HORIZON[2] * kh;
     this.tmpB[0] = NIGHT_GLOW_ZENITH[0] * kz; this.tmpB[1] = NIGHT_GLOW_ZENITH[1] * kz; this.tmpB[2] = NIGHT_GLOW_ZENITH[2] * kz;
     this.preetham.setNightGlow(this.tmpA, this.tmpB);
+    twilightColors(elApp, this.twZenith, this.twBand);
+    this.preetham.setTwilight(this.twZenith, this.twBand);
     const u = this.sky.material.uniforms;
     u.turbidity.value = turbidity;
     u.mieCoefficient.value = mie;
     (u.sunPosition.value as THREE.Vector3).set(this.sunDir[0], this.sunDir[1], this.sunDir[2]);
     (u.nightGlowHorizon?.value as THREE.Vector3 | undefined)?.set(this.tmpA[0], this.tmpA[1], this.tmpA[2]);
     (u.nightGlowZenith?.value as THREE.Vector3 | undefined)?.set(this.tmpB[0], this.tmpB[1], this.tmpB[2]);
+    (u.twilightZenith?.value as THREE.Vector3 | undefined)?.set(this.twZenith[0], this.twZenith[1], this.twZenith[2]);
+    (u.twilightBand?.value as THREE.Vector3 | undefined)?.set(this.twBand[0], this.twBand[1], this.twBand[2]);
     this.sky.position.copy(camPos);
 
     // ── CPU sky samples ──
@@ -747,12 +757,16 @@ export class SkySystem {
 
 /**
  * Look patches for the r187 `Sky` dome, mirrored by `PreethamSky` (its CPU twin): the in-scatter knee
- * (`INSCATTER_KNEE`, tames the white horizon band) and the night-sky glow (`NIGHT_GLOW_GLSL`; uniforms
- * `nightGlowHorizon` / `nightGlowZenith`, vec3 linear, added before tone mapping). Not mirrored (they never
- * light anything): `skySaturation` (1; the environment bake lowers it) and `skyFogMix` / `skyFogColor` (the
- * dome fading into the in-cloud fog). Idempotent; a step whose anchor is not found is skipped (the dome then
- * renders as plain Sky.js for that part).
+ * (`INSCATTER_KNEE`, tames the white horizon band), the night-sky glow (`NIGHT_GLOW_GLSL`; uniforms
+ * `nightGlowHorizon` / `nightGlowZenith`) and the twilight (`TWILIGHT_GLSL`; `twilightZenith` / `twilightBand`),
+ * vec3 linear, composed with the sunlit in-scatter (`Lin`) by the smooth maximum `skyLitMax` before tone
+ * mapping. Not mirrored (they never light anything): `skySaturation` (1; the environment bake lowers it) and
+ * `skyFogMix` / `skyFogColor` (the dome fading into the in-cloud fog). Idempotent; a step whose anchor is not
+ * found is skipped (the dome then renders as plain Sky.js for that part).
  */
+/** The dome's composition line (see `patchSkyDome`): twilight + night glow against the sunlit in-scatter. */
+export const SKY_LIT_MAX_LINE = 'texColor += skyLitMax( Lin * 0.04, skyNightGlow( direction ) + skyTwilight( direction, vSunDirection ) ) - Lin * 0.04;';
+
 export function patchSkyDome(material: THREE.ShaderMaterial): void {
   let fs = material.fragmentShader;
   if (fs.includes('// sky dome look patch')) return;
@@ -764,15 +778,18 @@ export function patchSkyDome(material: THREE.ShaderMaterial): void {
   if (fs.includes('gl_FragColor = vec4( texColor, 1.0 );') && fs.includes('void main()')) {
     material.uniforms.nightGlowHorizon = { value: new THREE.Vector3() };
     material.uniforms.nightGlowZenith = { value: new THREE.Vector3() };
+    material.uniforms.twilightZenith = { value: new THREE.Vector3() };
+    material.uniforms.twilightBand = { value: new THREE.Vector3() };
     // luminance-preserving saturation, 1 on screen; the environment bake lowers it to the skylight's
     material.uniforms.skySaturation = { value: 1 };
     // inside a cloud the dome fades to the in-cloud fog (linear, pre tone mapping like the dome)
     material.uniforms.skyFogMix = { value: 0 };
     material.uniforms.skyFogColor = { value: new THREE.Vector3() };
     fs = fs
-      .replace('void main()', `${NIGHT_GLOW_GLSL}\nuniform float skySaturation;\nuniform float skyFogMix;\nuniform vec3 skyFogColor;\n\t\tvoid main()`)
+      .replace('void main()', `${NIGHT_GLOW_GLSL}\n${TWILIGHT_GLSL}\nuniform float skySaturation;\nuniform float skyFogMix;\nuniform vec3 skyFogColor;\n\t\tvoid main()`)
       .replace('gl_FragColor = vec4( texColor, 1.0 );',
-        'texColor += skyNightGlow( direction );\n\t\t\ttexColor = mix( vec3( dot( texColor, vec3( 0.2126, 0.7152, 0.0722 ) ) ), texColor, skySaturation );\n\t\t\ttexColor = mix( texColor, skyFogColor, skyFogMix );\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );');
+        // texColor = (Lin + L0) · 0.04 + disc + floor: only the sunlit in-scatter takes part in the smooth maximum
+        `${SKY_LIT_MAX_LINE}\n\t\t\ttexColor = mix( vec3( dot( texColor, vec3( 0.2126, 0.7152, 0.0722 ) ) ), texColor, skySaturation );\n\t\t\ttexColor = mix( texColor, skyFogColor, skyFogMix );\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );`);
   }
   material.fragmentShader = fs;
   material.needsUpdate = true;

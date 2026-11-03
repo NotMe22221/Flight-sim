@@ -78,14 +78,37 @@ export const adaptExposure = (current: number, target: number, dt: number, tauS:
 export const SUN_INTENSITY_BASE = 12;
 
 /**
+ * Cloud-shadow floor: the share of the direct sun a point under thick cloud still gets (`uCloudShadowFloor`).
+ * 0.15 up to half cover (scattered cumulus: shadows read as shade, not night), falling to 0.05 as the sky
+ * closes: under a full deck the residual sun was 15 % of the clear sun (≈ 1.5 light units against a skylight
+ * of ≈ 2.6), so sunlit white paint read brighter than the deck behind it; physically it is ≈ 0.85 × the
+ * deck's radiance.
+ */
+export const CLOUD_SHADOW_FLOOR_SCATTERED = 0.15;
+export const CLOUD_SHADOW_FLOOR_OVERCAST = 0.05;
+export function cloudShadowFloor(cloudCover: number): number {
+  const cc = clamp(Number.isFinite(cloudCover) ? cloudCover : 0, 0, 1);
+  return CLOUD_SHADOW_FLOOR_SCATTERED + (CLOUD_SHADOW_FLOOR_OVERCAST - CLOUD_SHADOW_FLOOR_SCATTERED) * smoothstep(0.5, 1, cc);
+}
+
+/**
+ * Mean share of the direct sun under a cloud cover: the gaps (1 − cover) get all of it, the clouds the floor.
+ * = 1 − 0.85·cover up to half cover (the pre-review dimming), 0.05 under a full deck.
+ */
+export function cloudSunFactor(cloudCover: number): number {
+  const cc = clamp(Number.isFinite(cloudCover) ? cloudCover : 0, 0, 1);
+  return 1 - cc * (1 - cloudShadowFloor(cc));
+}
+
+/**
  * Sun DirectionalLight intensity. `transmittance` is the Preetham extinction toward the sun
  * (its luminance falls from ≈0.87 at the zenith to ≈0.04 at the horizon, which reproduces the
- * dimming of a low sun); `base` is `SUN_INTENSITY_BASE`.
+ * dimming of a low sun); `base` is `SUN_INTENSITY_BASE`; cloud cover dims it by `cloudSunFactor`.
  */
 export function sunLightIntensity(sunElDeg: number, transmittance: Vec3, cloudCover: number, base = SUN_INTENSITY_BASE): number {
   const disc = smoothstep(-1.5, 3, sunElDeg); // disc rising over the horizon
   const lum = clamp(luminance(transmittance), 0, 1);
-  return base * disc * lum * (1 - 0.85 * clamp(cloudCover, 0, 1));
+  return base * disc * lum * cloudSunFactor(cloudCover);
 }
 
 /** Sun light colour: transmittance normalised so the brightest channel is 1 (hue only; magnitude lives in the intensity). */

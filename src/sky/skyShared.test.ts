@@ -7,7 +7,7 @@ import { builtinHeightFogValues, installBuiltinHeightFog } from './builtinFog';
 import { luminance } from './lighting';
 import { weatherFromPreset } from './presets';
 import { cloudShadowAt, createSkySharedUniforms } from './skyUniforms';
-import { type SkySnapshot, SkySystem, patchSkyDome, patchSkyDepth } from './SkySystem';
+import { SKY_LIT_MAX_LINE, type SkySnapshot, SkySystem, patchSkyDome, patchSkyDepth } from './SkySystem';
 
 function stubRenderer(): THREE.WebGLRenderer {
   return {
@@ -138,7 +138,14 @@ describe('sky → other renderers', () => {
     patchSkyDome(dome.material);
     const fs = dome.material.fragmentShader;
     expect(fs).toContain('Lin *= 1.0 / ( 1.0 + dot( Lin');
-    expect(fs).toContain('texColor += skyNightGlow( direction );');
+    // the night glow and the twilight are composed with the sunlit in-scatter by the smooth maximum (twin: PreethamSky.radiance)
+    expect(fs).toContain(SKY_LIT_MAX_LINE);
+    expect(fs).toContain('vec3 skyTwilight( vec3 dir, vec3 sunDir )');
+    expect(dome.material.uniforms.twilightZenith).toBeDefined();
+    expect(dome.material.uniforms.twilightBand).toBeDefined();
+    // the line runs after Sky.js's texColor (with the knee-patched Lin) and before the output
+    expect(fs.indexOf(SKY_LIT_MAX_LINE)).toBeGreaterThan(fs.indexOf('vec3 texColor = ( Lin + L0 ) * 0.04'));
+    expect(fs.indexOf(SKY_LIT_MAX_LINE)).toBeLessThan(fs.indexOf('gl_FragColor = vec4( texColor, 1.0 );'));
     expect(fs.indexOf('uniform vec3 nightGlowHorizon')).toBeLessThan(fs.indexOf('void main()'));
     expect(dome.material.uniforms.nightGlowZenith).toBeDefined();
     patchSkyDome(dome.material);
