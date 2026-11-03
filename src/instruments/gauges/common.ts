@@ -27,7 +27,18 @@ export const GAUGE_COLORS = Object.freeze({
   glass: 'rgba(255,255,255,0.05)',
 });
 
-export const gaugeFont = (px: number, bold = false): string => `${bold ? 'bold ' : ''}${Math.max(1, Math.round(px))}px ${FONT_SANS}`;
+const gaugeFonts = new Map<number, string>();
+/** CSS font for a dial label; memoised per (rounded size, weight) so 30 Hz redraws build no strings. */
+export const gaugeFont = (px: number, bold = false): string => {
+  const size = Math.max(1, Math.round(px)), key = size * 2 + (bold ? 1 : 0);
+  let f = gaugeFonts.get(key);
+  if (f === undefined) {
+    if (gaugeFonts.size > 512) gaugeFonts.clear();
+    f = `${bold ? 'bold ' : ''}${size}px ${FONT_SANS}`;
+    gaugeFonts.set(key, f);
+  }
+  return f;
+};
 
 /** Bezel ring + black face. `r` is the outer radius. */
 export function drawBezel(ctx: Ctx2D, cx: number, cy: number, r: number): void {

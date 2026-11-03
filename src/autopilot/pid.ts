@@ -120,12 +120,10 @@ export class Pid {
     let dm: number;
     if (measurementRate !== undefined) dm = measurementRate;
     else dm = Number.isNaN(this.prevMeas) ? 0 : (measurement - this.prevMeas) / dt;
-    this.prevMeas = measurement;
     if (this.tauD > 0) {
       const a = Math.exp(-dt / this.tauD);
-      this.dFilt = a * this.dFilt + (1 - a) * dm;
-      dm = this.dFilt;
-    } else this.dFilt = dm;
+      dm = a * this.dFilt + (1 - a) * dm;
+    }
 
     const p = this.kp * gs * e;
     const d = -this.kd * gs * dm;
@@ -145,6 +143,11 @@ export class Pid {
     // 3. integral authority
     i = clamp(i, -this.iLim, this.iLim);
     const u = p + i + d;
+    // A non-finite input (NaN target, garbage air data) must not latch the integral or the
+    // derivative memory — clamp() passes NaN through. Hold the last output instead.
+    if (!Number.isFinite(u)) return this.output;
+    this.prevMeas = measurement;
+    this.dFilt = dm;
     this.integral = i;
     this.outputUnsat = u;
     this.output = clamp(u, this.outMin, this.outMax);

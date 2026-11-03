@@ -9,7 +9,7 @@ import { AsymmetricLag, Lag } from './filters';
 
 /** Engine-driven vacuum pump: ~5 inHg above 1 200 RPM, regulator limit 5.2 inHg. */
 export function suctionInHg(engineRunning: boolean, rpm: number): number {
-  if (!engineRunning || rpm <= 0) return 0;
+  if (!engineRunning || !(rpm > 0)) return 0;
   return clamp(5.0 * Math.min(1, rpm / 1200), 0, 5.2);
 }
 

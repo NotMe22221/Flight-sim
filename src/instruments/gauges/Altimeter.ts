@@ -4,9 +4,13 @@
  */
 import type { CanvasFactory, Ctx2D } from '../canvas';
 import { formatBaroHpa, formatBaroInHg } from '../format';
+import { LabelCache } from '../labelCache';
 import type { InstrumentReadings } from '../readings';
 import { Gauge } from './Gauge';
 import { GAUGE_COLORS, drawBezel, drawGlass, drawHub, drawNeedle, drawRadialLabel, drawText, drawTick, drawWindow, faceRadius, gaugeFont } from './common';
+
+const inHgLabels = new LabelCache(formatBaroInHg, 0.01);
+const hPaLabels = new LabelCache(formatBaroHpa);
 
 export class Altimeter extends Gauge {
   constructor(factory?: CanvasFactory) { super(factory); }
@@ -35,8 +39,8 @@ export class Altimeter extends Gauge {
     const fr = faceRadius(size / 2);
     const a = r.altimeter;
     const font = gaugeFont(fr * 0.12);
-    drawText(ctx, formatBaroInHg(a.settingInHg), fr * 0.51, 0, font, GAUGE_COLORS.white);
-    drawText(ctx, formatBaroHpa(a.settingHPa), -fr * 0.51, 0, font, GAUGE_COLORS.white);
+    drawText(ctx, inHgLabels.get(a.settingInHg), fr * 0.51, 0, font, GAUGE_COLORS.white);
+    drawText(ctx, hPaLabels.get(a.settingHPa), -fr * 0.51, 0, font, GAUGE_COLORS.white);
     const alt = a.indicatedFt;
     if (alt < 10000) {
       // striped low-altitude sector between the 1 and 2 (visible until 10 000 ft)

@@ -9,6 +9,7 @@ import { MagneticCompass } from './compass';
 import { G1000 } from './g1000/G1000';
 import { drawAttitude } from './g1000/attitude';
 import { drawEis } from './g1000/eis';
+import { drawVsi } from './g1000/vsi';
 import { DIGITS, drum } from './g1000/widgets';
 import { WhiskeyCompassGauge } from './gauges';
 import { InstrumentModel, createReadings } from './readings';
@@ -98,6 +99,37 @@ describe('instrument model frames and time base', () => {
     s.aircraft.rates[2] = psiDot * Math.cos(phi) * Math.cos(th);
     const r = new InstrumentModel().update(s, 1 / 60);
     expect(r.trends.headingDegPer6s).toBeCloseTo(18, 6);
+  });
+
+  it('the glass VSI (air-data computer) responds faster than the steam VSI', () => {
+    const s = makeSampleSnapshot({ vsFpm: 0 });
+    const m = new InstrumentModel();
+    m.update(s, 1 / 60);
+    s.aircraft.verticalSpeedMs = 1000 * 0.3048 / 60;
+    for (let i = 0; i < 120; i++) m.update(s, 1 / 60); // 2 s after a 1 000 fpm step
+    expect(m.readings.vsiFpm).toBeLessThan(600); // steam: τ 2.5 s (docs/research/05 §1.2)
+    expect(m.readings.adcVsFpm).toBeGreaterThan(800);
+    const mc = mockCanvas(1024, 768);
+    m.readings.vsiFpm = 0; // the PFD pointer must follow the ADC value, not the steam lag
+    drawVsi(mc.ctx2d, m.readings, s.autopilot);
+    expect(mc.ctx.texts().join('')).toContain('850');
+  });
+
+  it('recovers from a single non-finite FDM sample instead of latching NaN in its filters', () => {
+    const s = makeSampleSnapshot();
+    const m = new InstrumentModel();
+    m.update(s, 1 / 60);
+    const bad = makeSampleSnapshot();
+    const ac = bad.aircraft;
+    ac.aero.ias = NaN; ac.aero.cas = NaN; ac.aero.tas = NaN; ac.verticalSpeedMs = NaN; ac.euler[0] = NaN; ac.euler[1] = NaN;
+    ac.headingMagRad = NaN; ac.rates[0] = NaN; ac.rates[2] = NaN; ac.loadFactor[1] = NaN; ac.engine.rpm = NaN; ac.surfaces.flapDeg = NaN;
+    m.update(bad, 1 / 60);
+    for (let i = 0; i < 120; i++) m.update(s, 1 / 60);
+    const r = m.readings;
+    for (const v of [r.iasKt, r.vsiFpm, r.attitude.pitchDeg, r.attitude.rollDeg, r.heading.dgDeg, r.heading.compassDeg, r.turn.rateStd, r.turn.ballWidths, r.engine.rpm, r.flapsDeg, r.trends.iasKtPer6s]) {
+      expect(Number.isFinite(v)).toBe(true);
+    }
+    expect(r.iasKt).toBeCloseTo(110, 0);
   });
 
   it('the DG does not drift and the hour meters stop while the sim is paused', () => {

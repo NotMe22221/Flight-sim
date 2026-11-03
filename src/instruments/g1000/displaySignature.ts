@@ -26,7 +26,7 @@ export function pfdSignature(h: Signature, s: SimSnapshot, r: InstrumentReadings
   h.reset().bool(r.avionicsOn).bool(r.ahrs.valid).bool(r.onGround);
   h.num(r.ahrs.pitchDeg, 0.1).num(r.ahrs.rollDeg, 0.1).num(r.turn.ballWidths, 0.02);
   h.num(r.iasKt, 0.05).num(r.tasKt, 1).num(r.gsKt, 1).num(r.trends.iasKtPer6s, 0.5);
-  h.num(r.altimeter.indicatedFt, 0.5).num(r.altimeter.settingInHg, 0.005).num(r.trends.altFtPer6s, 5).num(r.vsiFpm, 5);
+  h.num(r.altimeter.indicatedFt, 0.5).num(r.altimeter.settingInHg, 0.005).num(r.trends.altFtPer6s, 5).num(r.adcVsFpm, 5);
   // magnetic variation converts the plan's true bearings for the nav status box
   h.num(r.heading.magDeg, 0.1).num(r.heading.bugDeg, 0.5).num(r.trends.headingDegPer6s, 0.2).num(r.heading.magVarDeg, 0.1);
   h.num(r.wind.fromMagDeg, 1).num(r.wind.speedKt, 1).num(r.wind.headwindKt, 1).num(r.wind.crosswindKt, 1);

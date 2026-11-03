@@ -14,7 +14,7 @@ export class GyroSpin {
   constructor(public spinUpS = 4, public spinDownS = 180) {}
   /** `power` is the fraction of rated drive (suction / 4.5 inHg, or 1 when the electrical bus is live). */
   step(power: number, dt: number): number {
-    const target = clamp(power, 0, 1);
+    const target = Number.isFinite(power) ? clamp(power, 0, 1) : this.spin;
     if (target > this.spin) this.spin = Math.min(target, this.spin + dt / this.spinUpS);
     else this.spin = Math.max(target, this.spin - dt / this.spinDownS);
     return this.spin;
@@ -50,9 +50,12 @@ export class AttitudeGyro {
   step(truePitchDeg: number, trueRollDeg: number, rollRateRadS: number, power: number, dt: number): void {
     const s = this.gyro.step(power, dt);
     const a = followAlpha(s, dt);
-    this.fRoll = wrap180(this.fRoll + deltaDeg(trueRollDeg, this.fRoll) * a);
-    this.fPitch += (truePitchDeg - this.fPitch) * a;
-    this.precessionDeg += this.cfg.precessionPerDeg * Math.abs(rollRateRadS * RAD) * dt;
+    // a non-finite sample is skipped (the gimbals hold) so it cannot latch NaN into the filter
+    if (Number.isFinite(trueRollDeg) && Number.isFinite(truePitchDeg)) {
+      this.fRoll = wrap180(this.fRoll + deltaDeg(trueRollDeg, this.fRoll) * a);
+      this.fPitch += (truePitchDeg - this.fPitch) * a;
+    }
+    if (Number.isFinite(rollRateRadS)) this.precessionDeg += this.cfg.precessionPerDeg * Math.abs(rollRateRadS * RAD) * dt;
     this.precessionDeg = Math.max(0, this.precessionDeg - (this.cfg.precessionDecayDegPerMin / 60) * dt);
     const e = s < 0.8 ? ((0.8 - s) / 0.8) ** 2 : 0;
     if (this.caged) { this.rollDeg = 0; this.pitchDeg = 0; return; }
@@ -95,7 +98,7 @@ export class HeadingGyro {
   step(referenceHeadingDeg: number, power: number, driftEnabled: boolean, dt: number): number {
     const s = this.gyro.step(power, dt);
     const a = followAlpha(s, dt);
-    this.filtered = wrap360(this.filtered + deltaDeg(referenceHeadingDeg, this.filtered) * a);
+    if (Number.isFinite(referenceHeadingDeg)) this.filtered = wrap360(this.filtered + deltaDeg(referenceHeadingDeg, this.filtered) * a);
     if (driftEnabled && s > 0.1 && dt > 0) {
       this.offsetDeg += (this.cfg.driftDegPerMin / 60) * dt;
       if (this.cfg.randomWalkDegPerSqrtMin > 0) this.offsetDeg += gaussian(this.rnd) * this.cfg.randomWalkDegPerSqrtMin * Math.sqrt(dt / 60);

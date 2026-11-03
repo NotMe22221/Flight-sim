@@ -56,6 +56,7 @@ export class MagneticCompass {
     // the "ANDS" error: accelerate → north, decelerate → south on E/W headings (north. hemisphere).
     const floatPitch = -clamp(longAccelG, -1, 1) * this.cfg.accelTiltRadPerG;
     const target = compassTargetDeg(headingMagDeg, floatRoll, floatPitch, this.cfg.dipDeg * DEG) + deviationDeg(headingMagDeg, this.cfg.deviationDeg);
+    if (!Number.isFinite(target)) return this.headingDeg; // skip a bad sample rather than latch NaN
     // Under-damped second-order card response, semi-implicit Euler with sub-stepping for stability.
     let remaining = Math.max(0, dt);
     const { omega, zeta } = this.cfg;

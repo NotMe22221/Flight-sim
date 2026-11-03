@@ -323,16 +323,17 @@ export class GfcAutopilot implements Autopilot {
     this.modeChanged();
   }
 
-  setHeadingBug(deg: number): void { this.state.headingBugDeg = wrap360(deg); }
-  setAltitudeTarget(m: number): void { this.state.altitudeTargetM = m; }
+  // Setters ignore non-finite values: a NaN target would otherwise run into the loop integrators.
+  setHeadingBug(deg: number): void { if (Number.isFinite(deg)) this.state.headingBugDeg = wrap360(deg); }
+  setAltitudeTarget(m: number): void { if (Number.isFinite(m)) this.state.altitudeTargetM = m; }
   setVerticalSpeedTarget(ms: number): void {
     const L = this.config.limits;
-    this.state.verticalSpeedTargetMs = clamp(ms, -L.vsSelectMaxMs, L.vsSelectMaxMs);
+    if (Number.isFinite(ms)) this.state.verticalSpeedTargetMs = clamp(ms, -L.vsSelectMaxMs, L.vsSelectMaxMs);
   }
-  setIasTarget(ms: number): void { this.state.iasTargetMs = Math.max(ms, 0); }
+  setIasTarget(ms: number): void { if (Number.isFinite(ms)) this.state.iasTargetMs = Math.max(ms, 0); }
   setPitchTarget(rad: number): void {
     const L = this.config.limits;
-    this.state.pitchTargetRad = clamp(rad, L.pitchMinRad, L.pitchMaxRad);
+    if (Number.isFinite(rad)) this.state.pitchTargetRad = clamp(rad, L.pitchMinRad, L.pitchMaxRad);
   }
   /** Select which receiver NAV mode follows. */
   setNavSource(src: NavSource): void { this.navSource = src; }
@@ -674,7 +675,7 @@ export class GfcAutopilot implements Autopilot {
     if (s.vertical === 'GS') {
       const r = this.radioFor(nav);
       // own timer: the lateral source-loss timer is reset every frame while the localizer is valid
-      this.gsLostTimer = r.valid && r.gsValid ? 0 : this.gsLostTimer + dt;
+      this.gsLostTimer = r.valid && r.gsValid && Number.isFinite(r.gsDeviation) ? 0 : this.gsLostTimer + dt;
       if (s.lateral !== 'APR' || this.gsLostTimer >= g.sourceLossGraceS) { this.selectPitchHold(); this.modeChanged(); }
     }
 
@@ -799,7 +800,8 @@ export class GfcAutopilot implements Autopilot {
         break;
       case 'GS': {
         const r = this.radioFor(nav);
-        const dots = cdiToDots(r.gsDeviation);
+        // no usable deviation (signal-loss grace period): fly the nominal path rate
+        const dots = r.gsValid && Number.isFinite(r.gsDeviation) ? cdiToDots(r.gsDeviation) : 0;
         const dist = r.dmeNm > 0 ? r.dmeNm * NM : g.fallbackDistanceM;
         this.gsIntegral = clamp(this.gsIntegral + g.gsKi * dots * dt, -g.gsIntegralMaxMs, g.gsIntegralMaxMs);
         this.vsCmd = glideslopeVs(ac.groundSpeedMs, dots, dist, this.gsIntegral, g, L.gsVsMinMs, L.gsVsMaxMs);
@@ -878,7 +880,7 @@ export class GfcAutopilot implements Autopilot {
       default:
         break;
     }
-    if (radio && radio.valid) {
+    if (radio && radio.valid && Number.isFinite(radio.cdi) && Number.isFinite(radio.obsDeg)) {
       s.kind = radio.isLocalizer ? 'loc' : 'vor';
       s.radio = radio;
     }

@@ -6,6 +6,7 @@
 import type { CanvasFactory, Ctx2D } from '../canvas';
 import { AMMETER, EGT, FUEL, FUEL_FLOW, MAP, OIL_PRESS, OIL_TEMP, SUCTION, TACH } from '../c172';
 import { formatHours } from '../format';
+import { LabelCache } from '../labelCache';
 import type { InstrumentReadings } from '../readings';
 import { linearAngleDeg } from '../scales';
 import { ArcGauge } from './ArcGauge';
@@ -13,6 +14,7 @@ import { Gauge } from './Gauge';
 import { GAUGE_COLORS, drawArcBand, drawBezel, drawGlass, drawHub, drawNeedle, drawRadialLabel, drawText, drawTick, drawWindow, faceRadius, gaugeFont } from './common';
 
 const SMALL = { startDeg: -60, sweepDeg: 120 } as const;
+const hourLabels = new LabelCache(formatHours, 0.1);
 
 export class Tachometer extends ArcGauge {
   constructor(factory?: CanvasFactory) {
@@ -26,7 +28,7 @@ export class Tachometer extends ArcGauge {
     drawWindow(ctx, size / 2 - fr * 0.32, size / 2 + fr * 0.12, fr * 0.64, fr * 0.2);
   }
   protected override paintBeforeNeedle(ctx: Ctx2D, _size: number, fr: number, r: InstrumentReadings): void {
-    drawText(ctx, formatHours(r.tachHours), 0, fr * 0.22, gaugeFont(fr * 0.15), GAUGE_COLORS.white);
+    drawText(ctx, hourLabels.get(r.tachHours), 0, fr * 0.22, gaugeFont(fr * 0.15), GAUGE_COLORS.white);
   }
 }
 

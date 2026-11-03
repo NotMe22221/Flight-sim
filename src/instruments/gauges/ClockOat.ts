@@ -4,9 +4,16 @@
 import type { CanvasFactory, Ctx2D } from '../canvas';
 import { fillTabular } from '../canvas';
 import { formatTimer, formatUtc } from '../format';
+import { LabelCache } from '../labelCache';
 import type { InstrumentReadings } from '../readings';
 import { Gauge } from './Gauge';
 import { GAUGE_COLORS, drawText, gaugeFont } from './common';
+
+// memoised readouts: the panel redraws at 30 Hz and the values change at most once a second
+const utcLabels = new LabelCache(formatUtc, 1000);
+const timerLabels = new LabelCache(formatTimer);
+const degC = new LabelCache((v) => `${v}°C`);
+const degF = new LabelCache((v) => `${v}°F`);
 
 export class ClockOat extends Gauge {
   override readonly aspect = 0.55;
@@ -26,10 +33,10 @@ export class ClockOat extends Gauge {
     const green = '#8ff08a';
     ctx.fillStyle = green; ctx.textBaseline = 'middle';
     ctx.font = gaugeFont(h * 0.28, true);
-    fillTabular(ctx, formatUtc(r.clock.utcMs), size * 0.42, -h / 2 + h * 0.3, 'right');
+    fillTabular(ctx, utcLabels.get(r.clock.utcMs), size * 0.42, -h / 2 + h * 0.3, 'right');
     ctx.font = gaugeFont(h * 0.2, true);
-    fillTabular(ctx, `${Math.round(r.oatC)}°C`, -size / 2 + size * 0.1, -h / 2 + h * 0.78, 'left');
-    fillTabular(ctx, `${Math.round(r.oatC * 1.8 + 32)}°F`, -size / 2 + size * 0.28, -h / 2 + h * 0.78, 'left');
-    fillTabular(ctx, formatTimer(r.clock.timerS), -size / 2 + size * 0.55, -h / 2 + h * 0.78, 'left');
+    fillTabular(ctx, degC.get(r.oatC), -size / 2 + size * 0.1, -h / 2 + h * 0.78, 'left');
+    fillTabular(ctx, degF.get(r.oatC * 1.8 + 32), -size / 2 + size * 0.28, -h / 2 + h * 0.78, 'left');
+    fillTabular(ctx, timerLabels.get(r.clock.timerS), -size / 2 + size * 0.55, -h / 2 + h * 0.78, 'left');
   }
 }

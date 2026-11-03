@@ -40,3 +40,50 @@ describe('review: vertical mode logic', () => {
     expect(gsT).toBeGreaterThan(altT); // and the glideslope (still armed) captured afterwards
   });
 });
+
+describe('review: NaN never reaches (or latches in) the servos', () => {
+  const finiteOut = (sim: Sim) =>
+    [sim.s.outRoll, sim.s.outPitch, sim.s.outYaw, sim.s.trimCommand, sim.last.roll, sim.last.pitch, sim.last.yaw, sim.last.pitchTrim].every(Number.isFinite);
+
+  it('non-finite targets from a setter or a written state field are ignored', () => {
+    const pokes: ((s: Sim) => void)[] = [
+      (s) => { s.ap.setHeadingBug(NaN); s.ap.setLateral('HDG'); },
+      (s) => { s.ap.setAltitudeTarget(NaN); s.ap.setVertical('ALT'); },
+      (s) => { s.ap.setVerticalSpeedTarget(NaN); s.ap.setVertical('VS'); },
+      (s) => { s.ap.setIasTarget(Number.POSITIVE_INFINITY); s.ap.setVertical('FLC'); },
+      (s) => { s.ap.setPitchTarget(NaN); s.s.pitchTargetRad = NaN; },
+      (s) => { s.ap.setLateral('HDG'); s.s.headingBugDeg = NaN; },
+    ];
+    for (const poke of pokes) {
+      const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 0 });
+      sim.ap.setYawDamper(true);
+      sim.ap.engage(true);
+      sim.run(1);
+      poke(sim);
+      sim.run(2);
+      expect(finiteOut(sim)).toBe(true);
+      expect(Number.isFinite(sim.ac.euler[0]) && Number.isFinite(sim.ac.euler[1])).toBe(true);
+    }
+  });
+
+  it('a frame of NaN nav deviation or air data does not poison the loops', () => {
+    const sim = new Sim({ speedMs: 100 * KT, altitudeM: 3000 * FT, headingRad: 0 });
+    const r = sim.nav1;
+    r.valid = true; r.isLocalizer = true; r.cdi = 0.1; r.obsDeg = 0; r.dmeNm = 5; r.gsValid = true; r.gsDeviation = 0.2;
+    sim.ap.setYawDamper(true);
+    sim.ap.engage(true);
+    sim.ap.setLateral('APR');
+    sim.run(2);
+    expect(sim.s.lateral).toBe('APR');
+    expect(sim.s.vertical).toBe('GS');
+    r.cdi = NaN; r.gsDeviation = NaN;
+    sim.frame();
+    r.cdi = 0.1; r.gsDeviation = 0.2;
+    // one frame of garbage air data from the flight model
+    sim.ap.update(1 / 120, { ...sim.ac, euler: [NaN, NaN, NaN], rates: [NaN, NaN, NaN], verticalSpeedMs: NaN, aero: { ...sim.ac.aero, ias: NaN, tas: NaN } }, { nav1: r, nav2: sim.nav2, plan: null });
+    sim.run(2);
+    expect(finiteOut(sim)).toBe(true);
+    expect(Number.isFinite(sim.ap.rollCommandRad) && Number.isFinite(sim.ap.pitchCommandRad)).toBe(true);
+    expect(sim.s.engaged).toBe(true);
+  });
+});

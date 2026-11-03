@@ -23,10 +23,11 @@ export function drawVsi(ctx: Ctx2D, r: InstrumentReadings, ap: AutopilotState): 
     if (major && v !== 0) text(ctx, thousandsDigitLabels.get(v), x + 18, y, condBold.get(16), G.white, 'left');
   }
   if (ap.vertical === 'VS') bug(ctx, x, clamp(mid - ap.verticalSpeedTargetMs * MS_TO_FPM * k, mid - 2000 * k, mid + 2000 * k), 7, 'left');
-  const vs = clamp(r.vsiFpm, -2000, 2000);
+  // the glass VSI is driven by the air-data computer, not the lagging steam-VSI model
+  const vs = clamp(r.adcVsFpm, -2000, 2000);
   const y = mid - vs * k;
   ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 10, y - 9); ctx.lineTo(x + w - 2, y - 9); ctx.lineTo(x + w - 2, y + 9); ctx.lineTo(x + 10, y + 9); ctx.closePath();
   ctx.fillStyle = G.black; ctx.fill(); ctx.strokeStyle = G.white; ctx.lineWidth = 1.5; ctx.stroke();
-  if (Math.abs(r.vsiFpm) > 100) num(ctx, intLabels.get(Math.round(r.vsiFpm / 50) * 50), x + w - 5, y, condBold.get(14), G.white, 'right');
+  if (Math.abs(r.adcVsFpm) > 100) num(ctx, intLabels.get(Math.round(r.adcVsFpm / 50) * 50), x + w - 5, y, condBold.get(14), G.white, 'right');
   void cond;
 }

@@ -57,10 +57,18 @@ export class ControlsTab implements SettingsTabView {
 
   private reload(): void {
     try { this.bindings = this.d.ctx.host.bindings(); } catch { this.bindings = []; }
-    this.render();
+    this.render(true);
   }
 
-  private render(): void {
+  /** `keepScroll`: a rebuild after a rebind/reset keeps the reader's place (a new filter starts at the top). */
+  private render(keepScroll = false): void {
+    const scroller = keepScroll ? this.el.closest<HTMLElement>('.settings-content') : null;
+    const top = scroller ? scroller.scrollTop : 0;
+    this.renderList();
+    if (scroller && scroller.scrollTop !== top) scroller.scrollTop = top;
+  }
+
+  private renderList(): void {
     clear(this.list);
     const n = conflictCount(this.bindings);
     this.conflicts.set(n ? `${n} conflicts` : '');
@@ -90,7 +98,7 @@ export class ControlsTab implements SettingsTabView {
   private rebind(action: SimAction): void {
     if (this.rebinding) return;
     this.rebinding = action;
-    this.render();
+    this.render(true);
     let p: Promise<BindingInfo | null>;
     try { p = this.d.ctx.host.rebind(action); } catch (e) { p = Promise.reject(e); }
     p.then((res) => {

@@ -35,6 +35,7 @@ export class Washout {
   constructor(public tau: number) {}
   reset(x0 = 0): void { this.value = 0; this.prev = x0; }
   update(x: number, dt: number): number {
+    if (!Number.isFinite(x)) return this.value; // a garbage sample must not reach the output
     if (Number.isNaN(this.prev)) { this.prev = x; this.value = 0; return 0; }
     if (this.tau <= 0 || !(dt > 0)) { this.prev = x; this.value = 0; return 0; }
     const a = Math.exp(-dt / this.tau);
@@ -51,7 +52,7 @@ export class Differentiator {
   constructor(public tau: number) {}
   reset(): void { this.value = 0; this.prev = Number.NaN; }
   update(x: number, dt: number): number {
-    if (!(dt > 0)) return this.value;
+    if (!(dt > 0) || !Number.isFinite(x)) return this.value; // NaN would latch in the filter state
     const raw = Number.isNaN(this.prev) ? 0 : (x - this.prev) / dt;
     this.prev = x;
     if (this.tau <= 0) { this.value = raw; return raw; }
@@ -66,8 +67,9 @@ export class RateLimiter {
   value: number;
   constructor(public ratePerS: number, initial = 0) { this.value = initial; }
   reset(value: number): void { this.value = value; }
+  /** A non-finite target is ignored (the stored value holds). */
   update(target: number, dt: number): number {
-    this.value = slew(this.value, target, this.ratePerS, dt);
+    if (Number.isFinite(target)) this.value = slew(this.value, target, this.ratePerS, dt);
     return this.value;
   }
 }

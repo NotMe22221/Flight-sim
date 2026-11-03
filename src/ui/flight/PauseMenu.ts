@@ -1,4 +1,4 @@
-/** Esc in flight: Resume, Restart at runway, World map, Settings, Main menu. */
+/** Esc in flight: Resume, Restart flight (same spawn: runway, parking or challenge final), World map, Settings, Main menu. */
 import { arrowNavigation, button, h } from '../dom';
 
 export interface PauseMenuActions { resume: () => void; restart: () => void; worldMap: () => void; settings: () => void; mainMenu: () => void }
@@ -17,7 +17,7 @@ export class PauseMenu {
       this.titleEl, this.noteEl,
       h('div', { class: 'menu-list' },
         this.first,
-        button('Restart at runway', a.restart, { icon: 'restart', cls: 'menu-btn' }),
+        button('Restart flight', a.restart, { icon: 'restart', cls: 'menu-btn', title: 'Start again from the same position (runway, parking or challenge final)' }),
         button('World map', a.worldMap, { icon: 'globe', cls: 'menu-btn' }),
         button('Settings', a.settings, { icon: 'settings', cls: 'menu-btn' }),
         button('Main menu', a.mainMenu, { icon: 'home', cls: 'menu-btn' })),

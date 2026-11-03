@@ -65,7 +65,8 @@ export interface InstrumentReadings {
     /** whiskey compass card */ compassDeg: number;
     /** truth values for glass displays (AHRS/magnetometer) */ magDeg: number; trueDeg: number; trackMagDeg: number; magVarDeg: number;
   };
-  vsiFpm: number;
+  /** steam VSI needle (τ ≈ 2.5 s lag) */ vsiFpm: number;
+  /** air-data computer vertical speed for the glass (G1000) VSI: much less lag than the steam instrument */ adcVsFpm: number;
   engine: { running: boolean; rpm: number; mapInHg: number; fuelFlowGph: number; oilTempF: number; oilPressPsi: number; egtF: number; chtF: number; pctPower: number };
   /** usable gallons [left, right] as the float gauges show them */
   fuelGal: [number, number];
@@ -87,7 +88,7 @@ export interface InstrumentReadings {
 }
 
 export interface InstrumentConfig {
-  asiTauS: number; altimeterTauS: number; vsiTauS: number; ballTauS: number; tcTauS: number;
+  asiTauS: number; altimeterTauS: number; vsiTauS: number; adcVsTauS: number; ballTauS: number; tcTauS: number;
   rpmTauS: number; mapTauS: number; fuelFlowTauS: number; egtTauS: number; oilTauS: number; oatTauS: number; flapsTauS: number;
   /** vacuum needed for full gyro speed */ minVacuumInHg: number;
   dgDriftDegPerMin: number; dgRandomWalkDegPerSqrtMin: number; dgSeed: number;
@@ -99,7 +100,7 @@ export interface InstrumentConfig {
 }
 
 export const defaultInstrumentConfig = (): InstrumentConfig => ({
-  asiTauS: 0.12, altimeterTauS: 0.1, vsiTauS: 2.5, ballTauS: 0.3, tcTauS: 1.0,
+  asiTauS: 0.12, altimeterTauS: 0.1, vsiTauS: 2.5, adcVsTauS: 1.0, ballTauS: 0.3, tcTauS: 1.0,
   rpmTauS: 0.15, mapTauS: 0.1, fuelFlowTauS: 1, egtTauS: 3, oilTauS: 2, oatTauS: 10, flapsTauS: 0.2,
   minVacuumInHg: 4.5,
   dgDriftDegPerMin: 0.25, dgRandomWalkDegPerSqrtMin: 0.3, dgSeed: 1234,
@@ -120,7 +121,7 @@ export function createReadings(): InstrumentReadings {
     altimeter: { indicatedFt: 0, pressureAltFt: 0, settingInHg: 29.92, settingHPa: 1013, modeCFt: 0 },
     turn: { rateStd: 0, ballWidths: 0, valid: false },
     heading: { dgDeg: 0, dgValid: false, bugDeg: 0, bugErrorDeg: 0, compassDeg: 0, magDeg: 0, trueDeg: 0, trackMagDeg: 0, magVarDeg: 0 },
-    vsiFpm: 0,
+    vsiFpm: 0, adcVsFpm: 0,
     engine: { running: false, rpm: 0, mapInHg: 29.92, fuelFlowGph: 0, oilTempF: 60, oilPressPsi: 0, egtF: 60, chtF: 60, pctPower: 0 },
     fuelGal: [0, 0], fuelTotalGal: 0,
     suctionInHg: 0, ampsA: 0, batteryAmpsA: 0, voltsV: 0, oatC: 15,
@@ -158,7 +159,7 @@ export class InstrumentModel {
   readonly oilFallback = new OilFallback();
   readonly hours = new HourMeters();
 
-  private readonly asi: Lag; private readonly alt: Lag; private readonly vsi: Lag; private readonly ball: Lag;
+  private readonly asi: Lag; private readonly alt: Lag; private readonly vsi: Lag; private readonly adcVs: Lag; private readonly ball: Lag;
   private readonly rpm: Lag; private readonly map: Lag; private readonly ff: Lag; private readonly egt: Lag; private readonly cht: Lag;
   private readonly oilT: Lag; private readonly oilP: Lag; private readonly oat: Lag; private readonly flaps: Lag;
   private readonly iasTrend: Derivative;
@@ -176,7 +177,7 @@ export class InstrumentModel {
     this.dg = new HeadingGyro({ driftDegPerMin: cfg.dgDriftDegPerMin, randomWalkDegPerSqrtMin: cfg.dgRandomWalkDegPerSqrtMin, seed: cfg.dgSeed });
     this.tc = new TurnGyro(cfg.tcTauS);
     this.compass = new MagneticCompass({ ...defaultCompassConfig(), dipDeg: cfg.compassDipDeg });
-    this.asi = new Lag(cfg.asiTauS); this.alt = new Lag(cfg.altimeterTauS); this.vsi = new Lag(cfg.vsiTauS); this.ball = new Lag(cfg.ballTauS);
+    this.asi = new Lag(cfg.asiTauS); this.alt = new Lag(cfg.altimeterTauS); this.vsi = new Lag(cfg.vsiTauS); this.adcVs = new Lag(cfg.adcVsTauS); this.ball = new Lag(cfg.ballTauS);
     this.rpm = new Lag(cfg.rpmTauS); this.map = new Lag(cfg.mapTauS, 29.92); this.ff = new Lag(cfg.fuelFlowTauS); this.egt = new Lag(cfg.egtTauS, 60); this.cht = new Lag(cfg.egtTauS, 60);
     this.oilT = new Lag(cfg.oilTauS, 60); this.oilP = new Lag(0.5); this.oat = new Lag(cfg.oatTauS, 15); this.flaps = new Lag(cfg.flapsTauS);
     this.iasTrend = new Derivative(cfg.trendTauS);
@@ -188,7 +189,7 @@ export class InstrumentModel {
     const ac = s.aircraft, running = ac.engine.running;
     const oatC = sane(ac.atmosphere.temperatureK, 1) ? ac.atmosphere.temperatureK - 273.15 : 15;
     const magDeg = wrap360(ac.headingMagRad * RAD);
-    this.asi.reset(ac.aero.ias * MS_TO_KT); this.vsi.reset(ac.verticalSpeedMs * MS_TO_FPM); this.ball.reset(0);
+    this.asi.reset(ac.aero.ias * MS_TO_KT); this.vsi.reset(ac.verticalSpeedMs * MS_TO_FPM); this.adcVs.reset(ac.verticalSpeedMs * MS_TO_FPM); this.ball.reset(0);
     this.alt.reset(indicatedAltitudeFt(this.staticPa(s), this.settingPa(s)));
     this.ai.reset(ac.euler[1] * RAD, ac.euler[0] * RAD, running ? 1 : 0);
     this.dg.reset(magDeg, running ? 1 : 0);
@@ -257,6 +258,7 @@ export class InstrumentModel {
     a.settingHPa = setting / 100;
     a.modeCFt = Math.round(a.pressureAltFt / 100) * 100;
     r.vsiFpm = this.vsi.step(ac.verticalSpeedMs * MS_TO_FPM, dt);
+    r.adcVsFpm = this.adcVs.step(ac.verticalSpeedMs * MS_TO_FPM, dt);
 
     // Processes that run on simulated time (DG drift, hour meters, annunciator hold timers) stop
     // while the sim is paused or replaying; display lags keep using `dt` so needles still follow a replay.

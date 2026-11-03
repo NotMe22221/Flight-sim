@@ -9,7 +9,9 @@ export class Lag {
   value: number;
   constructor(public tau: number, initial = 0) { this.value = initial; }
   step(target: number, dt: number): number {
-    if (this.tau <= 0 || dt <= 0) { if (this.tau <= 0) this.value = target; return this.value; }
+    if (!Number.isFinite(target)) return this.value; // hold through a bad sample instead of latching NaN
+    if (this.tau <= 0 || !Number.isFinite(this.value)) { this.value = target; return this.value; }
+    if (!(dt > 0)) return this.value;
     const a = 1 - Math.exp(-dt / this.tau);
     this.value += (target - this.value) * a;
     return this.value;
@@ -22,7 +24,9 @@ export class LagAngleDeg {
   value: number;
   constructor(public tau: number, initial = 0) { this.value = wrap360(initial); }
   step(targetDeg: number, dt: number): number {
-    if (this.tau <= 0 || dt <= 0) { if (this.tau <= 0) this.value = wrap360(targetDeg); return this.value; }
+    if (!Number.isFinite(targetDeg)) return this.value;
+    if (this.tau <= 0 || !Number.isFinite(this.value)) { this.value = wrap360(targetDeg); return this.value; }
+    if (!(dt > 0)) return this.value;
     const a = 1 - Math.exp(-dt / this.tau);
     this.value = wrap360(this.value + deltaDeg(targetDeg, this.value) * a);
     return this.value;
@@ -35,8 +39,10 @@ export class AsymmetricLag {
   value: number;
   constructor(public tauUp: number, public tauDown: number, initial = 0) { this.value = initial; }
   step(target: number, dt: number): number {
+    if (!Number.isFinite(target)) return this.value;
     const tau = target > this.value ? this.tauUp : this.tauDown;
-    if (tau <= 0 || dt <= 0) { if (tau <= 0) this.value = target; return this.value; }
+    if (tau <= 0 || !Number.isFinite(this.value)) { this.value = target; return this.value; }
+    if (!(dt > 0)) return this.value;
     this.value += (target - this.value) * (1 - Math.exp(-dt / tau));
     return this.value;
   }
@@ -50,7 +56,8 @@ export class Derivative {
   constructor(tau: number) { this.lag = new Lag(tau, 0); }
   /** Returns the filtered rate d(value)/dt. */
   step(value: number, dt: number): number {
-    if (Number.isNaN(this.last) || dt <= 0) { this.last = value; return this.lag.value; }
+    if (!Number.isFinite(value)) return this.lag.value;
+    if (!Number.isFinite(this.last) || !(dt > 0)) { this.last = value; return this.lag.value; }
     const raw = (value - this.last) / dt;
     this.last = value;
     return this.lag.step(raw, dt);

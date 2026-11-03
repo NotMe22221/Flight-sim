@@ -8,6 +8,17 @@ import { formatAltitude, formatComFrequency, formatHeadingNum, formatNavFrequenc
 import { M_TO_FT } from '../core/units';
 import type { AutopilotState, NavRadioState } from '../core/types';
 import { GAUGE_COLORS } from './gauges/common';
+import { LabelCache } from './labelCache';
+
+// memoised labels: the steam panel redraws the stack at 30 Hz
+const COM_LABEL = ['', 'COM1', 'COM2'];
+const NAV_LABEL = ['', 'NAV1', 'NAV2'];
+const comFreq = new LabelCache(formatComFrequency);
+const navFreq = new LabelCache(formatNavFrequency, 10);
+const squawkLabels = new LabelCache(formatSquawk);
+const flLabels = new LabelCache((v) => `FL${Math.max(0, v)}`);
+const altTargetLabels = new LabelCache((v) => formatAltitude(v, 100), 100);
+const hdgBugLabels = new LabelCache((v) => `HDG ${formatHeadingNum(v)}`);
 
 export interface ComState { activeKHz: number; standbyKHz: number }
 
@@ -30,16 +41,16 @@ export function drawNavCom(ctx: Ctx2D, x: number, y: number, w: number, nav: Nav
   unit(ctx, x, y, w, h);
   const px = h * 0.3;
   ctx.textBaseline = 'middle';
-  label(ctx, `COM${index}`, x + 10, y + h * 0.28, px * 0.55);
+  label(ctx, COM_LABEL[index], x + 10, y + h * 0.28, px * 0.55);
   ctx.font = monoBold.get(px); ctx.fillStyle = AMBER;
-  fillTabular(ctx, formatComFrequency(com.activeKHz), x + w * 0.5, y + h * 0.28, 'right');
+  fillTabular(ctx, comFreq.get(com.activeKHz), x + w * 0.5, y + h * 0.28, 'right');
   ctx.font = mono.get(px * 0.85); ctx.fillStyle = AMBER;
-  fillTabular(ctx, formatComFrequency(com.standbyKHz), x + w * 0.96, y + h * 0.28, 'right');
-  label(ctx, `NAV${index}`, x + 10, y + h * 0.72, px * 0.55);
+  fillTabular(ctx, comFreq.get(com.standbyKHz), x + w * 0.96, y + h * 0.28, 'right');
+  label(ctx, NAV_LABEL[index], x + 10, y + h * 0.72, px * 0.55);
   ctx.font = monoBold.get(px); ctx.fillStyle = AMBER;
-  fillTabular(ctx, formatNavFrequency(nav.activeKHz), x + w * 0.5, y + h * 0.72, 'right');
+  fillTabular(ctx, navFreq.get(nav.activeKHz), x + w * 0.5, y + h * 0.72, 'right');
   ctx.font = mono.get(px * 0.85);
-  fillTabular(ctx, formatNavFrequency(nav.standbyKHz), x + w * 0.96, y + h * 0.72, 'right');
+  fillTabular(ctx, navFreq.get(nav.standbyKHz), x + w * 0.96, y + h * 0.72, 'right');
   label(ctx, '↔', x + w * 0.56, y + h * 0.5, px * 0.6, '#777', 'center');
   if (nav.valid && nav.ident) label(ctx, nav.ident, x + w * 0.56, y + h * 0.88, px * 0.5, '#8ff08a', 'center');
   return h;
@@ -52,10 +63,10 @@ export function drawTransponder(ctx: Ctx2D, x: number, y: number, w: number, cod
   const px = h * 0.5;
   label(ctx, 'XPDR', x + 10, y + h / 2, px * 0.55);
   ctx.font = monoBold.get(px); ctx.fillStyle = AMBER; ctx.textBaseline = 'middle';
-  fillTabular(ctx, formatSquawk(code), x + w * 0.5, y + h / 2, 'right');
+  fillTabular(ctx, squawkLabels.get(code), x + w * 0.5, y + h / 2, 'right');
   label(ctx, mode, x + w * 0.58, y + h / 2, px * 0.6, AMBER);
   ctx.font = mono.get(px * 0.6); ctx.fillStyle = AMBER;
-  fillTabular(ctx, `FL${Math.max(0, Math.round(altFt / 100))}`, x + w * 0.96, y + h / 2, 'right');
+  fillTabular(ctx, flLabels.get(altFt / 100), x + w * 0.96, y + h / 2, 'right');
   return h;
 }
 
@@ -71,8 +82,8 @@ export function drawAutopilotUnit(ctx: Ctx2D, x: number, y: number, w: number, a
   label(ctx, on || ap.flightDirector ? ap.vertical : '', x + w * 0.5, y + h * 0.35, px * 0.85, AMBER);
   label(ctx, ap.armedVertical ?? '', x + w * 0.5, y + h * 0.72, px * 0.6, '#aaa');
   ctx.font = mono.get(px * 0.8); ctx.fillStyle = AMBER; ctx.textBaseline = 'middle';
-  fillTabular(ctx, formatAltitude(ap.altitudeTargetM * M_TO_FT, 100), x + w * 0.96, y + h * 0.35, 'right');
+  fillTabular(ctx, altTargetLabels.get(ap.altitudeTargetM * M_TO_FT), x + w * 0.96, y + h * 0.35, 'right');
   ctx.font = sans.get(px * 0.55); ctx.fillStyle = '#aaa'; ctx.textAlign = 'right';
-  ctx.fillText(`HDG ${formatHeadingNum(ap.headingBugDeg)}`, x + w * 0.96, y + h * 0.72);
+  ctx.fillText(hdgBugLabels.get(ap.headingBugDeg), x + w * 0.96, y + h * 0.72);
   return h;
 }
