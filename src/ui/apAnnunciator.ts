@@ -33,6 +33,18 @@ export function disconnectText(reason: DisconnectReason | null | undefined): { s
   return { ...REASONS[r], abnormal: r !== 'pilot' };
 }
 
+/**
+ * The toast for an autopilot state change, or null: 'engaged' when it went on, 'disconnected'
+ * (with the reason when the autopilot let go by itself) when it went off; nothing when the
+ * engaged state did not change or the previous state is unknown.
+ */
+export function autopilotToast(prevEngaged: boolean | null, st: AutopilotState): { text: string; kind: 'info' | 'warn' | 'error' } | null {
+  if (prevEngaged === null || prevEngaged === st.engaged) return null;
+  if (st.engaged) return { text: 'Autopilot engaged', kind: 'info' };
+  const d = disconnectText(st.disconnectReason);
+  return d.abnormal ? { text: `AP OFF — autopilot disconnected: ${d.long}`, kind: 'error' } : { text: 'AP OFF — autopilot disconnected', kind: 'warn' };
+}
+
 export interface ApAnnunciation {
   /** the AP cell is shown (AP or FD on, LVL, or a disconnect still flashing) */ visible: boolean;
   /** 'AP' engaged, 'FD' flight director only, 'AP' again while a disconnect flashes */ status: '' | 'AP' | 'FD';

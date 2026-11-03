@@ -9,7 +9,7 @@ import type { ScreenContext } from '../screens/Screen';
 import type { InterfaceSettings } from '../settingsStore';
 import type { AssistKey } from '../assistPresets';
 import { ASSIST_ITEMS } from '../assistPresets';
-import { disconnectText } from '../apAnnunciator';
+import { autopilotToast } from '../apAnnunciator';
 import { Cls, Txt, h } from '../dom';
 import { releasesFocusAfter } from '../routing';
 import { FlightPanels, type PanelId } from './FlightPanels';
@@ -207,11 +207,10 @@ export class FlightUi {
   onAutopilot(st: AutopilotState): void {
     const was = this.apEngaged;
     this.apEngaged = st.engaged;
-    if (!this.active || was === null || was === st.engaged || this.now < this.apGraceUntil) return;
-    if (st.engaged) { this.d.ctx.toast('Autopilot engaged', 'info'); return; }
-    // the autopilot reports why it let go (GFC 700): say so when it was not the pilot
-    const d = disconnectText(st.disconnectReason);
-    this.d.ctx.toast(d.abnormal ? `AP OFF — autopilot disconnected: ${d.long}` : 'AP OFF — autopilot disconnected', d.abnormal ? 'error' : 'warn');
+    if (!this.active || this.now < this.apGraceUntil) return;
+    // the autopilot reports why it let go (GFC 700): the toast says so when it was not the pilot
+    const t = autopilotToast(was, st);
+    if (t) this.d.ctx.toast(t.text, t.kind);
   }
 
   /** A new flight (spawn, respawn, challenge): fresh panels, no stale overlays, not paused by us. */
@@ -223,7 +222,9 @@ export class FlightUi {
     this.report.hide();
     this.panels.reset();
     this.subUntil = 0; this.subVisible.set(false);
-    this.apEngaged = null;
+    // the new flight's autopilot state is the baseline (null here used to swallow the first
+    // engagement of every flight: no "Autopilot engaged" toast after a spawn)
+    try { this.apEngaged = this.d.host.snapshot().autopilot.engaged; } catch { this.apEngaged = null; }
     this.apGraceUntil = this.now + AP_EVENT_GRACE_MS;
     this.hud.rebase();
     this.d.onOverlayChange();

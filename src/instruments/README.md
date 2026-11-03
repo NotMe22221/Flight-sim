@@ -128,7 +128,7 @@ applies one command to a `G1000Host` and returns false when the host has nothing
 | `tuneNavActive(i, kHz)` | `sim.radios.tuneNav` (immediate station lookup, ILS auto-course) | `navActive`, `navSwap` |
 | `com1` | `sim.radios.state.com1` (MHz) | `comStandby`/`comSwap` radio 1 (COM2 exists only on the G1000) |
 | `setNavSource(src)` | `sim.autopilot.setNavSource` | `cdiSource` |
-| `action(a)` | `sim.handleAction` | `action` (repeated `count` times) |
+| `action(a)` | `sim.input.applyAction` (the steam panel's knob path, next frame) or `sim.handleAction` | `action` (repeated `count` times) |
 | `setAltimeterStd()` | `sim.fdm.setAltimeter(101325)` | `baroStd` |
 | `transponder(code, mode, ident)` | ATC, optional | `xpdr` |
 
@@ -138,8 +138,15 @@ whole recipe against the real `RadioStack` and `GfcAutopilot`.
 
 **Lifecycle**: `nav` / `planner` may be omitted (or bound later with `setNavDatabase` /
 `setPlanner`): D→, NRST and PROC then open with empty lists and FPL shows no plan, nothing
-throws. `reset(snapshot)` (new flight, panel swap) closes every window and softkey sub-menu and
-returns the MFD to the MAP page.
+throws. `reset(snapshot)` (new flight, panel swap) closes every window and softkey sub-menu,
+returns the MFD to the MAP page and re-announces the CDI source (`cdiSource`) on the next update.
+
+**Cockpit routing** (integrator): ray-cast the G1000 panel mesh and pass the hit UV to
+`G1000Panel.hover/click/wheel`; consume the DOM event when they return true (the wheel then does
+not zoom the camera). Pass `e.deltaY || e.deltaX` as the wheel delta (Chromium turns Shift+wheel
+into `deltaX` on Windows/Linux) and `outer: e.shiftKey`. While `g.wantsKeyboard`, offer each key
+to `g.keyboard(e.key)` before the key bindings (capture phase) and stop it when that returns true.
+Wheel up = clockwise = increase; RANGE clockwise zooms out, as on the real unit.
 
 **Flight plan**: every edit goes through the `FlightPlanner` (`insert`, `remove`,
 `directToWaypoint`, `cancelDirectTo`, `activateLeg`, `setObs`, `clear`), so `snapshot.plan`, the

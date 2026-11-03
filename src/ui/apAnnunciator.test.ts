@@ -116,3 +116,15 @@ describe('autopilot annunciator (flight info strip)', () => {
     expect(disconnectText('bogus' as never).abnormal).toBe(false);
   });
 });
+
+describe('autopilotToast', () => {
+  it('toasts the first engagement after a known state, the disconnect and its reason', async () => {
+    const { autopilotToast } = await import('./apAnnunciator');
+    expect(autopilotToast(false, ap({ engaged: true }))).toEqual({ text: 'Autopilot engaged', kind: 'info' });
+    expect(autopilotToast(true, ap({ engaged: false, disconnectReason: 'pilot' }))).toEqual({ text: 'AP OFF — autopilot disconnected', kind: 'warn' });
+    expect(autopilotToast(true, ap({ engaged: false, disconnectReason: 'overspeed' }))).toEqual({ text: 'AP OFF — autopilot disconnected: overspeed', kind: 'error' });
+    // a mode change, or an unknown previous state, says nothing
+    expect(autopilotToast(true, ap({ engaged: true, lateral: 'HDG' }))).toBeNull();
+    expect(autopilotToast(null, ap({ engaged: true }))).toBeNull();
+  });
+});

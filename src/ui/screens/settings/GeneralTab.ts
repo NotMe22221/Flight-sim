@@ -60,7 +60,7 @@ export class GeneralTab implements SettingsTabView {
     this.scale = slider({ min: UI_SCALE_MIN * 100, max: UI_SCALE_MAX * 100, step: 5, value: Math.round(s.ui.scale * 100), label: 'UI scale', format: (v) => `${v}%`,
       onInput: () => { /* readout only while dragging */ }, onChange: (v) => d.dispatch({ type: 'ui', patch: { scale: v / 100 } }) });
     this.subtitles = toggle('ATC subtitles', s.ui.subtitles, (v) => d.dispatch({ type: 'ui', patch: { subtitles: v } }), 'Show ATC transmissions bottom-left while the ATC window is closed');
-    this.infoStrip = toggle('Flight info strip', s.ui.infoStrip, (v) => d.dispatch({ type: 'ui', patch: { infoStrip: v } }), 'Speed, altitude, heading and wind at the top in external views');
+    this.infoStrip = toggle('Flight info strip', s.ui.infoStrip, (v) => d.dispatch({ type: 'ui', patch: { infoStrip: v } }), 'Speed, altitude, heading, wind and autopilot modes at the top in external views');
 
     this.el = h('div', { class: 'settings-grid' },
       group('Units', this.unitSeg.el, this.unitNote.el, ...unitRows),
