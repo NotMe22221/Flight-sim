@@ -190,7 +190,7 @@ export class SceneryMaterials {
     this.night = f;
     this.walls.emissiveIntensity = 0.9 * f;
     this.streetlights.opacity = f;
-    this.airportLights.opacity = Math.min(1, 0.15 + f);
+    this.airportLights.opacity = f;
     this.pools.opacity = 0.2 * f;
   }
 

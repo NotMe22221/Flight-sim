@@ -69,6 +69,9 @@ describe('materials', () => {
     mats.setNight(0);
     expect(mats.walls.emissiveIntensity).toBe(0);
     expect(mats.streetlights.opacity).toBe(0);
+    // no glowing sprites by day (floodlight sprites would float 22 m up without masts)
+    expect(mats.airportLights.opacity).toBe(0);
+    expect(mats.pools.opacity).toBe(0);
     mats.setNight(1);
     expect(mats.walls.emissiveIntensity).toBeGreaterThan(0);
     expect(mats.pools.opacity).toBeGreaterThan(0);

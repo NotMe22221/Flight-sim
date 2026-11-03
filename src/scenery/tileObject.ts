@@ -243,7 +243,7 @@ export class TileObject {
     const lit = night > 0.01;
     const lightsOn = lit && d < st.lightRangeM;
     if (this.streetPoints && this.street) this.streetPoints.visible = lightsOn && this.street.firstPassDone;
-    if (this.airportPoints && this.airport) this.airportPoints.visible = (lightsOn || d < 3000) && this.airport.firstPassDone;
+    if (this.airportPoints && this.airport) this.airportPoints.visible = lightsOn && this.airport.firstPassDone;
     if (this.poolMesh && this.poolLayer) this.poolMesh.visible = lightsOn && this.poolLayer.firstPassDone;
   }
 
