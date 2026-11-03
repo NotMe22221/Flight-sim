@@ -66,11 +66,22 @@ export interface SceneryLike {
   dispose?(): void;
 }
 
+/**
+ * The clickable G1000 panel (`G1000Panel` in instruments/g1000/panel.ts): maps a ray-cast UV on
+ * the G1000 panel mesh to a bezel control. Used by CockpitInteraction.
+ */
+export interface G1000PanelLike {
+  click(u: number, v: number): boolean;
+  wheel(u: number, v: number, deltaY: number, opts?: { deltaMode?: number; outer?: boolean }): boolean;
+  hover(u: number, v: number): { title: string; hint: string } | null;
+  readonly g1000: { readonly wantsKeyboard: boolean; keyboard(key: string): boolean };
+}
+
 /** Optional subsystems attached after construction (UI, glass cockpit, HUD, audio, ATC, scenery). */
 export interface SimPlugins {
   scenery?: SceneryLike;
   ui?: { update(s: SimSnapshot, dt: number): void; handleAction?(a: SimAction): boolean; coversView?(): boolean };
-  g1000?: { update(s: SimSnapshot, dt: number): boolean; reset?(s: SimSnapshot): void; readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas };
+  g1000?: { update(s: SimSnapshot, dt: number): boolean; reset?(s: SimSnapshot): void; readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; readonly interactive?: G1000PanelLike };
   hud?: { update(s: SimSnapshot, dt: number): void; reset?(): void; resize(w: number, h: number, dpr: number): void; readonly canvas: HTMLCanvasElement | OffscreenCanvas };
   audio?: { update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; onTouchdown?(vsMs: number, lateralDriftMs?: number): void; setMarker?(m: string | null): void };
   atc?: { update(dt: number, ac: AircraftState, w: SimSnapshot['weather']): void; select(i: number): void; reset(a: Airport | null): void };
@@ -234,7 +245,11 @@ export class Simulator {
       const mesh = (this.model as unknown as { cockpit: { panelMeshG1000: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> } }).cockpit.panelMeshG1000;
       mesh.material.map = this.g1000Tex;
       mesh.material.needsUpdate = true;
-    } else this.model.setPanelVariant('steam');
+    } else {
+      this.model.setPanelVariant('steam');
+      // the G1000's CDI source steers the autopilot's NAV/APR; the steam panel has no CDI key
+      this.autopilot.setNavSource('auto');
+    }
   }
 
   start(): void {

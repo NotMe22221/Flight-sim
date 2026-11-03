@@ -6,7 +6,7 @@
 import type { AircraftState, Airport, SimAction, SimSnapshot } from '../core/types';
 import * as THREE from 'three';
 import type { LocalFrame } from '../geo/wgs84';
-import type { SceneryLike, Simulator } from './Simulator';
+import type { G1000PanelLike, SceneryLike, Simulator } from './Simulator';
 import { SimUiHost } from './uiHost';
 
 type Ctor<T> = new (...args: never[]) => T;
@@ -15,7 +15,10 @@ const ctor = <T>(mod: Record<string, unknown>, name: string): Ctor<T> | null => 
 interface UiManagerLike { update(s: SimSnapshot, dt: number): void; show(screen: string): void; onStart?(cb: () => void): void; handleAction?(a: SimAction): boolean; readonly coversView?: boolean }
 interface AudioLike { resume(): Promise<void>; update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; updateSnapshot?(dt: number, s: SimSnapshot): void; setSurface?(s: string): void; setListener?(posNED: [number, number, number] | null, velNED?: [number, number, number]): void; onTouchdown?(vs: number, drift?: number): void; setMarker?(m: 'outer' | 'middle' | 'inner' | null): void; setVolume?(bus: string, v: number): void; setMasterVolume?(v: number): void; speak?(text: string, voice?: string): void; playUi?(s: string): void }
 interface HudLike { readonly canvas: HTMLCanvasElement; resize(w: number, h: number, dpr: number): void; update(s: SimSnapshot, dt: number): void; reset?(): void }
-interface G1000Like { readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; update(s: SimSnapshot, dt: number): boolean; reset?(s: SimSnapshot): void; setNearestAirports?(l: { icao: string; lat: number; lon: number; type: string }[]): void }
+interface G1000Like { readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; update(s: SimSnapshot, dt: number): boolean; reset(s: SimSnapshot): void; setNearestAirports(l: readonly Airport[]): void }
+type G1000Full = G1000Like & { readonly mfdCanvas: HTMLCanvasElement | OffscreenCanvas; readonly com1: { activeKHz: number; standbyKHz: number } };
+/** instruments/g1000/panel.ts `G1000Panel`: both GDUs on one canvas, UV → bezel control */
+type G1000PanelFull = G1000PanelLike & { readonly canvas: HTMLCanvasElement; compose(): boolean; invalidate(): void };
 interface AtcLike { update(dt: number, ac: AircraftState, w: SimSnapshot['weather'], utcMs?: number): void; select(i: number): void; reset(a: Airport | null): void }
 
 /** What `createScenery` (src/scenery/index.ts) receives from the simulator. */
@@ -130,34 +133,35 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
   }
   if (path.endsWith('/G1000.ts')) {
     const G1000 = ctor<G1000Like>(mod, 'G1000');
-    if (!G1000) return;
-    type G1000Full = G1000Like & { readonly mfdCanvas: HTMLCanvasElement | OffscreenCanvas; readonly changed?: { pfd: boolean; mfd: boolean } };
-    const g = new (G1000 as unknown as new (o?: object) => G1000Full)({});
-    // One panel texture with the PFD (left) and MFD (right) side by side, as in the 172 G1000.
-    const pfd = g.pfdCanvas, mfd = g.mfdCanvas;
-    const gap = Math.round(pfd.width * 0.06);
-    const panel = document.createElement('canvas');
-    panel.width = pfd.width + gap + mfd.width;
-    panel.height = Math.max(pfd.height, mfd.height);
-    const ctx = panel.getContext('2d')!;
-    ctx.fillStyle = '#16191d';
-    ctx.fillRect(0, 0, panel.width, panel.height);
+    const Panel = ctor<G1000PanelFull>(mod, 'G1000Panel');
+    const apply = mod.applyG1000Command as ((c: unknown, host: object) => boolean) | undefined;
+    const syncCom1 = mod.syncCom1 as ((box: { activeKHz: number; standbyKHz: number }, com1: { activeMHz: number; standbyMHz: number }) => void) | undefined;
+    if (!G1000 || !Panel || typeof apply !== 'function') return;
+    // G1000 requests act on the simulator's radios, autopilot and altimeter (instruments/g1000/wiring.ts)
+    const host = {
+      navTuning: sim.radios.tuning,
+      tuneNavActive: (i: 0 | 1, kHz: number) => sim.radios.tuneNav(i, kHz),
+      com1: sim.radios.state.com1,
+      setNavSource: (src: 'gps' | 'nav1' | 'nav2') => sim.autopilot.setNavSource(src),
+      // the steam panel's knobs take the same path: reported with the next frame's inputs
+      action: (a: SimAction) => sim.input.applyAction(a as never),
+      setAltimeterStd: () => sim.fdm.setAltimeter(101325),
+    };
+    const g = new (G1000 as unknown as new (o: object) => G1000Full)({ nav: sim.nav, planner: sim.planner, onCommand: (c: unknown) => apply(c, host) });
+    // one panel texture with the PFD (left) and MFD (right) side by side, as in the 172 G1000
+    const panel = new (Panel as unknown as new (g: G1000Full) => G1000PanelFull)(g);
     let nearbyTimer = Infinity;
     sim.attachG1000({
-      pfdCanvas: panel,
-      reset: (s) => { g.reset?.(s); nearbyTimer = Infinity; },
+      pfdCanvas: panel.canvas,
+      interactive: panel,
+      reset: (s) => { g.reset(s); panel.invalidate(); nearbyTimer = Infinity; },
       update: (s, dt) => {
         nearbyTimer += dt;
-        if (nearbyTimer > 2 && g.setNearestAirports) {
-          nearbyTimer = 0;
-          g.setNearestAirports(sim.nearby.map((a) => ({ icao: a.icao, lat: a.position.lat, lon: a.position.lon, type: a.type })));
-        }
-        if (!g.update(s, dt)) return false;
-        // redraw only the display(s) that changed this frame
-        const ch = g.changed ?? { pfd: true, mfd: true };
-        if (ch.pfd) ctx.drawImage(pfd as CanvasImageSource, 0, 0);
-        if (ch.mfd) ctx.drawImage(mfd as CanvasImageSource, pfd.width + gap, 0);
-        return true;
+        if (nearbyTimer > 2) { nearbyTimer = 0; g.setNearestAirports(sim.nearby); }
+        // COM1 lives in the radio stack (keyboard swap, ATC): mirror it into the G1000's COM1 box
+        syncCom1?.(g.com1, sim.radios.state.com1);
+        g.update(s, dt);
+        return panel.compose();
       },
     });
     return;

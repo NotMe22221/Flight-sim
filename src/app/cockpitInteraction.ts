@@ -5,12 +5,17 @@
  *
  * Wheel events over a knob are captured on the container before the input layer's canvas
  * listener sees them, so the camera does not zoom while a knob is being turned.
+ *
+ * G1000 panel: the hit UV goes to the plugin's `G1000Panel` (instruments/g1000/panel.ts): hover
+ * highlights the control and shows its tooltip, click presses a softkey/key or pushes a knob, the
+ * wheel turns the knob ring under the pointer (Shift: outer ring). While a G1000 window is open,
+ * Enter/Escape (ENT/CLR) and ident letters reach the G1000 before the key bindings.
  */
 import * as THREE from 'three';
 import type { SimAction } from '../core/types';
 import { FPM, FT, INHG, KT, RAD } from '../core/units';
 import { C172_STEAM_LAYOUT } from '../instruments/SteamPanel';
-import type { Simulator } from './Simulator';
+import type { G1000PanelLike, Simulator } from './Simulator';
 
 interface Knob {
   id: string;
@@ -53,6 +58,7 @@ export class CockpitInteraction {
   private readonly tip: HTMLDivElement;
   private hover: { knob: Knob; v: number } | null = null;
   private lastMove = { x: 0, y: 0, valid: false };
+  private glassTip = false;
 
   constructor(private readonly sim: Simulator, private readonly container: HTMLElement) {
     this.tip = document.createElement('div');
@@ -63,10 +69,46 @@ export class CockpitInteraction {
     } as CSSStyleDeclaration);
     container.appendChild(this.tip);
     container.addEventListener('pointermove', this.onMove, { passive: true });
-    container.addEventListener('pointerleave', () => { this.hover = null; this.tip.style.display = 'none'; });
+    container.addEventListener('pointerleave', () => { this.hover = null; this.clearGlass(); this.tip.style.display = 'none'; });
     container.addEventListener('wheel', this.onWheel, { capture: true, passive: false });
     container.addEventListener('click', this.onClick, { capture: true });
+    window.addEventListener('keydown', this.onKey, { capture: true });
   }
+
+  /** The clickable G1000 panel while it is shown in the cockpit view, else null. */
+  private glass(): G1000PanelLike | null {
+    const s = this.sim;
+    if (!s.inFlight || s.cameras.state.mode !== 'cockpit' || s.panelVariant !== 'g1000' || s.input.isCaptured || document.pointerLockElement !== null) return null;
+    return s.plugins.g1000?.interactive ?? null;
+  }
+
+  /** Ray-cast the G1000 panel mesh: the hit UV (Three.js convention, v up), or null. */
+  private glassUv(clientX: number, clientY: number): THREE.Vector2 | null {
+    const canvas = this.sim.gfx.renderer.domElement;
+    const r = canvas.getBoundingClientRect();
+    this.ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+    this.ray.setFromCamera(this.ndc, this.sim.cameras.camera);
+    const hit = this.ray.intersectObject(this.sim.model.panelMeshG1000, false)[0];
+    return hit && hit.uv ? hit.uv : null;
+  }
+
+  private clearGlass(): void {
+    if (!this.glassTip) return;
+    this.glassTip = false;
+    this.sim.plugins.g1000?.interactive?.hover(-1, -1);
+  }
+
+  /** While a G1000 window or page cursor is open: Enter = ENT, Escape = CLR, letters/digits spell idents. */
+  private readonly onKey = (e: KeyboardEvent): void => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const s = this.sim;
+    if (!s.inFlight || s.cameras.state.mode !== 'cockpit' || s.panelVariant !== 'g1000' || s.input.isCaptured) return;
+    const g = s.plugins.g1000?.interactive?.g1000;
+    if (!g || !g.wantsKeyboard) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (g.keyboard(e.key)) { e.preventDefault(); e.stopPropagation(); }
+  };
 
   private active(): boolean {
     const s = this.sim;
@@ -94,11 +136,29 @@ export class CockpitInteraction {
 
   private readonly onMove = (e: PointerEvent): void => {
     this.lastMove = { x: e.clientX, y: e.clientY, valid: true };
+    const p = this.glass();
+    if (p) {
+      const uv = this.glassUv(e.clientX, e.clientY);
+      const t = uv ? p.hover(uv.x, uv.y) : p.hover(-1, -1);
+      this.glassTip = true;
+      this.hover = null;
+      if (t) this.show(e.clientX, e.clientY, t.title, '', t.hint); else this.tip.style.display = 'none';
+      return;
+    }
+    this.clearGlass();
     this.hover = this.pick(e.clientX, e.clientY);
     this.render(e.clientX, e.clientY);
   };
 
   private readonly onWheel = (e: WheelEvent): void => {
+    const p = this.glass();
+    if (p) {
+      const uv = this.glassUv(e.clientX, e.clientY);
+      // Shift+wheel arrives as deltaX in Chromium on Windows/Linux
+      const dy = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+      if (uv && p.wheel(uv.x, uv.y, dy, { deltaMode: e.deltaMode, outer: e.shiftKey })) { e.preventDefault(); e.stopPropagation(); }
+      return;
+    }
     const h = this.pick(e.clientX, e.clientY);
     if (!h || !h.knob.wheel) return;
     e.preventDefault();
@@ -111,6 +171,12 @@ export class CockpitInteraction {
   };
 
   private readonly onClick = (e: MouseEvent): void => {
+    const p = this.glass();
+    if (p) {
+      const uv = this.glassUv(e.clientX, e.clientY);
+      if (uv && p.click(uv.x, uv.y)) e.stopPropagation();
+      return;
+    }
     const h = this.pick(e.clientX, e.clientY);
     if (!h || !h.knob.click) return;
     e.stopPropagation();
@@ -120,6 +186,7 @@ export class CockpitInteraction {
 
   /** Refresh the tooltip value every frame while hovering (values change with the aircraft). */
   update(): void {
+    if (this.glassTip && !this.glass()) { this.clearGlass(); this.tip.style.display = 'none'; }
     if (!this.hover || !this.lastMove.valid) return;
     if (!this.active()) { this.hover = null; this.tip.style.display = 'none'; return; }
     this.render(this.lastMove.x, this.lastMove.y);
@@ -128,8 +195,12 @@ export class CockpitInteraction {
   private render(x: number, y: number): void {
     const h = this.hover;
     if (!h) { this.tip.style.display = 'none'; return; }
+    this.show(x, y, h.knob.title, h.knob.value(this.sim), h.knob.hint);
+  }
+
+  private show(x: number, y: number, title: string, value: string, hint: string): void {
     const r = this.container.getBoundingClientRect();
-    this.tip.innerHTML = `<b style="color:#4cc3ff;letter-spacing:.04em">${h.knob.title}</b> &nbsp;${h.knob.value(this.sim)}${h.knob.hint ? `<br><span style="opacity:.7">${h.knob.hint}</span>` : ''}`;
+    this.tip.innerHTML = `<b style="color:#4cc3ff;letter-spacing:.04em">${title}</b> &nbsp;${value}${hint ? `<br><span style="opacity:.7">${hint}</span>` : ''}`;
     this.tip.style.left = `${Math.min(x - r.left + 16, r.width - 290)}px`;
     this.tip.style.top = `${Math.max(y - r.top - 48, 8)}px`;
     this.tip.style.display = 'block';
