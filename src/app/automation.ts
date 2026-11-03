@@ -3,6 +3,8 @@
  * Contract documented in scripts/smoke.mjs.
  */
 import type { CameraMode, ControlInputs, WeatherPresetId } from '../core/types';
+import * as THREE from 'three';
+import { C172_STEAM_LAYOUT } from '../instruments/SteamPanel';
 import type { Simulator } from './Simulator';
 
 export interface SimAutomation {
@@ -21,6 +23,8 @@ export interface SimAutomation {
   flyScriptedTakeoff(seconds: number): Promise<unknown>;
   state(): unknown;
   terrainReady(): number;
+  /** screen-space (CSS px) centre of a steam-panel instrument, e.g. 'alt', or null if off-screen */
+  panelPoint(id: string): { x: number; y: number } | null;
   /** set the cockpit free-look offsets (rad) for screenshots */
   look(yawRad: number, pitchRad: number): void;
   stats(): unknown;
@@ -71,6 +75,18 @@ export function installAutomation(sim: Simulator): SimAutomation {
     state: () => JSON.parse(JSON.stringify(sim.aircraft)),
     terrainReady: () => sim.snapshot.terrainReady,
     look: (y, p) => { sim.cameras.state.lookYaw = y; sim.cameras.state.lookPitch = p; },
+    panelPoint: (id) => {
+      const it = C172_STEAM_LAYOUT.items.find((i) => i.id === id);
+      if (!it) return null;
+      const mesh = sim.model.panelMesh;
+      const g = mesh.geometry as THREE.PlaneGeometry;
+      const w = g.parameters.width, h = g.parameters.height;
+      const u = (it.x + it.size / 2) / C172_STEAM_LAYOUT.width, v = 1 - (it.y + it.size / 2) / C172_STEAM_LAYOUT.height;
+      const p = new THREE.Vector3((u - 0.5) * w, (v - 0.5) * h, 0).applyMatrix4(mesh.matrixWorld).project(sim.cameras.camera);
+      if (p.z > 1 || Math.abs(p.x) > 1 || Math.abs(p.y) > 1) return null;
+      const r = sim.gfx.renderer.domElement.getBoundingClientRect();
+      return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height };
+    },
     stats: () => ({ fps: sim.fps, timings: { ...sim.timings }, terrain: sim.terrain?.stats() ?? null, depth: sim.gfx.depthMode, renderer: { ...sim.gfx.renderer.info.render }, memory: { ...sim.gfx.renderer.info.memory } }),
   };
   (window as unknown as { __sim: SimAutomation }).__sim = api;

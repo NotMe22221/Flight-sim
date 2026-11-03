@@ -31,6 +31,7 @@ import { copyPose, interpolateState } from './interpolate';
 import { RadioStack } from './radios';
 import { ReplayController } from './ReplayController';
 import { ReplayBar } from './replayBar';
+import { CockpitInteraction } from './cockpitInteraction';
 import { createRenderer, type RendererBundle } from './renderer';
 
 export interface SimulatorOptions {
@@ -91,6 +92,7 @@ export class Simulator {
   readonly replay = new ReplayRecorder(300, 30);
   readonly replayer = new ReplayController(this.replay);
   private replayBar: ReplayBar | null = null;
+  private cockpitUi: CockpitInteraction | null = null;
   readonly steam: SteamPanel;
   readonly plugins: SimPlugins = {};
   /** effective controls after assists and autopilot, fed to the flight model */
@@ -154,7 +156,10 @@ export class Simulator {
     this.prev = structuredClone(this.fdm.state);
     this.interp = structuredClone(this.fdm.state);
     this.snapshot = this.buildSnapshot();
-    if (typeof document !== 'undefined') this.replayBar = new ReplayBar(opts.container, this.replayer, (on) => this.setPaused(on || this.paused));
+    if (typeof document !== 'undefined') {
+      this.replayBar = new ReplayBar(opts.container, this.replayer, (on) => this.setPaused(on || this.paused));
+      this.cockpitUi = new CockpitInteraction(this, opts.container);
+    }
     this.events.on('aircraft:crash', (e) => this.onCrash(e.reason));
     window.addEventListener('resize', this.onResize);
   }
@@ -214,6 +219,7 @@ export class Simulator {
     interpolateState(this.prev, this.fdm.state, running ? alpha : 1, this.interp);
     if (this.replayer.active) this.replayer.update(dt, this.interp, this.world.frame);
     this.replayBar?.update(this.inFlight);
+    this.cockpitUi?.update();
     const t2 = performance.now();
     this.mark('input', t1 - t0);
     this.mark('physics', t2 - t1);
