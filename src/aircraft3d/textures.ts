@@ -5,25 +5,52 @@
 import * as THREE from 'three';
 
 /**
+ * A fuselage paint scheme for {@link createLiveryTexture}. Band heights are fractions of the
+ * local section height (0 bottom … 1 top), painted on both sides in order.
+ */
+export interface LiveryScheme {
+  base: string;
+  /**
+   * `f0..f1` at the nose; `rise` adds a fraction per unit of u (0 nose … 1 tail) so a band can
+   * sweep up or down the fuselage; `uFrom`/`uTo` limit it along the length (default 0..1)
+   */
+  bands: { f0: number; f1: number; color: string; rise?: number; uFrom?: number; uTo?: number }[];
+  /** registration colour, centre height and cap height (fractions of the section height) */
+  regColor: string; regF: number; capF: number;
+}
+
+/** The C172's white scheme: blue cheat line with a red pinstripe, light grey belly. */
+export const C172_LIVERY: LiveryScheme = {
+  base: '#f6f6f4',
+  bands: [
+    { f0: 0.0, f1: 0.08, color: '#d9dad7' },   // belly
+    { f0: 0.455, f1: 0.535, color: '#1f4e9c' }, // blue cheat line
+    { f0: 0.43, f1: 0.447, color: '#c8202c' },  // red pinstripe
+  ],
+  regColor: '#1a2a44', regF: 0.6, capF: 0.4,
+};
+
+/**
  * Paint the livery for the fuselage UVs of skin.ts: u runs along the length (nose → tail),
  * v = 0 at the bottom, 0.25 at mid-height on the right, 0.5 on top and 0.75 at mid-height on
  * the left, so a band at constant v follows a constant fraction of the local section height
  * (the cheat lines narrow and sweep up the tailcone with it).
- * White base, blue cheat line with a thin red pinstripe on both sides, light grey belly and
- * the registration on the tailcone. Returns null without a DOM (tests / workers).
+ * Default scheme ({@link C172_LIVERY}): white base, blue cheat line with a thin red pinstripe on
+ * both sides, light grey belly and the registration on the tailcone. Returns null without a
+ * DOM (tests / workers).
  *
  * @param regUStart/regUEnd u-range (0..1 along the length) of the registration
  * @param scale metres per texel along u and along v (one side spans v 0..0.5) at the
  *        registration, so the letters keep their proportions on the stretched texture
  */
-export function createLiveryTexture(registration: string, regUStart: number, regUEnd: number, scale: { uM: number; vM: number } = { uM: 8.4 / 2048, vM: 0.48 / 512 }): THREE.CanvasTexture | null {
+export function createLiveryTexture(registration: string, regUStart: number, regUEnd: number, scale: { uM: number; vM: number } = { uM: 8.4 / 2048, vM: 0.48 / 512 }, scheme: LiveryScheme = C172_LIVERY): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
   const W = 2048, H = 1024;
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
-  ctx.fillStyle = '#f6f6f4';
+  ctx.fillStyle = scheme.base;
   ctx.fillRect(0, 0, W, H);
   // v → canvas y (flipY: v = 0 is the bottom row)
   const yOf = (v: number) => (1 - v) * H;
@@ -32,27 +59,40 @@ export function createLiveryTexture(registration: string, regUStart: number, reg
     const y0 = yOf(v1), y1 = yOf(v0);
     ctx.fillRect(0, y0, W, y1 - y0);
   };
+  // a band whose height fraction changes linearly along u: a quadrilateral on each side
+  const sweep = (f0: number, f1: number, rise: number, u0: number, u1: number, color: string) => {
+    ctx.fillStyle = color;
+    const xa = u0 * W, xb = u1 * W;
+    for (const s of [1, -1]) {
+      const v = (f: number) => (s > 0 ? 0.5 * f : 1 - 0.5 * f);
+      ctx.beginPath();
+      ctx.moveTo(xa, yOf(v(f0 + rise * u0))); ctx.lineTo(xb, yOf(v(f0 + rise * u1)));
+      ctx.lineTo(xb, yOf(v(f1 + rise * u1))); ctx.lineTo(xa, yOf(v(f1 + rise * u0)));
+      ctx.closePath(); ctx.fill();
+    }
+  };
   // f0..f1: fraction of the section height (0 bottom … 1 top), painted on both sides
   const side = (f0: number, f1: number, color: string) => { band(0.5 * f0, 0.5 * f1, color); band(1 - 0.5 * f1, 1 - 0.5 * f0, color); };
-  side(0.0, 0.08, '#d9dad7');   // belly
-  side(0.455, 0.535, '#1f4e9c'); // blue cheat line
-  side(0.43, 0.447, '#c8202c');  // red pinstripe
+  for (const b of scheme.bands) {
+    if (b.rise || b.uFrom !== undefined || b.uTo !== undefined) sweep(b.f0, b.f1, b.rise ?? 0, b.uFrom ?? 0, b.uTo ?? 1, b.color);
+    else side(b.f0, b.f1, b.color);
+  }
   // registration: cap height ≈ 0.4 of the tailcone height, letters squeezed along u (texels
   // there are longer than along v)
   const x0 = regUStart * (W - 1), x1 = regUEnd * (W - 1);
-  const capPx = 0.4 * 0.5 * H;
+  const capPx = scheme.capF * 0.5 * H;
   const fontPx = Math.round(capPx / 0.72);
   const kx = Math.min(1, scale.vM / scale.uM);
   ctx.font = `bold ${fontPx}px "Arial Narrow", Arial, Helvetica, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#1a2a44';
+  ctx.fillStyle = scheme.regColor;
   const cx = (x0 + x1) / 2;
   const maxW = (x1 - x0) / kx;
   // right side: reads aft→fwd for a viewer on the right, so mirror in x
-  ctx.save(); ctx.translate(cx, yOf(0.5 * 0.6)); ctx.scale(-kx, 1); ctx.fillText(registration, 0, 0, maxW); ctx.restore();
+  ctx.save(); ctx.translate(cx, yOf(0.5 * scheme.regF)); ctx.scale(-kx, 1); ctx.fillText(registration, 0, 0, maxW); ctx.restore();
   // left side: up on the fuselage is down in the image, so flip in y
-  ctx.save(); ctx.translate(cx, yOf(1 - 0.5 * 0.6)); ctx.scale(kx, -1); ctx.fillText(registration, 0, 0, maxW); ctx.restore();
+  ctx.save(); ctx.translate(cx, yOf(1 - 0.5 * scheme.regF)); ctx.scale(kx, -1); ctx.fillText(registration, 0, 0, maxW); ctx.restore();
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;

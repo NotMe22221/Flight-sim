@@ -3,7 +3,7 @@
  * fallback (inThreadWorker.ts) so Node tests exercise the production path:
  *
  *   elevation: provider tile → ancestor tiles' sub-square (parent fallback) → procedural
- *   → runway flattening → curved mesh + ocean patch (tilePipeline.ts)
+ *   → pavement + runway flattening → curved mesh + ocean patch (tilePipeline.ts)
  *   imagery:   EOX → GIBS (z ≤ 8) → procedural colours (from the tile's own heights); the
  *              network imagery is fetched concurrently with the elevation
  *
@@ -138,7 +138,7 @@ export async function runTileJob(req: LoadRequest, signal: AbortSignal, ctx: Til
     const dem = await loadElevation(req, signal, ctx, trouble);
     const out = runTilePipeline({
       z: req.z, x: req.x, y: req.y, heights: dem.heights, width: dem.width, frame: req.frame,
-      quads: req.quads, skirt: req.skirt, runways: req.runways, fullHeights: req.fullHeights, water: req.water,
+      quads: req.quads, skirt: req.skirt, runways: req.runways, pavement: req.pavement, fullHeights: req.fullHeights, water: req.water,
     });
     imagery = (await networkImagery) ?? proceduralImagery(req, dem, ctx);
     throwIfAborted(signal);

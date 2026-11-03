@@ -96,7 +96,8 @@ export class FlightUi {
     d.hudLayer.appendChild(this.subtitle);
     this.hudShift = new Cls(this.hud.el, 'shifted');
     this.panels = new FlightPanels({ host: d.host, ctx: d.ctx, layer: d.flightLayer, layout: d.layout, units: d.units, onHelp: () => this.toggleHelp(), onMenu: () => this.openPause() });
-    this.instructor = new InstructorSubtitle(d.hudLayer);
+    // in the flight layer, above the floating panels: an open checklist or VFR map must not hide the instructor
+    this.instructor = new InstructorSubtitle(d.flightLayer);
     this.pause = new PauseMenu(d.modalLayer, {
       resume: () => this.closePause(true),
       restart: () => {
@@ -108,7 +109,12 @@ export class FlightUi {
           d.ctx.restartActivity();
         } else { this.closePause(false); this.pausedByMenu = false; d.host.dispatch('resetFlight'); }
       },
-      restartStep: () => { try { d.host.restartActivityStep?.(); } catch (e) { console.warn('[ui] restartActivityStep failed', e); } this.closePause(true); },
+      restartStep: () => {
+        // the step's instruction is said again at once: no stale hint from the attempt before it
+        this.instructor.clear();
+        try { d.host.restartActivityStep?.(); } catch (e) { console.warn('[ui] restartActivityStep failed', e); }
+        this.closePause(true);
+      },
       abortActivity: () => this.abortActivity(),
       worldMap: () => { this.closePause(false); d.ctx.navigate('worldmap'); },
       settings: () => { this.closePause(false); d.ctx.navigate('settings'); },
@@ -220,6 +226,7 @@ export class FlightUi {
     this.hud.update(s, this.d.units(), nowMs);
     this.hudShift.set(this.panels.toolbar.el.classList.contains('visible'));
     this.panels.update(s, nowMs);
+    this.instructor.setTop(s.camera?.mode === 'cockpit');
     this.instructor.update(nowMs, s.paused);
     if (this.subUntil && nowMs > this.subUntil) { this.subUntil = 0; this.subVisible.set(false); }
     if (this.pendingAssist) this.flushAssistToast(s);

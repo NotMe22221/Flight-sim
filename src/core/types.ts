@@ -185,6 +185,36 @@ export interface GearSpec {
   /** castering nose/tail wheel */ casters: boolean;
   brakeGroup: 'none' | 'left' | 'right' | 'both';
   retractable: boolean;
+  /**
+   * Torque-limited brake: the largest longitudinal friction coefficient full brake produces on a
+   * paved surface. Undefined = the tyre's static friction (JSBSim's anti-skid assumption).
+   */
+  brakeMu?: number;
+  /**
+   * Full-swivel breakout of a steerable wheel with `casters: true` (e.g. a Scott tail wheel):
+   * steered through springs within ±`controls.nosewheelSteerDeg`, it unlocks into free castering
+   * when the tyre's side force exceeds `breakoutN`, and relocks once it swivels back within
+   * `relockDeg` of the steering angle while rolling forward. (A steerable wheel behind the CG is
+   * always steered opposite to the pedal, so right pedal turns the aircraft right.)
+   */
+  swivel?: { breakoutN: number; relockDeg: number };
+}
+
+/** Electrical system description (src/fdm/electrical.ts). */
+export interface ElectricalSpec {
+  capacityAh: number;
+  internalOhm: number;
+  alternatorMaxA: number;
+  regulatorV: number;
+  /** rpm at which the alternator reaches full output (linear from cut-in) */
+  alternatorFullRpm: number;
+  alternatorCutInRpm: number;
+  /** below this the avionics/instruments drop out */
+  dropOutV: number;
+  lowVoltsV: number;
+  loadsA: { base: number; avionics: number; nav: number; beacon: number; strobe: number; landing: number; taxi: number; panel: number; pitotHeat: number; fuelPump: number; starter: number };
+  /** battery nominal volts (24 for a 28 V system, 12 for a 14 V system); scales the battery model. Undefined = 24 */
+  batteryNominalV?: number;
 }
 
 export interface AircraftConfig {
@@ -228,6 +258,10 @@ export interface AircraftConfig {
      */
     slipstreamImmersion?: { elevator: number; rudder: number };
     /** alpha (rad) beyond which the table blends into the flat-plate model */ blendStartRad: number; blendEndRad: number;
+    /** stall-warning angle of attack (vane or reed), rad. Undefined = the C172S value in src/fdm/fdm.ts */
+    stallWarnAlphaRad?: number;
+    /** α above which AeroState.stalled is set even on the normal lift branch, rad. Undefined = 0.29 */
+    stalledAlphaRad?: number;
   };
   propulsion: {
     engine: PistonEngineSpec | TurbofanEngineSpec;
@@ -255,6 +289,14 @@ export interface AircraftConfig {
   panel: 'c172-steam' | 'c172-g1000' | 'cub-steam' | 'airliner-pfd';
   /** which 3D airframe and cockpit src/aircraft3d builds (default 'c172') */
   airframe?: 'c172' | 'cub';
+  /** electrical system the flight model simulates. Undefined = the C172S 28 V system (C172S_ELECTRICAL) */
+  electrical?: ElectricalSpec;
+  /**
+   * Pitot-static calibration KCAS → KIAS (knots), flaps up and at the last flap detent, blended by
+   * flap angle; below the first point the error scales to zero at zero speed, above the last it
+   * stays constant. Undefined = the C172S calibration in src/fdm/atmosphere.ts.
+   */
+  airspeedCalibration?: { flapsUp: Table1DSpec; flapsFull: Table1DSpec };
 }
 
 // ───────────────────────────────── Flight model ─────────────────────────────────
@@ -379,6 +421,10 @@ export interface ElectricalState {
   batteryCharge: number;
   /** LOW VOLTS annunciator */
   lowVoltage: boolean;
+  /** nominal (regulated) bus voltage of this system, V: 28 (C172S) or 14 (12 V battery) — for gauge scales */
+  nominalVolts?: number;
+  /** bus voltage below which LOW VOLTS lights, V */
+  lowVoltsThresholdV?: number;
 }
 
 export interface FlightModel {

@@ -4,7 +4,7 @@
  * pass, which would need a scene render-to-texture per frame).
  */
 import * as THREE from 'three';
-import { createHaloTexture, createLiveryTexture, createPanelPlaceholderTexture, createPropBlurTexture } from './textures';
+import { C172_LIVERY, createHaloTexture, createLiveryTexture, createPanelPlaceholderTexture, createPropBlurTexture, type LiveryScheme } from './textures';
 
 export interface ModelMaterials {
   /** white livery paint with the cheat-line/registration map (fuselage) */
@@ -47,6 +47,8 @@ export interface ModelMaterials {
   haloWhite: THREE.SpriteMaterial;
   knobBlack: THREE.MeshStandardMaterial;
   knobRed: THREE.MeshStandardMaterial;
+  /** painted steel tube frame seen inside a fabric-covered cabin (Cub) */
+  frame: THREE.MeshStandardMaterial;
   /** daylight fill on the cabin materials, 0 (night) … 1 (day) */
   setCabinBounce(k: number): void;
   /**
@@ -57,7 +59,23 @@ export interface ModelMaterials {
   dispose(): void;
 }
 
+/** Airframe colours: the fuselage livery plus the plain paint (wings, tail) and the trim accent. */
+export interface PaintScheme {
+  livery: LiveryScheme;
+  /** wings, tail, spinner, pants (hex) */
+  plain: number;
+  /** accent colour (hex) */
+  trim: number;
+  /** fuselage colour when no livery texture can be drawn (Node tests) */
+  fallback: number;
+}
+
+/** The C172's white scheme (also the default). */
+export const C172_PAINT: PaintScheme = { livery: C172_LIVERY, plain: 0xf4f4f2, trim: 0x1f4e9c, fallback: 0xffffff };
+
 export interface MaterialOptions {
+  /** colours (default {@link C172_PAINT}) */
+  scheme?: PaintScheme;
   registration?: string;
   /** u-range of the registration decal along the fuselage */
   regU?: [number, number];
@@ -66,13 +84,14 @@ export interface MaterialOptions {
 }
 
 export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials {
-  const livery = createLiveryTexture(opts.registration ?? 'N172FS', opts.regU?.[0] ?? 0.55, opts.regU?.[1] ?? 0.78, opts.liveryScale);
+  const scheme = opts.scheme ?? C172_PAINT;
+  const livery = createLiveryTexture(opts.registration ?? 'N172FS', opts.regU?.[0] ?? 0.55, opts.regU?.[1] ?? 0.78, opts.liveryScale, scheme.livery);
   const blur = createPropBlurTexture();
   const halo = createHaloTexture();
 
-  const paint = new THREE.MeshStandardMaterial({ color: 0xffffff, map: livery, roughness: 0.38, metalness: 0.08 });
-  const paintPlain = new THREE.MeshStandardMaterial({ color: 0xf4f4f2, roughness: 0.4, metalness: 0.08 });
-  const trim = new THREE.MeshStandardMaterial({ color: 0x1f4e9c, roughness: 0.4, metalness: 0.1 });
+  const paint = new THREE.MeshStandardMaterial({ color: livery ? 0xffffff : scheme.fallback, map: livery, roughness: 0.38, metalness: 0.08 });
+  const paintPlain = new THREE.MeshStandardMaterial({ color: scheme.plain, roughness: 0.4, metalness: 0.08 });
+  const trim = new THREE.MeshStandardMaterial({ color: scheme.trim, roughness: 0.4, metalness: 0.1 });
   // exterior glass: tinted, reflective; the dark cabin behind it makes the windows read dark
   const glass = new THREE.MeshPhysicalMaterial({
     color: 0x55687a, roughness: 0.05, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04,
@@ -116,16 +135,17 @@ export function createModelMaterials(opts: MaterialOptions = {}): ModelMaterials
   const haloWhite = new THREE.SpriteMaterial({ ...haloOpts, color: 0xffffff });
   const knobBlack = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
   const knobRed = new THREE.MeshStandardMaterial({ color: 0xc01818, roughness: 0.6 });
+  const frame = new THREE.MeshStandardMaterial({ color: 0x8a8d86, roughness: 0.7, metalness: 0.2, envMapIntensity: 0.35, emissive: bounce });
 
   const setCabinBounce = (k: number): void => {
     const v = Number.isFinite(k) ? Math.max(0, Math.min(1, k)) : 0;
-    interior.emissiveIntensity = v; doorPanel.emissiveIntensity = v; seat.emissiveIntensity = v;
+    interior.emissiveIntensity = v; doorPanel.emissiveIntensity = v; seat.emissiveIntensity = v; frame.emissiveIntensity = v;
   };
 
-  const all: THREE.Material[] = [paint, paintPlain, trim, glass, glassInterior, metal, rubber, hub, blade, interior, interiorDark, trimDark, doorPanel, gasket, cabinInner, seat, panelFrame, panel, panelG1000, propDisc, navRed, navGreen, navWhite, haloRed, haloGreen, haloWhite, knobBlack, knobRed];
+  const all: THREE.Material[] = [paint, paintPlain, trim, glass, glassInterior, metal, rubber, hub, blade, interior, interiorDark, trimDark, doorPanel, gasket, cabinInner, seat, panelFrame, panel, panelG1000, propDisc, navRed, navGreen, navWhite, haloRed, haloGreen, haloWhite, knobBlack, knobRed, frame];
   return {
     paint, paintPlain, trim, glass, glassInterior, metal, rubber, hub, blade, interior, interiorDark, trimDark, doorPanel, gasket, cabinInner, seat, panelFrame, panel, panelG1000, propDisc,
-    navRed, navGreen, navWhite, haloRed, haloGreen, haloWhite, knobBlack, knobRed,
+    navRed, navGreen, navWhite, haloRed, haloGreen, haloWhite, knobBlack, knobRed, frame,
     setCabinBounce,
     setDaylight(k: number) {
       const v = Number.isFinite(k) ? Math.max(0, Math.min(1, k)) : 0;

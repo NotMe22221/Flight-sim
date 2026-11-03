@@ -267,3 +267,61 @@ describe('flows a player takes', () => {
 function byLabel(label: string): boolean {
   return t.root.querySelectorAll('.pause-menu .btn-label').some((e) => e.textContent === label && e.rendered);
 }
+
+describe('review: z-order and placement in flight', () => {
+  const panel = (id: string) => t.q(`.floating-panel[data-panel="${id}"]`)!;
+  const toolbarClick = (id: string) => t.q(`.toolbar-btn[data-item="${id}"]`)!.click();
+
+  it('a new activity brings its (already open) objectives panel in front of a panel opened later', async () => {
+    await startQuickLesson(60);
+    toolbarClick('checklist');
+    await t.run(50);
+    expect(panel('checklist').style.zIndex).toBe('1');
+    expect(panel('objectives').style.zIndex).toBe('');
+    // the lesson is replaced by another one: the objectives panel was never closed
+    await esc();
+    buttonByText(t.q('.pause-menu')!, 'Restart activity').click();
+    await t.run(300);
+    expect(t.sim.runner.phase).toBe('running');
+    expect(panel('objectives').style.zIndex).toBe('1');
+  });
+
+  it('the checklist opens beside the objectives panel, not exactly on top of it', async () => {
+    await startQuickLesson(60);
+    toolbarClick('checklist');
+    await t.run(50);
+    expect(panel('objectives').style.left).toBe('16px');
+    expect(panel('checklist').style.left).toBe('368px');
+    // without an activity it is back in its own top-left place
+    await esc();
+    buttonByText(t.q('.pause-menu')!, 'Abort activity').click();
+    buttonByText(t.q('.pause-menu')!, 'Resume flight').click();
+    await t.run(50);
+    toolbarClick('checklist');
+    toolbarClick('checklist');
+    await t.run(50);
+    expect(panel('checklist').style.left).toBe('16px');
+  });
+
+  it('instructor lines sit above the floating panels, at the top in the cockpit view', async () => {
+    t.sim.snap.camera.mode = 'cockpit';
+    await startQuickLesson(60);
+    expect(subtitle()!.parentElement!.classList.contains('ui-layer-flight')).toBe(true);
+    expect(subtitle()!.classList.contains('top')).toBe(true);
+    t.sim.snap.camera.mode = 'chase';
+    await t.run(50);
+    expect(subtitle()!.classList.contains('top')).toBe(false);
+  });
+
+  it('Restart step shows the step instruction at once (no stale hint in front of it)', async () => {
+    await startQuickLesson(60);
+    await t.run(7000);
+    t.sim.events.emit('activity:instruction', { text: 'Too low: climb to 3,000 ft', important: false });
+    await t.run(100);
+    expect(subtitle()!.textContent).toContain('Too low');
+    await esc();
+    buttonByText(t.q('.pause-menu')!, 'Restart step').click();
+    await t.run(100);
+    expect(subtitle()!.textContent).toContain('Instruction 1');
+  });
+});

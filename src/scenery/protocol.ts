@@ -4,6 +4,7 @@
  * origin at the tile centre on the ellipsoid) so results transfer without copies.
  * Vertical positions are relative to the ground: the main thread adds the terrain height.
  */
+import type { PavementArea } from '../world/pavement';
 import type { BuildSettings } from './config';
 
 /** One merged mesh. `color` is normalised RGB (3 bytes per vertex). */
@@ -99,6 +100,8 @@ export interface TileBuildResult {
   /** apron floodlight pools (night decals) */
   lightPools: DrapedData | null;
   parking: ParkingSpotLocal[];
+  /** airport pavement in lon/lat for terrain flattening (also in parking-only builds) */
+  pavement: PavementArea[];
   stats: TileStats;
   /** features skipped as malformed */
   decodeErrors: number;

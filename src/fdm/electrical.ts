@@ -14,11 +14,16 @@
  * - Loads by switch state: base (engine instruments, annunciators), avionics, lights, pitot heat,
  *   fuel pump, starter (≈ 150 A while cranking).
  * Outputs feed the instruments (bus volts, battery amps, LOW VOLTS) and gate the starter.
+ *
+ * Other aircraft pass their own {@link ElectricalSpec} (`AircraftConfig.electrical`): a 14 V system
+ * sets `batteryNominalV: 12`, which scales the battery voltages (open circuit, polarisation sag,
+ * starter supply) by one half. The state publishes `nominalVolts` (28 / 14) and the LOW VOLTS
+ * threshold so gauges can scale.
  */
 import { clamp } from '../core/math';
-import type { ElectricalState } from '../core/types';
+import type { ElectricalSpec, ElectricalState } from '../core/types';
 
-export type { ElectricalState };
+export type { ElectricalSpec, ElectricalState };
 
 export interface ElectricalSwitches {
   battery: boolean;
@@ -33,20 +38,6 @@ export interface ElectricalLoads {
   pitotHeat: boolean;
   fuelPump: boolean;
   starter: boolean;
-}
-
-export interface ElectricalSpec {
-  capacityAh: number;
-  internalOhm: number;
-  alternatorMaxA: number;
-  regulatorV: number;
-  /** rpm at which the alternator reaches full output (linear from cut-in) */
-  alternatorFullRpm: number;
-  alternatorCutInRpm: number;
-  /** below this the avionics/instruments drop out */
-  dropOutV: number;
-  lowVoltsV: number;
-  loadsA: { base: number; avionics: number; nav: number; beacon: number; strobe: number; landing: number; taxi: number; panel: number; pitotHeat: number; fuelPump: number; starter: number };
 }
 
 /** C172S figures: POH §7 (battery, alternator, LOW VOLTS) and typical lamp/avionics currents. */
@@ -72,20 +63,26 @@ export class ElectricalSystem {
   private chargeAh: number;
   private excited = false;
 
+  /** battery voltage scale: 1 for a 24 V battery (28 V system), 0.5 for a 12 V battery (14 V system) */
+  private readonly vs: number;
+
   constructor(private readonly spec: ElectricalSpec = C172S_ELECTRICAL, charge = 1) {
+    this.vs = (spec.batteryNominalV ?? 24) / 24;
     this.chargeAh = clamp(charge, 0, 1) * spec.capacityAh;
     this.state.batteryCharge = clamp(charge, 0, 1);
+    this.state.nominalVolts = 28 * this.vs;
+    this.state.lowVoltsThresholdV = spec.lowVoltsV;
   }
 
-  /** Battery open-circuit voltage at the current state of charge. */
-  openCircuitVolts(): number { return 22.8 + 2.4 * (this.chargeAh / this.spec.capacityAh); }
+  /** Battery open-circuit voltage at the current state of charge (22.8 … 25.2 V for a 24 V battery). */
+  openCircuitVolts(): number { return (22.8 + 2.4 * (this.chargeAh / this.spec.capacityAh)) * this.vs; }
 
   /** Terminal voltage drop for a discharge current (A, + = discharging) at state of charge soc. */
   private sag(amps: number, soc: number): number {
     const worn = 1 - soc;
     const R = this.spec.internalOhm * (1 + 2 * worn * worn);
     if (amps <= 0) return amps * R; // charging: terminal above open circuit
-    return amps * R + 0.8 * (1 + worn) * (1 - Math.exp(-amps / 10));
+    return amps * R + 0.8 * this.vs * (1 + worn) * (1 - Math.exp(-amps / 10));
   }
 
   setCharge(fraction: number): void { this.chargeAh = clamp(fraction, 0, 1) * this.spec.capacityAh; this.state.batteryCharge = clamp(fraction, 0, 1); }
@@ -96,7 +93,7 @@ export class ElectricalSystem {
    * (~20 V) cranks briskly, a weak one slowly, a flat one not at all. The starter runs below the
    * avionics drop-out voltage, so the screens may flicker off while a weak battery cranks.
    */
-  starterFactor(): number { return this.batteryOn ? clamp((this.state.busVolts - 12) / 8.5, 0, 1) : 0; }
+  starterFactor(): number { return this.batteryOn ? clamp((this.state.busVolts - 12 * this.vs) / (8.5 * this.vs), 0, 1) : 0; }
   private batteryOn = false;
 
   step(dt: number, sw: ElectricalSwitches, loads: ElectricalLoads, engineRpm: number): ElectricalState {
@@ -141,7 +138,7 @@ export class ElectricalSystem {
     } else {
       iAlt = 0; iBat = -load; bus = Math.max(voc - this.sag(load, soc), 0);
     }
-    if (this.chargeAh <= 0 && iBat < 0) bus = Math.min(bus, 6); // exhausted
+    if (this.chargeAh <= 0 && iBat < 0) bus = Math.min(bus, 6 * this.vs); // exhausted
     this.chargeAh = clamp(this.chargeAh + (iBat * dt) / 3600, 0, sp.capacityAh);
     st.busVolts = bus;
     st.mainPowered = bus > sp.dropOutV;

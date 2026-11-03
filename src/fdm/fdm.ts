@@ -13,13 +13,13 @@ import { DEG, INHG } from '../core/units';
 import { LocalFrame } from '../geo/wgs84';
 import { MagVarCache } from '../geo/magvar';
 import { AeroModel, newAeroOutput, type AeroInput } from './aero';
-import { atmosphere, casFromTas, easFromTas, iasFromCas, indicatedAltitude, tasFromCas, P0 } from './atmosphere';
+import { AirspeedCalibration, atmosphere, casFromTas, easFromTas, iasFromCas, indicatedAltitude, tasFromCas, P0 } from './atmosphere';
 import { GearModel } from './gear';
 import { computeMassProperties, type MassProperties } from './massProps';
 import { PistonPropulsion, newPropulsionOutput, type PropulsionControls } from './propulsion';
 import { createAircraftState } from './state';
 import { DrydenTurbulence, Rng } from './turbulence';
-import { ElectricalSystem, type ElectricalLoads, type ElectricalSwitches } from './electrical';
+import { C172S_ELECTRICAL, ElectricalSystem, type ElectricalLoads, type ElectricalSwitches } from './electrical';
 
 const NS = 15; // pos 0-2, vel 3-5, quat 6-9, rates 10-12, crank ω 13, MAP 14
 const G = 9.80665;
@@ -141,12 +141,18 @@ export class Fdm implements FlightModel {
   private readonly propAir = { rho: 1.225, pAmb: P0, tAmb: 288.15, u: 0, v: 0, w: 0 };
   /** sanitised copy of the current step's inputs */
   private readonly uSafe: ControlInputs = defaultControlInputs();
-  /** C172S 28 V electrical system (battery, alternator, buses) */
-  readonly electrical = new ElectricalSystem();
+  /** electrical system (battery, alternator, buses): `config.electrical`, default the C172S 28 V system */
+  readonly electrical: ElectricalSystem;
   private readonly elecSw: ElectricalSwitches = { battery: true, alternator: true, avionics: true };
   private readonly elecLoads: ElectricalLoads = { nav: false, beacon: false, strobe: false, landing: false, taxi: false, panel: 0, pitotHeat: false, fuelPump: false, starter: false };
   private ailCmdL = 0;
   private ailCmdR = 0;
+  /** stall-warning and "stalled" angles of attack (config, else the C172S values) */
+  private readonly alphaWarn: number;
+  private readonly alphaStalled: number;
+  /** table-driven ASI calibration (config), else the C172S one */
+  private readonly asi: AirspeedCalibration | null;
+  private readonly maxFlapDeg: number;
 
   constructor(readonly config: AircraftConfig, opts: FdmOptions = {}) {
     const eng = config.propulsion.engine;
@@ -164,7 +170,13 @@ export class Fdm implements FlightModel {
     this.mp = computeMassProperties(config, this.stationKg, this.tankKg);
     this.fuelAtMassCalc = this.totalFuel();
     this.state = createAircraftState(config);
+    this.electrical = new ElectricalSystem(config.electrical ?? C172S_ELECTRICAL);
     this.state.electrical = this.electrical.state;
+    this.alphaWarn = config.aero.stallWarnAlphaRad ?? ALPHA_WARN;
+    this.alphaStalled = config.aero.stalledAlphaRad ?? 0.29;
+    this.asi = config.airspeedCalibration ? new AirspeedCalibration(config.airspeedCalibration) : null;
+    const det = config.controls.flaps.detentsDeg;
+    this.maxFlapDeg = det[det.length - 1] || 1;
     this.wheelZ = Math.max(...config.gear.filter((g) => g.type === 'wheel').map((g) => g.pos[2]));
     this.y[6] = 1;
     this.y[14] = P0;
@@ -225,6 +237,7 @@ export class Fdm implements FlightModel {
     this.alphaPrevValid = false;
     this.turb.reset();
     this.gear.releaseAnchors();
+    this.gear.resetSwivel();
     this.electrical.setCharge(1);
     this.trimResult = null;
     this.state.t = 0;
@@ -419,6 +432,7 @@ export class Fdm implements FlightModel {
       hyst: this.hyst, alphaDot: this.alphaDot, alphaPrev: this.alphaPrev, alphaPrevValid: this.alphaPrevValid,
       stations: Array.from(this.stationKg), tanks: Array.from(this.tankKg),
       anchors: { a: Array.from(this.gear.anchored), n: Array.from(this.gear.anchorN), e: Array.from(this.gear.anchorE) },
+      swivel: { c: Array.from(this.gear.castering), a: Array.from(this.gear.casterAngle) },
       turb: Array.from(this.turb.x), turbVel: this.turb.out.velNED.slice(), turbPqr: this.turb.out.pqr.slice(), rng: this.rng.state,
       crashed: this.crashed, crashReason: this.crashReason, qnhSet: this.state.qnhSetPa, utc: this.utcMs,
       // air data of the last evaluation: the next step's turbulence filter runs on this airspeed
@@ -430,7 +444,7 @@ export class Fdm implements FlightModel {
   deserialize(json: string): void {
     const s = JSON.parse(json) as {
       y: number[]; t: number; act: number[]; eng: number[]; hyst: number; alphaDot: number; alphaPrev: number; alphaPrevValid: boolean;
-      stations: number[]; tanks: number[]; anchors: { a: number[]; n: number[]; e: number[] }; turb: number[]; turbVel: number[]; turbPqr: number[]; rng: number;
+      stations: number[]; tanks: number[]; anchors: { a: number[]; n: number[]; e: number[] }; swivel?: { c: number[]; a: number[] }; turb: number[]; turbVel: number[]; turbPqr: number[]; rng: number;
       crashed: boolean; crashReason: string; qnhSet: number; utc: number; air?: number[]; elec?: { chargeAh: number; excited: boolean };
     };
     if (s.elec) this.electrical.deserialize(s.elec);
@@ -441,6 +455,7 @@ export class Fdm implements FlightModel {
     this.hyst = s.hyst; this.alphaDot = s.alphaDot; this.alphaPrev = s.alphaPrev; this.alphaPrevValid = s.alphaPrevValid;
     this.stationKg.set(s.stations); this.tankKg.set(s.tanks);
     this.gear.anchored.set(s.anchors.a); this.gear.anchorN.set(s.anchors.n); this.gear.anchorE.set(s.anchors.e);
+    if (s.swivel) { this.gear.castering.set(s.swivel.c); this.gear.casterAngle.set(s.swivel.a); } else this.gear.resetSwivel();
     this.turb.x.set(s.turb);
     for (let i = 0; i < 3; i++) { this.turb.out.velNED[i] = s.turbVel[i]; this.turb.out.pqr[i] = s.turbPqr[i]; }
     this.rng.state = s.rng >>> 0;
@@ -639,12 +654,13 @@ export class Fdm implements FlightModel {
     let theta = 0;
     let mainsZ = 1.3;
     if (nose.length && mains.length) {
+      // the steerable wheel is the nose wheel, or the tail wheel of a tail-dragger (behind the mains)
       const xn = nose[0].pos[0] - cg[0], xm = mains[0].pos[0] - cg[0];
       const fNose = (-xm / (xn - xm)) * W;
       const fMain = (W - fNose) / mains.length;
       const dn = fNose / nose.length / nose[0].k, dm = fMain / mains[0].k;
       const zn = nose[0].pos[2] - cg[2] - dn, zm = mains[0].pos[2] - cg[2] - dm;
-      theta = Math.atan2(zn - zm, xn - xm);
+      theta = xn > xm ? Math.atan2(zn - zm, xn - xm) : Math.atan2(zm - zn, xm - xn);
       mainsZ = -xm * Math.sin(theta) + zm * Math.cos(theta);
     }
     const q = qFromEuler(0, theta, heading, this.qb);
@@ -767,6 +783,7 @@ export class Fdm implements FlightModel {
     this.recomputeMass();
 
     this.gear.updateAnchors(this.gearOut, this.gearCtl);
+    this.gear.updateSwivel(this.gearOut, this.steer);
 
     // engine temperatures and oil pressure (first-order lags toward targets)
     const amb = this.atm.temperatureK;
@@ -866,14 +883,14 @@ export class Fdm implements FlightModel {
     ae.tas = air.V;
     ae.cas = casFromTas(air.u > 0 ? Math.sqrt(air.u * air.u + air.w * air.w) : 0, this.atm.pressurePa, this.atm.speedOfSound);
     ae.eas = easFromTas(air.V, this.atm.densityKgM3);
-    ae.ias = iasFromCas(ae.cas, this.flapDeg);
+    ae.ias = this.asi ? this.asi.ias(ae.cas, this.flapDeg / this.maxFlapDeg) : iasFromCas(ae.cas, this.flapDeg);
     ae.mach = air.V / this.atm.speedOfSound;
     ae.qbar = 0.5 * this.atm.densityKgM3 * air.V * air.V;
     const ao = this.aeroOut;
     ae.coefficients.CL = ao.CL; ae.coefficients.CD = ao.CD; ae.coefficients.CY = ao.CY;
     ae.coefficients.Cl = ao.Cl; ae.coefficients.Cm = ao.Cm; ae.coefficients.Cn = ao.Cn;
-    ae.stalled = this.hyst === 1 || air.alpha > 0.29;
-    ae.stallWarning = !st.onGround && air.V > 10 && (air.alpha > ALPHA_WARN || this.hyst === 1);
+    ae.stalled = this.hyst === 1 || air.alpha > this.alphaStalled;
+    ae.stallWarning = !st.onGround && air.V > 10 && (air.alpha > this.alphaWarn || this.hyst === 1);
 
     // engine
     const po = this.propOut, en = st.engine;
@@ -900,7 +917,8 @@ export class Fdm implements FlightModel {
       gs.normalForceN = go.normalForce[i];
       gs.onGround = go.inContact[i] === 1;
       gs.wheelSpeedMs = go.rollSpeed[i];
-      gs.steerRad = cfg.gear[i].maxSteerDeg > 0 ? this.steer : 0;
+      // actual wheel heading (+ = turned right): a tail wheel turns opposite to the pedal, a castering one trails its motion
+      gs.steerRad = go.wheelAngle[i];
     }
     for (let i = 0; i < this.tankKg.length; i++) st.fuelKg[i] = this.tankKg[i];
     st.totalMassKg = this.mp.mass;

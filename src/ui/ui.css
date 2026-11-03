@@ -339,6 +339,9 @@
   transition: transform 180ms ease, opacity 180ms ease; opacity: 0;
 }
 .fs-ui .toolbar.visible { transform: translate(-50%, 0); opacity: 1; }
+/* above the floating panels (the last one shown gets z-index 1) and the instructor subtitle: the
+   camera menu drops over the top-left objectives panel */
+.fs-ui .toolbar, .fs-ui .toolbar-handle { z-index: 5; }
 .fs-ui .toolbar-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 64px; padding: 6px 4px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--fg-dim); cursor: pointer; transition: background var(--t), color var(--t), border-color var(--t); font-size: 0.68em; letter-spacing: 0.06em; text-transform: uppercase; }
 .fs-ui .toolbar-btn .icon { width: 22px; height: 22px; }
 .fs-ui .toolbar-btn:hover { background: var(--ui-bg-hover); color: var(--fg); }
@@ -720,13 +723,25 @@
   width: max-content; max-width: min(760px, calc(100vw - 32px)); padding: 9px 16px 10px; display: none;
   font-size: 1.02em; line-height: 1.4; text-align: center; pointer-events: none;
   background: var(--ui-bg-strong); border-color: var(--ui-border);
+  /* in the flight layer above the floating panels (an open checklist or VFR map must not hide it), under the toolbar */
+  z-index: 4;
+}
+/* cockpit view (wider than a phone): the instrument panel fills the bottom of the screen, so the line
+   goes to the top centre, below the toolbar strip and clear of the objectives panel's default
+   top-left column (16 + 340 px); between phone and wide screens it centres in the space right of it */
+@media (min-width: 721px) {
+  .fs-ui .instructor-subtitle.top { top: 72px; bottom: auto; left: calc(372px + (100vw - 388px) / 2); max-width: min(540px, calc(100vw - 404px)); }
+}
+@media (min-width: 1200px) {
+  .fs-ui .instructor-subtitle.top { left: 50%; }
 }
 .fs-ui .instructor-subtitle.visible { display: block; animation: fs-sub-in 220ms ease; }
 .fs-ui .instructor-subtitle .from { display: block; font-size: 0.66em; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 2px; }
 .fs-ui .instructor-subtitle.important { border-color: rgba(76, 195, 255, 0.55); box-shadow: 0 0 0 1px rgba(76, 195, 255, 0.25), 0 10px 40px rgba(0, 0, 0, 0.35); }
 @keyframes fs-sub-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
-/* toasts go above the subtitle while it shows */
+/* toasts go above the subtitle while it shows at the bottom */
 .fs-ui:has(.instructor-subtitle.visible) .toasts { bottom: calc(clamp(32px, min(12vh, (100vw - 24px) * 0.1161), 115px) + 110px); }
+@media (min-width: 721px) { .fs-ui:has(.instructor-subtitle.visible.top) .toasts { bottom: 56px; } }
 
 /* debrief card */
 .fs-ui .debrief { width: min(580px, 94vw); max-height: min(88vh, 860px); padding: 20px 24px; display: flex; flex-direction: column; gap: 8px; }

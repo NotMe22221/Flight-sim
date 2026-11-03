@@ -72,8 +72,11 @@ export class SpeedHold {
   }
 }
 
-/** Wings-level / heading-hold with ailerons and a yaw damper on the rudder. */
-export function levelWings(f: Fdm, u: ControlInputs, headingRad?: number): void {
+/**
+ * Wings-level / heading-hold with ailerons and a yaw damper on the rudder. `yawGain` (pedal per
+ * radian of sideslip) defaults to the C172's; a lighter aircraft with a bigger rudder needs less.
+ */
+export function levelWings(f: Fdm, u: ControlInputs, headingRad?: number, yawGain = 10): void {
   const s = f.state;
   let bankCmd = 0;
   if (headingRad !== undefined) {
@@ -84,5 +87,5 @@ export function levelWings(f: Fdm, u: ControlInputs, headingRad?: number): void 
   }
   u.roll = Math.max(-1, Math.min(1, 2.0 * (bankCmd - s.euler[0]) - 0.4 * s.rates[0]));
   // sideslip to the right (β > 0) needs right rudder (yaw > 0)
-  u.yaw = Math.max(-1, Math.min(1, 10 * s.aero.beta));
+  u.yaw = Math.max(-1, Math.min(1, yawGain * s.aero.beta));
 }

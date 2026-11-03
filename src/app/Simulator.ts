@@ -15,6 +15,7 @@ import { magneticDeclinationDeg } from '../geo/magvar';
 import { sunEvents, sunPosition } from '../geo/solar';
 import { LocalFrame, nedToThree } from '../geo/wgs84';
 import { World } from '../world/World';
+import type { PavementArea, PavementSource } from '../world/pavement';
 import { LandingGuide } from '../world/LandingGuide';
 import { ActivityRunner, ProgressStore } from '../activities';
 import { makeActivityHost } from './activityHost';
@@ -64,6 +65,9 @@ export interface SceneryLike {
   /** stands / gates / apron positions near a point, best first (for parking spawns) */
   parkingSpots?(lat: number, lon: number, radiusM: number): Promise<{ lat: number; lon: number; headingDeg: number; name: string; kind?: 'gate' | 'stand' }[]>;
   attribution?(): string[];
+  /** airport pavement (aprons, taxiways) of the tiles it has, for terrain flattening (src/world/pavement.ts) */
+  pavementRevision?(): number;
+  pavementAreas?(): readonly PavementArea[];
   stats?(): Record<string, number>;
   dispose?(): void;
 }
@@ -96,6 +100,7 @@ export const DEFAULT_ASSISTS: AssistanceOptions = {
 };
 
 const SPAWN_ROLL_OFFSET_M = 40;
+const NO_ROTATION: [number, number, number, number] = [1, 0, 0, 0];
 
 export class Simulator {
   readonly events = new EventBus();
@@ -188,6 +193,11 @@ export class Simulator {
     const home = new LocalFrame(37.613538, -122.35716, 0);
     this.terrain = opts.terrain === false ? null : new TerrainSystem(home, { depthMode: this.gfx.depthMode, maxAnisotropy: this.gfx.maxAnisotropy, imagery: opts.imagery ?? 'satellite' });
     this.world = new World(this.terrain, this.nav, this.weather, home.lat0, home.lon0);
+    // the scenery plugin (attached later) publishes the aprons / taxiways the terrain flattens
+    this.world.setPavementSource(() => {
+      const sc = this.plugins.scenery;
+      return sc && sc.pavementAreas && sc.pavementRevision ? (sc as PavementSource) : null;
+    });
     this.scene.add(this.world.group);
     this.sky = new SkySystem(this.scene, this.gfx.renderer, { shadows: this.gfx.renderer.shadowMap.enabled });
     this.model = new AircraftModel(this.config);
@@ -352,6 +362,11 @@ export class Simulator {
   private physicsStep(h: number): void {
     const s = this.fdm.state;
     const env = this.world.env;
+    // a terrain tile under the aircraft got new heights (pavement flattened, a finer LOD, a late
+    // first tile): an aircraft standing on the ground moves with it instead of being launched or
+    // having its gear driven into the ground
+    const shift = this.world.groundShift(s.posNED[0], s.posNED[1]);
+    if (shift !== 0 && s.onGround) { this.shiftNED[2] = shift; this.fdm.rebase(NO_ROTATION, this.shiftNED); }
     env.surface = this.world.surfaceAt(s.posNED[0], s.posNED[1]);
     const w = this.weather.state;
     env.qnhPa = w.qnhPa;
@@ -396,6 +411,7 @@ export class Simulator {
   // ─────────────────────────────── slew ───────────────────────────────
 
   private readonly groundUp = (n: number, e: number): number => this.world.env.groundHeight(n, e);
+  private readonly shiftNED: [number, number, number] = [0, 0, 0];
   private readonly slewIn = { pitch: 0, roll: 0, yaw: 0, throttle: SLEW_THROTTLE_CENTRE };
 
   /** Enter or leave slew mode (Y). Leaving restarts the flight model where the aircraft now is. */
@@ -747,6 +763,9 @@ export class Simulator {
     this.world.setOrigin(g.lat, g.lon, spawn.onGround ? g.alt : airport?.elevationM ?? 0);
     this.plugins.scenery?.setFrame(this.world.frame);
     if (airport) { this.world.airports.ensureAirport(airport); this.world.syncRunways(); }
+    // aprons / taxiways known near the spawn (a parking spawn loaded their scenery tiles) are
+    // flattened before the prefetch, so the aircraft never starts on ground that is flattened later
+    this.world.syncPavement(true);
     this.weather.setAirportElevation(airport?.elevationM ?? 0);
     this.weather.setFrame(this.world.frame.info);
     this.nearbyAirports = this.nav.nearestAirports(g, 12, 40);

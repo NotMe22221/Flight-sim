@@ -4,7 +4,7 @@
  * See README.md in this directory.
  */
 export { TerrainSystem, READY_RADIUS_M } from './TerrainSystem';
-export type { DepthMode, ImageryMode, RunwaySegment, TerrainStats, TerrainSystemOptions } from './TerrainSystem';
+export type { DepthMode, ImageryMode, RunwaySegment, TerrainChange, TerrainStats, TerrainSystemOptions } from './TerrainSystem';
 export { HeightField } from './heightfield';
 export type { HeightSample, ResidentTile } from './heightfield';
 export { GroundQueries } from './groundQueries';
@@ -22,6 +22,11 @@ export type { ProceduralParams, ProceduralPlateau } from './procedural';
 export { decodeTerrarium, decodeTerrariumPng, encodeTerrarium, encodeTerrariumPng } from './terrarium';
 export { RUNWAY_FEATHER_M, RUNWAY_SHOULDER_M, applyRunwayFlattening, flattenedHeightAt, runwayFlatteningFromRunway } from './runways';
 export type { RunwayFlatteningSpec } from './runways';
+export {
+  PAVEMENT_FEATHER_MAX_M, PAVEMENT_FEATHER_MIN_M, PAVEMENT_MAX_BANK_SLOPE, PAVEMENT_MIN_ZOOM, PAVEMENT_SHOULDER_M,
+  applyPavementFlattening, makePavementSpec, planeHeightAt, tileTouchesPavement,
+} from './pavement';
+export type { PavementFlatteningSpec, PavementGeometry, PavementPlane } from './pavement';
 export { createTerrainSharedUniforms } from './materials';
 export type { TerrainSharedUniforms } from './materials';
 export type { FetchFn } from './tileFetch';

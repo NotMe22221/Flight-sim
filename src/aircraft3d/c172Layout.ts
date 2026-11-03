@@ -9,18 +9,14 @@
  * span. The airframe itself is fixed C172 geometry built around the eye point.
  */
 import * as THREE from 'three';
-import type { AircraftConfig, GearSpec, PropellerSpec, Vec3 } from '../core/types';
+import type { GearSpec, Vec3 } from '../core/types';
 import { bodyVecToThreeLocal } from './frames';
 import type { LoftStation } from './loft';
 import type { WingSection } from './airfoil';
 import type { SideXY, SkinOutline } from './skin';
+import type { AircraftModelConfig, FuselageDetails, GearLayout, GlareshieldLayout, LightLayout, PanelLayout, PropLayout } from './layoutTypes';
 
-/** The subset of {@link AircraftConfig} the 3D model needs. A full AircraftConfig is accepted too. */
-export interface AircraftModelConfig {
-  geometry: AircraftConfig['geometry'];
-  propeller?: PropellerSpec;
-  gear: GearSpec[];
-}
+export { toModelConfig, type AircraftModelConfig, type GearLayout } from './layoutTypes';
 
 const D2R = Math.PI / 180;
 
@@ -54,27 +50,8 @@ export function c172ModelConfig(): AircraftModelConfig {
   };
 }
 
-/** Narrow a full AircraftConfig (or pass a model config through). */
-export function toModelConfig(config: AircraftConfig | AircraftModelConfig): AircraftModelConfig {
-  if ('propulsion' in config) return { geometry: config.geometry, propeller: config.propulsion.propeller, gear: config.gear };
-  return config;
-}
-
-export interface GearLayout {
-  /** index into AircraftState.gear / config.gear */
-  index: number;
-  name: string;
-  /** strut attachment on the airframe (model local) */
-  attach: THREE.Vector3;
-  /** unloaded tyre contact point (model local) */
-  contact: THREE.Vector3;
-  tyreRadius: number;
-  maxSteerRad: number;
-  /** wheel width */
-  width: number;
-}
-
 export interface C172Layout {
+  airframe: 'c172';
   /** total length range used for livery u mapping */
   zNose: number; zTail: number;
   /**
@@ -109,27 +86,17 @@ export interface C172Layout {
   hstab: { sections: WingSection[]; hingeFraction: number; halfSpan: number };
   /** fin sections: `x` is the height above `rootY`; `dorsal` is the fillet ahead of the fin */
   fin: { sections: WingSection[]; dorsal: WingSection[]; hingeFraction: number; rootY: number; span: number };
-  prop: { hub: THREE.Vector3; diameter: number; blades: number; sense: 1 | -1 };
-  gear: { nose: GearLayout | null; mains: GearLayout[] };
+  prop: PropLayout;
+  /** tricycle gear: `tail` is always null */
+  gear: { nose: GearLayout | null; tail: GearLayout | null; mains: GearLayout[] };
   eye: THREE.Vector3;
   /** steam panel plane (2:1 like its 1024×512 texture) and the G1000 plane (PFD+MFD, 2.74:1) */
-  panel: { center: THREE.Vector3; width: number; height: number; tiltRad: number; g1000Center: THREE.Vector3; g1000Height: number };
+  panel: PanelLayout;
   /** padded glareshield hood: rear lip over the panel, top surface running to the windshield */
-  glareshield: { lipY: number; lipZ: number; frontY: number; frontZ: number; width: number };
-  lights: {
-    navLeft: THREE.Vector3; navRight: THREE.Vector3; navTail: THREE.Vector3; beacon: THREE.Vector3;
-    strobeLeft: THREE.Vector3; strobeRight: THREE.Vector3;
-    landing: THREE.Vector3; taxi: THREE.Vector3;
-  };
+  glareshield: GlareshieldLayout;
+  lights: LightLayout;
   /** small exterior details (positions on the skin are found from the fuselage profile) */
-  details: {
-    /** nose-bowl cooling inlets: centre |x|, y, radius, vertical stretch */
-    noseInlets: { x: number; y: number; r: number; squash: number };
-    /** exhaust stack under the cowl: x, station z, length, radius, direction (down and aft) */
-    exhaust: { x: number; z: number; length: number; radius: number; dir: THREE.Vector3 };
-    /** COM whip on the tailcone top: station z, length, base radius, direction (raked aft) */
-    antenna: { z: number; length: number; radius: number; dir: THREE.Vector3 };
-  };
+  details: FuselageDetails;
   /** CG height above ground with unloaded gear, m */
   cgAglM: number;
 }
@@ -261,6 +228,7 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
   // landing / taxi lights in the left wing leading edge (172S), just outboard of the strut
   const lampY = (x: number) => rootY + x * dz - 0.01;
   return {
+    airframe: 'c172',
     zNose: hz - 0.28, zTail: 6.08,
     fuselage: { stations, cowlEndZ: zW0, cabinEndZ: 2.0, firewallZ },
     windows, doors,
@@ -270,7 +238,7 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
     hstab: { sections: hstabSections, hingeFraction: 0.62, halfSpan: hHalf },
     fin: { sections: finSections, dorsal, hingeFraction: 0.62, rootY: finRootY, span: finSpan },
     prop: { hub, diameter, blades: propSpec?.blades ?? 2, sense: propSpec?.sense ?? 1 },
-    gear: { nose, mains },
+    gear: { nose, tail: null, mains },
     eye,
     panel: {
       // top edge 3.8 cm below the deck, just under the glareshield lip

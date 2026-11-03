@@ -1,6 +1,6 @@
 /**
  * Instructor / co-pilot subtitles for activities: a strip at the bottom centre, above the HUD's
- * controls strip, showing each 'activity:instruction' line for ~6 s (9 s when important, longer for
+ * controls strip (at the top centre in the cockpit view), above the floating panels, showing each 'activity:instruction' line for ~6 s (9 s when important, longer for
  * long lines). Bursts are queued (SubtitleQueue); paused time and time off the flight view do not
  * count, so the first instruction is still readable when the loading screen goes away.
  */
@@ -15,6 +15,7 @@ export class InstructorSubtitle {
   private readonly text: Txt;
   private readonly visible: Cls;
   private readonly important: Cls;
+  private readonly top: Cls;
   private shown: SubtitleLine | null = null;
   private speaker = speakerFor('lesson');
 
@@ -24,8 +25,15 @@ export class InstructorSubtitle {
     this.el = h('div', { class: 'panel instructor-subtitle', role: 'status', aria: { live: 'polite' } }, this.from.el, this.text.el);
     this.visible = new Cls(this.el, 'visible');
     this.important = new Cls(this.el, 'important');
+    this.top = new Cls(this.el, 'top');
     layer.appendChild(this.el);
   }
+
+  /**
+   * Cockpit view: the instrument panel fills the bottom of the screen, so the line goes to the top
+   * centre (CSS, wider than a phone) instead of over the airspeed indicator and the altimeter.
+   */
+  setTop(on: boolean): void { this.top.set(on); }
 
   /** Who is talking: 'Instructor' for lessons, 'Co-pilot' for bush trips. */
   setKind(kind: string | null | undefined): void { this.speaker = speakerFor(kind); }

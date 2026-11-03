@@ -4,6 +4,7 @@
  */
 import type { LocalFrameInfo, Vec3 } from '../core/types';
 import type { ImageryCandidate } from './imagery';
+import type { PavementFlatteningSpec } from './pavement';
 import type { ProceduralParams } from './procedural';
 import type { RunwayFlatteningSpec } from './runways';
 import type { Aabb } from './tileMesh';
@@ -38,6 +39,11 @@ export interface LoadRequest {
   quads: number;
   skirt: number;
   runways: RunwayFlatteningSpec[];
+  /**
+   * Airport pavement (aprons, taxiway areas, buffered taxiway centre lines) flattened before the
+   * runways, only the areas touching this tile (none below PAVEMENT_MIN_ZOOM). Optional: absent = none.
+   */
+  pavement?: PavementFlatteningSpec[];
   procedural: ProceduralParams;
   /** keep the full-resolution height grid (z ≥ 11); otherwise a 4× box downsample is returned */
   fullHeights: boolean;

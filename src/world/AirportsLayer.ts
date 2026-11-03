@@ -93,6 +93,9 @@ export class AirportsLayer {
 
   isBuilt(icao: string): boolean { return this.built.has(icao); }
 
+  /** The airports currently built (the spawn airport and those near the aircraft). */
+  builtAirports(): Airport[] { return [...this.built.values()].map((b) => b.airport); }
+
   /**
    * @param aircraftGeo aircraft geodetic position
    * @param aircraftPosThree aircraft position in the render frame (for PAPI)

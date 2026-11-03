@@ -21,13 +21,13 @@ export const DRAPE_DEPTH_BIAS = 0.0025;
 export const AMBIENT_SATURATION = 0.35;
 
 /**
- * Near-camera drop of biased draped surfaces (m). Aprons and taxiways are built 0.20–0.27 m
- * above the sampled ground so the coarser terrain mesh never pokes through at a distance; the
- * aircraft's wheels stand on the ground itself, so close to the camera (full drop within
- * NEAR_DROP_FULL_M, none beyond NEAR_DROP_END_M) the surfaces come down to 0.06–0.13 m and
- * no longer swallow the tyres of a parked or taxiing aircraft.
+ * Near-camera drop of biased draped surfaces (m). Aprons and taxiways are built 0.200–0.206 m
+ * above the sampled ground so a coarser terrain LOD never pokes through at a distance; the
+ * aircraft's wheels stand on the ground itself, which the terrain flattens under airport
+ * pavement, so close to the camera (full drop within NEAR_DROP_FULL_M, none beyond
+ * NEAR_DROP_END_M) the surfaces come down to 4–10 mm and the tyres rest on them.
  */
-export const NEAR_DROP_M = 0.14;
+export const NEAR_DROP_M = 0.196;
 export const NEAR_DROP_FULL_M = 40;
 export const NEAR_DROP_END_M = 400;
 /**

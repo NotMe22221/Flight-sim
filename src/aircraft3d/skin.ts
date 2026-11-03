@@ -18,12 +18,19 @@ export type SideXY = [number, number];
 /** A window / panel outline on the fuselage skin. */
 export interface SkinOutline {
   name: string;
-  /** convex outline in the side view (z, y), counter-clockwise with z to the right, y up */
+  /**
+   * convex outline, counter-clockwise: in the side view (z, y) with z to the right, y up, or for
+   * `view: 'top'` in the top view (z, x) with z to the right, x up
+   */
   outline: SideXY[];
   /** corner radius, m */
   radius: number;
   /** which half of the fuselage: right (+X), left (−X) or both (windshield, rear window) */
   side: 'right' | 'left' | 'both';
+  /** 'side' (default) or 'top' (roof windows such as a skylight) */
+  view?: 'side' | 'top';
+  /** top-view outlines only apply above this height (model y), so the belly is never cut */
+  minY?: number;
 }
 
 /** Signed distance (m, negative inside) of a model-space point. */
@@ -83,6 +90,13 @@ export function shrinkConvex(poly: SideXY[], r: number): SideXY[] {
 export function outlineField(o: SkinOutline): SkinField {
   const core = shrinkConvex(o.outline, o.radius);
   const r = o.radius;
+  if (o.view === 'top') {
+    const minY = o.minY ?? -Infinity;
+    return (x, y, z) => {
+      if (y < minY || (o.side === 'right' && x <= 0) || (o.side === 'left' && x >= 0)) return 1;
+      return convexSdf(core, z, x) - r;
+    };
+  }
   return (x, y, z) => {
     if ((o.side === 'right' && x <= 0) || (o.side === 'left' && x >= 0)) return 1;
     return convexSdf(core, z, y) - r;

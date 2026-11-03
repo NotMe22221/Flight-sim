@@ -48,6 +48,8 @@ export class FloatingPanel {
   private _visible = false;
   private rect: PanelRect;
   private readonly defaults: PanelRect;
+  /** the pilot has placed it (saved layout, dragged or resized): automatic placement leaves it alone */
+  private placed: boolean;
   private onVisibility?: (v: boolean) => void;
 
   constructor(private readonly layer: HTMLElement, private readonly layout: LayoutStore, opts: FloatingPanelOpts) {
@@ -55,6 +57,7 @@ export class FloatingPanel {
     const saved = layout.get(opts.id);
     this.defaults = { x: opts.defaultPos?.x ?? 80, y: opts.defaultPos?.y ?? 80, w: opts.width, h: opts.height };
     this.rect = { x: saved?.x ?? opts.defaultPos?.x ?? 80, y: saved?.y ?? opts.defaultPos?.y ?? 80, w: saved?.w ?? opts.width, h: saved?.h ?? opts.height };
+    this.placed = !!saved;
     this.titleEl = h('span', { class: 'fp-title', text: opts.title });
     const header = h('div', { class: 'fp-header' },
       opts.icon ? icon(opts.icon) : icon('drag'),
@@ -75,11 +78,26 @@ export class FloatingPanel {
 
   get visible(): boolean { return this._visible; }
   setTitle(t: string): void { this.titleEl.textContent = t; }
-  show(): void { if (this._visible) return; this._visible = true; this.el.classList.add('visible'); this.bringToFront(); this.clampToViewport(); this.onVisibility?.(true); }
+  /** Shows it on top of the other panels (an already visible one is brought to the front). */
+  show(): void {
+    if (this._visible) { this.bringToFront(); return; }
+    this._visible = true; this.el.classList.add('visible'); this.bringToFront(); this.clampToViewport(); this.onVisibility?.(true);
+  }
+  /** Placed by the pilot (saved layout, dragged or resized). */
+  get userPlaced(): boolean { return this.placed; }
+  /** Default position and width (before any automatic or manual placement). */
+  get defaultRect(): Readonly<PanelRect> { return this.defaults; }
+  /** Automatic placement (not saved): only for a panel the pilot has not placed. */
+  placeAt(x: number, y: number): void {
+    if (this.placed) return;
+    this.rect.x = x; this.rect.y = y;
+    if (this._visible) this.clampToViewport(); else this.applyRect();
+  }
   hide(): void { if (!this._visible) return; this._visible = false; this.el.classList.remove('visible'); this.onVisibility?.(false); }
   toggle(): void { this._visible ? this.hide() : this.show(); }
   /** Back to the default position and size (Settings › Data › Reset window layout). */
   resetPosition(): void {
+    this.placed = false;
     this.rect = { ...this.defaults };
     this.el.style.width = ''; this.el.style.height = '';
     this.applyRect();
@@ -127,6 +145,7 @@ export class FloatingPanel {
       if (!dragging) return;
       dragging = false;
       try { handle.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+      this.placed = true;
       this.layout.set(id, { ...this.rect });
     };
     handle.addEventListener('pointerup', end);
@@ -151,6 +170,7 @@ export class FloatingPanel {
       if (!resizing) return;
       resizing = false;
       try { grip.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      this.placed = true;
       this.layout.set(id, { ...this.rect });
     };
     grip.addEventListener('pointerup', end);

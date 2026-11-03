@@ -8,6 +8,7 @@ import { LocalFrame } from '../geo/wgs84';
 import type { TerrainSystem } from '../terrain/TerrainSystem';
 import { AirportsLayer } from './AirportsLayer';
 import { SimEnvironment } from './environment';
+import { PavementRegistry, type PavementSource } from './pavement';
 import { makeRebase, needsRebase, type RebaseTransform } from './rebase';
 
 const EARTH_R = 6371000;
@@ -27,6 +28,14 @@ export class World {
   private runwayRects: RunwayRect[] = [];
   private runwayKey = '';
   private flattenTimer = 0;
+  /** airport pavement (scenery aprons / taxiways) flattened into the terrain, see pavement.ts */
+  readonly pavement = new PavementRegistry();
+  private pavementSource: (() => PavementSource | null) | null = null;
+  /** ground under the aircraft at the last `groundShift` call, and the terrain revision it was sampled in */
+  private shiftN = 0;
+  private shiftE = 0;
+  private shiftG: number | null = null;
+  private shiftRev = -1;
 
   constructor(
     readonly terrain: TerrainSystem | null,
@@ -92,6 +101,7 @@ export class World {
 
   /** Start a new flight at a point: new frame, terrain and airports re-expressed, fallback ground set. */
   setOrigin(lat: number, lon: number, fallbackElevationM: number): void {
+    this.shiftG = null;
     this.frame = new LocalFrame(lat, lon, 0);
     this.terrain?.setFrame(this.frame);
     this.airports.setFrame(this.frame);
@@ -104,6 +114,7 @@ export class World {
     if (!needsRebase(aircraftPosNED)) return null;
     const t = makeRebase(this.frame, aircraftPosNED);
     const groundUp = this.env.groundHeight(aircraftPosNED[0], aircraftPosNED[1]);
+    this.shiftG = null;
     this.frame = t.newFrame;
     this.terrain?.setFrame(this.frame);
     this.airports.setFrame(this.frame);
@@ -121,7 +132,48 @@ export class World {
     if (this.flattenTimer > 2) {
       this.flattenTimer = 0;
       this.syncRunways();
+      this.syncPavement();
     }
+  }
+
+  /**
+   * Where the scenery's pavement comes from (called lazily: the scenery plugin attaches after the
+   * world exists). Null → no pavement flattening.
+   */
+  setPavementSource(source: (() => PavementSource | null) | null): void { this.pavementSource = source; }
+
+  /**
+   * Push the scenery's aprons / taxiways near the current airports to terrain flattening (when
+   * they changed). Runs every 2 s from update(); call it with `force` on a spawn, after the spawn
+   * airport is built and before the terrain prefetch, so the spawn tiles load already flattened.
+   */
+  syncPavement(force = false): void {
+    const src = this.pavementSource ? this.pavementSource() : null;
+    const specs = this.pavement.sync(src, this.airports.builtAirports(), force);
+    if (specs) this.terrain?.setPavement?.(specs);
+  }
+
+  /**
+   * Height change (m, up positive) of the ground under the aircraft caused by terrain data
+   * changing (a tile loading, reloading flattened, refining or being evicted) since the previous
+   * call — 0 when nothing changed. The caller lifts an aircraft standing on the ground by this
+   * much, so a reload never launches it or drives the gear into the ground. Sampled at the previous
+   * call's point, so the aircraft's own motion is not mistaken for a change.
+   */
+  groundShift(n: number, e: number): number {
+    const rev = this.terrain?.revision?.() ?? 0;
+    let shift = 0;
+    // (a jump of more than a few metres since the last call is a teleport — slew, replay — not motion)
+    const near = Math.abs(n - this.shiftN) + Math.abs(e - this.shiftE) < 5;
+    if (rev !== this.shiftRev && this.shiftG !== null && near) {
+      const g = this.env.groundHeight(this.shiftN, this.shiftE);
+      if (Number.isFinite(g)) shift = g - this.shiftG;
+    }
+    this.shiftRev = rev;
+    this.shiftN = n; this.shiftE = e;
+    const g = this.env.groundHeight(n, e);
+    this.shiftG = Number.isFinite(g) ? g : null;
+    return Math.abs(shift) > 1e-4 ? shift : 0;
   }
 
   /** Push the current airport runways to terrain flattening and the surface map (when they changed). */

@@ -18,9 +18,10 @@ import { dirFromAzEl, moonPosition, sunPosition } from '../geo/solar';
 import { CloudLayers, type CloudLayersOptions } from './clouds';
 import { installBuiltinHeightFog, setBuiltinHeightFog } from './builtinFog';
 import {
-  DEFAULT_EXPOSURE, type ExposureOptions, MIN_FOG_INV_H, NIGHT_AMBIENT_COLOR, adaptExposure, ambientFloor, capBySky, cloudCoverFraction,
-  encodeDisplayColor, exposureForIlluminance, fogBetaFromVisibility, hazeColor, hazeScaleHeight, hemisphereIntensity, luminance, mieFromVisibility, mixVec3,
-  moonLightIntensity, normalizeColor, skylightBalance, starVisibility, sunLightIntensity, surfaceIlluminance, turbidityFromVisibility,
+  DEFAULT_EXPOSURE, type ExposureOptions, GROUND_ALBEDO, MIN_FOG_INV_H, NIGHT_AMBIENT_COLOR, SKYLIGHT_SATURATION, SUN_INTENSITY_BASE, adaptExposure,
+  ambientFloor, capBySky, cloudCoverFraction, encodeDisplayColor, exposureForIlluminance, fogBetaFromVisibility, hazeColor, hazeScaleHeight,
+  hemisphereIntensity, luminance, mieFromVisibility, mixVec3, moonLightIntensity, normalizeColor, saturateColor, skylightBalance, skylightIrradiance,
+  starVisibility, sunLightIntensity, surfaceIlluminance, turbidityFromVisibility,
 } from './lighting';
 import { MoonDisc } from './moon';
 import { Precipitation, type PrecipitationOptions } from './precipitation';
@@ -31,13 +32,20 @@ import { StarField } from './stars';
 import { type SkyLighting, createSkyLighting } from './types';
 import { windAt } from './wind';
 
-/** Least share of the hemisphere skylight kept for built-in materials while the baked environment lights them. */
-const HEMI_SHARE_WITH_ENV = 0.25;
+/**
+ * Least share of the skylight kept on the hemisphere light for built-in materials while the baked environment
+ * lights them. Since the calibration the environment IS the skylight by day (the dome, desaturated, over a lit
+ * ground), so it carries all of it; the hemisphere light fills in at twilight, where the skylight curve is
+ * brighter than the dome.
+ */
+const HEMI_SHARE_WITH_ENV = 0;
 /**
  * Upper bound of scene.environmentIntensity for the baked sky: the intensity itself follows the terrain's
  * skylight (`skylightBalance`), but reflections are never brighter than the sky they mirror.
  */
 const ENV_MAP_INTENSITY_MAX = 1;
+/** the dome's own skylight fades in over these sun elevations (deg): below, Sky.js's constant floor is not twilight */
+const DOME_SKYLIGHT_FADE_DEG: readonly [number, number] = [-4, 2];
 
 export interface SkySystemOptions {
   /** exposure targets (day ≈ 0.5–0.7, night ≈ 1.5) and adaptation time */
@@ -58,7 +66,7 @@ export interface SkySystemOptions {
   envRebakeDeg?: number;
   /** minimum real seconds between rebakes */
   envRebakeMinS?: number;
-  /** base sun DirectionalLight intensity at the zenith (≈ 3 ⇒ 100 klx under exposure 0.6) */
+  /** sun DirectionalLight intensity at the zenith before extinction (`SUN_INTENSITY_BASE` 12: ≈ 5 × the dome's skylight at a 40° sun) */
   sunIntensity?: number;
   /** Preetham rayleigh (default 1) and Mie forward lobe (default 0.8) */
   rayleigh?: number;
@@ -152,6 +160,8 @@ export class SkySystem {
   private readonly envSky: THREE.Mesh;
   /** grey shell over the baked sky as cover closes (reflections/IBL under an overcast are grey, not blue) */
   private readonly envOvercast: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  /** lit ground under the baked sky (the lower hemisphere of the environment: light from below, not more sky) */
+  private readonly envGround: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly lastBakeSunDir = new THREE.Vector3(0, -1, 0);
   private lastBakeTurbidity = -1;
   private lastBakeMie = -1;
@@ -160,8 +170,17 @@ export class SkySystem {
   private baked = false;
   /** luminance of the baked environment's irradiance on an up-facing surface at intensity 1 (dome scale) */
   private envIrradianceLum = 0;
+  /** that irradiance (linear RGB): the dome desaturated by `SKYLIGHT_SATURATION`, the overcast shell blended over it */
   private readonly envIrradiance: Vec3 = [0, 0, 0];
   private readonly skyBalance = { envIntensity: 0, hemiShare: 1 };
+  /** the clear dome's irradiance on an up-facing surface (CPU twin, recomputed when the sun or the air changes) */
+  private readonly domeIrradiance: Vec3 = [0, 0, 0];
+  private readonly domeKey = { x: NaN, y: NaN, z: NaN, turbidity: NaN, mie: NaN, glow: NaN };
+  /** the frame's skylight on an up-facing surface (linear RGB, without the night floor) */
+  private readonly skyIrradiance: Vec3 = [0, 0, 0];
+  /** irradiance a down-facing surface gets from the lit ground (linear RGB) */
+  private readonly groundIrradiance: Vec3 = [0, 0, 0];
+  private readonly tmpD: Vec3 = [0, 0, 0];
   private lastShadowFar = -1;
   /** external drifts (from a WeatherSystem) so cloud visuals and FDM density share one field */
   private cloudDrifts: readonly number[] | null = null;
@@ -201,7 +220,7 @@ export class SkySystem {
       environmentMap: options.environmentMap ?? true,
       envRebakeDeg: options.envRebakeDeg ?? 1,
       envRebakeMinS: options.envRebakeMinS ?? 0.5,
-      sunIntensity: options.sunIntensity ?? 3,
+      sunIntensity: options.sunIntensity ?? SUN_INTENSITY_BASE,
       inCloudBeta: options.inCloudBeta ?? 0.03,
       builtinHeightFog: options.builtinHeightFog ?? true,
     };
@@ -240,6 +259,14 @@ export class SkySystem {
     );
     this.envOvercast.renderOrder = 2;
     this.envScene.add(this.envOvercast);
+    // the lower hemisphere: drawn over the dome (Sky.js continues the horizon sky below it, which lit the
+    // aircraft's belly and shaded sides with more blue sky) and the overcast shell
+    this.envGround = new THREE.Mesh(
+      new THREE.SphereGeometry(45, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false, toneMapped: false }),
+    );
+    this.envGround.renderOrder = 3;
+    this.envScene.add(this.envGround);
 
     // ── lights ──
     this.sunLight = new THREE.DirectionalLight(0xffffff, 0);

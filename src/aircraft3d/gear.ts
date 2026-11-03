@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type { GearState } from '../core/types';
-import type { C172Layout, GearLayout } from './c172Layout';
+import type { GearLayout } from './layoutTypes';
 import type { ModelMaterials } from './materials';
 import { finiteOr } from './finite';
 
@@ -26,6 +26,22 @@ interface Leg {
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const tmp = new THREE.Vector3();
 
+/** What {@link AircraftModel} needs from a landing-gear assembly (tricycle or tail-wheel). */
+export interface GearAssembly {
+  readonly group: THREE.Group;
+  /** Apply the FDM gear states (indexed like config.gear); dt in seconds. */
+  update(states: readonly GearState[], dt: number): void;
+  /** steering pivot of the nose wheel (null without one) */
+  readonly noseRoot: THREE.Group | null;
+  /** steering pivot of the tail wheel (null without one) */
+  readonly tailRoot: THREE.Group | null;
+  /** group that moves with the strut compression, by config index */
+  carrierFor(index: number): THREE.Group | null;
+  /** the spinning wheel (rotation.x), by config index */
+  wheelFor(index: number): THREE.Mesh | null;
+  dispose(): void;
+}
+
 /**
  * Unit teardrop speed fairing (wheel pant): lathe about the length axis, rounded nose at
  * z = −0.42, tapering to a point at z = +0.58 (length 1, max radius 0.5).
@@ -45,12 +61,12 @@ function buildPantGeometry(): THREE.BufferGeometry {
   return g;
 }
 
-export class LandingGear {
+export class LandingGear implements GearAssembly {
   readonly group = new THREE.Group();
   private readonly legs: Leg[] = [];
   private readonly geometries: THREE.BufferGeometry[] = [];
 
-  constructor(gear: C172Layout['gear'], mats: ModelMaterials) {
+  constructor(gear: { nose: GearLayout | null; mains: GearLayout[] }, mats: ModelMaterials) {
     this.group.name = 'gear';
     if (gear.nose) this.legs.push(this.buildLeg(gear.nose, true, mats));
     for (const m of gear.mains) this.legs.push(this.buildLeg(m, false, mats));
@@ -155,6 +171,8 @@ export class LandingGear {
 
   /** For tests: the nose steering pivot (null without a nose wheel). */
   get noseRoot(): THREE.Group | null { return this.legs.find((l) => l.isNose)?.root ?? null; }
+  /** Tricycle gear: no tail wheel. */
+  get tailRoot(): THREE.Group | null { return null; }
   /** For tests: carriers (move with compression) by config index. */
   carrierFor(index: number): THREE.Group | null { return this.legs.find((l) => l.layout.index === index)?.carrier ?? null; }
   wheelFor(index: number): THREE.Mesh | null { return this.legs.find((l) => l.layout.index === index)?.wheel ?? null; }

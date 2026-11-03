@@ -5,7 +5,7 @@
  * firewall, seats, yokes that follow pitch/roll inputs, rudder pedals, throttle and mixture.
  */
 import * as THREE from 'three';
-import type { ControlInputs } from '../core/types';
+import type { AircraftState, ControlInputs } from '../core/types';
 import type { C172Layout } from './c172Layout';
 import type { LoftProfile } from './loft';
 import type { ModelMaterials } from './materials';
@@ -16,6 +16,22 @@ export type PanelVariant = 'steam' | 'g1000';
 
 /** Instrument panel plane: assign the instruments texture to `material.map`. */
 export type PanelMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+
+/** What {@link AircraftModel} needs from a cockpit (C172 side by side, Cub tandem). */
+export interface CockpitAssembly {
+  readonly group: THREE.Group;
+  /** steam panel plane (2:1 like its 1024×512 texture); the instruments module sets `material.map` */
+  readonly panelMesh: PanelMesh;
+  /** G1000 plane (hidden unless the variant is 'g1000'; the Cub has none and keeps it hidden) */
+  readonly panelMeshG1000: PanelMesh;
+  /** pilot control columns: the C172's two yokes, the Cub's front and rear sticks */
+  readonly yokeGroups: readonly THREE.Group[];
+  /** animate the controls from the pilot inputs (and the state: flap handle, fuel gauges) */
+  update(inputs: ControlInputs, state?: AircraftState): void;
+  setPanelLighting(daylight: number, panelLight: number): void;
+  setPanelVariant(v: PanelVariant): void;
+  dispose(): void;
+}
 
 const smooth = (a: number, b: number, x: number): number => {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
@@ -73,7 +89,23 @@ function buildHood(gs: C172Layout['glareshield'], panelTop: { y: number; z: numb
   return g;
 }
 
-export class CockpitInterior {
+/**
+ * Instrument lighting shared by the cockpits. The panel planes are unlit (MeshBasicMaterial),
+ * so their colour is the light on the gauges: daylight (0 night … 1 day) or the warm post
+ * lights (`panelLight` 0..1), whichever is brighter, with a dim floor so the faces never go
+ * fully black. The G1000 screens are emissive: they only dim to ~55 % at night.
+ */
+export function applyPanelLighting(steam: PanelMesh, g1000: PanelMesh, daylight: number, panelLight: number): void {
+  const d = Math.max(0, Math.min(1, daylight || 0));
+  const p = 0.7 * Math.max(0, Math.min(1, panelLight || 0));
+  // the floor (≈ 35 % perceived) keeps a night spawn with the panel lights off readable
+  const base = 0.1 + 0.9 * d;
+  steam.material.color.setRGB(Math.max(base, p), Math.max(base, p * 0.9), Math.max(base, p * 0.72));
+  const glass = 0.55 + 0.45 * d;
+  g1000.material.color.setRGB(glass, glass, glass);
+}
+
+export class CockpitInterior implements CockpitAssembly {
   readonly group = new THREE.Group();
   /** steam-gauge panel plane (0.96 × 0.48 m, 2:1 like its texture); the instruments module sets `material.map` */
   readonly panelMesh: PanelMesh;
@@ -272,13 +304,7 @@ export class CockpitInterior {
    * G1000 screens are emissive: they only dim to ~55 % at night. Linear factors; 1 = as drawn.
    */
   setPanelLighting(daylight: number, panelLight: number): void {
-    const d = Math.max(0, Math.min(1, daylight || 0));
-    const p = 0.7 * Math.max(0, Math.min(1, panelLight || 0));
-    // the floor (≈ 35 % perceived) keeps a night spawn with the panel lights off readable
-    const base = 0.1 + 0.9 * d;
-    this.panelMesh.material.color.setRGB(Math.max(base, p), Math.max(base, p * 0.9), Math.max(base, p * 0.72));
-    const glass = 0.55 + 0.45 * d;
-    this.panelMeshG1000.material.color.setRGB(glass, glass, glass);
+    applyPanelLighting(this.panelMesh, this.panelMeshG1000, daylight, panelLight);
   }
 
   setPanelVariant(v: PanelVariant): void {

@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 import type { ControlInputs } from '../core/types';
-import type { C172Layout } from './c172Layout';
+import type { LightLayout } from './layoutTypes';
 import type { ModelMaterials } from './materials';
 
 export interface LightOptions {
@@ -40,7 +40,7 @@ export class AircraftLights {
   private readonly lenses: THREE.Mesh[] = [];
   private readonly geometries: THREE.BufferGeometry[] = [];
 
-  constructor(l: C172Layout['lights'], mats: ModelMaterials, opts: LightOptions = {}) {
+  constructor(l: LightLayout, mats: ModelMaterials, opts: LightOptions = {}) {
     this.group.name = 'lights';
     const bulbGeo = new THREE.SphereGeometry(0.03, 8, 6);
     this.geometries.push(bulbGeo);

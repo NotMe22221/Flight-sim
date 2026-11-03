@@ -18,7 +18,13 @@ export interface ExposureOptions {
   /** adaptation time constant, s */ adaptTimeS: number;
 }
 
-export const DEFAULT_EXPOSURE: Readonly<ExposureOptions> = { day: 0.6, twilight: 1.0, night: 1.5, overcastBoost: 0.4, adaptTimeS: 1.5 };
+/**
+ * `day` is the exposure of a sunlit midday scene (up-facing illuminance ≥ `DAY_ILLUMINANCE`): with the
+ * calibrated sun (`SUN_INTENSITY_BASE`) and the dome's own skylight it puts sunlit white paint (albedo ≈ 0.85)
+ * at ≈ 235/255 and the clear sky at 45° at ≈ 150/255 (see README "Calibration"). `night` bounds the
+ * adaptation (reached from golden hour down; dusk and night look as before the calibration).
+ */
+export const DEFAULT_EXPOSURE: Readonly<ExposureOptions> = { day: 0.5, twilight: 1.0, night: 1.5, overcastBoost: 0.4, adaptTimeS: 1.5 };
 
 /** Relative luminance (Rec. 709 weights) of a linear RGB tuple. */
 export const luminance = (c: ArrayLike<number>): number => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
@@ -48,11 +54,20 @@ export const adaptExposure = (current: number, target: number, dt: number, tauS:
   current + (target - current) * (1 - Math.exp(-Math.max(dt, 0) / Math.max(tauS, 1e-3)));
 
 /**
+ * Sun DirectionalLight intensity at the zenith before atmospheric extinction (three's light units, the
+ * scale of the sky dome's irradiance). Calibrated against the dome: the direct sun on a horizontal surface
+ * is ≈ 5 × the dome's skylight at a 40° sun and stays within 3.5–5.5 × from 20° to 76° (clear air; real
+ * clear skies: ≈ 3 at 20°, ≈ 6 at 40°, ≈ 8 at 75°). The pre-calibration value 3 left the sky radiance
+ * brighter than sunlit white paint (real: the sky is 3–5 × darker), see README "Calibration".
+ */
+export const SUN_INTENSITY_BASE = 12;
+
+/**
  * Sun DirectionalLight intensity. `transmittance` is the Preetham extinction toward the sun
  * (its luminance falls from ≈0.87 at the zenith to ≈0.04 at the horizon, which reproduces the
- * dimming of a low sun); `base` ≈ 3 gives ≈100 klx-equivalent under exposure 0.6 with ACES.
+ * dimming of a low sun); `base` is `SUN_INTENSITY_BASE`.
  */
-export function sunLightIntensity(sunElDeg: number, transmittance: Vec3, cloudCover: number, base = 3): number {
+export function sunLightIntensity(sunElDeg: number, transmittance: Vec3, cloudCover: number, base = SUN_INTENSITY_BASE): number {
   const disc = smoothstep(-1.5, 3, sunElDeg); // disc rising over the horizon
   const lum = clamp(luminance(transmittance), 0, 1);
   return base * disc * lum * (1 - 0.85 * clamp(cloudCover, 0, 1));
@@ -117,8 +132,59 @@ export function skylightBalance(
   return out;
 }
 
-/** Illuminance (three light units) of a sunlit up-facing surface at midday; the day exposure applies there. */
-export const DAY_ILLUMINANCE = 1.8;
+/**
+ * Illuminance (three light units) of a sunlit up-facing surface at midday (calibrated sun + dome skylight:
+ * ≈ 11.6 at a 76° sun, ≈ 10 at 60°); the day exposure applies at and above it.
+ */
+export const DAY_ILLUMINANCE = 11;
+
+/**
+ * Saturation kept when the dome lights surfaces (environment bake, skylight hue): `mix(luminance, c, s)`.
+ * The Sky.js dome's irradiance is far bluer than real skylight (hue ≈ (0.12, 0.38, 1) at noon, i.e. blue
+ * sky beyond 30 000 K; measured clear-sky diffuse light is ≈ 10 000–15 000 K): lit at full saturation, white
+ * paint and asphalt went blue. At 0.3 the noon skylight is ≈ (0.53, 0.66, 1): sun + sky add up to neutral on
+ * an up-facing surface and shade reads slightly blue. The dome you see is not desaturated.
+ */
+export const SKYLIGHT_SATURATION = 0.3;
+
+/**
+ * Albedo (linear RGB) of the ground that lights the aircraft from below (environment map's lower hemisphere,
+ * hemisphere light's ground colour): grass, concrete and asphalt averaged, near neutral.
+ */
+export const GROUND_ALBEDO: Readonly<Vec3> = [0.15, 0.15, 0.13];
+
+/** `mix(luminance(c), c, s)` per channel (in place allowed): luminance-preserving (de)saturation. */
+export function saturateColor(c: Vec3, s: number, out: Vec3 = [0, 0, 0]): Vec3 {
+  const y = luminance(c);
+  out[0] = y + (c[0] - y) * s; out[1] = y + (c[1] - y) * s; out[2] = y + (c[2] - y) * s;
+  return out;
+}
+
+/**
+ * Skylight irradiance (linear RGB, up-facing surface) from the dome's own irradiance `day` (physical: the sky
+ * you see is the sky that lights the ground) and the twilight curve `twilight` (the pre-calibration skylight,
+ * which keeps dusk and night readable where the Preetham dome is nearly black): luminance = smooth maximum
+ * (Yd⁴ + Yt⁴)^¼, hue = the luminance-weighted mix of the two. By day (sun ≳ 15°) this is the dome's
+ * irradiance, from sunset down the twilight curve, between the two a smooth hand-over.
+ */
+export function skylightIrradiance(day: Vec3, twilight: Vec3, out: Vec3 = [0, 0, 0]): Vec3 {
+  const yd = Math.max(luminance(day), 0), yt = Math.max(luminance(twilight), 0);
+  const d4 = yd ** 4, t4 = yt ** 4;
+  if (!(d4 + t4 > 1e-30)) { out[0] = 0; out[1] = 0; out[2] = 0; return out; }
+  const y = Math.pow(d4 + t4, 0.25);
+  const w = d4 / (d4 + t4);
+  for (let i = 0; i < 3; i++) {
+    const hd = yd > 1e-12 ? Math.max(day[i], 0) / yd : 0, ht = yt > 1e-12 ? Math.max(twilight[i], 0) / yt : 0;
+    out[i] = y * (w * hd + (1 - w) * ht);
+  }
+  return out;
+}
+
+/** Ratio of the direct sun's illuminance on a horizontal surface to the skylight's (both luminances). */
+export function sunSkyRatio(sunIntensity: number, sunColor: Vec3, sunElDeg: number, skyIrradiance: Vec3): number {
+  const sky = luminance(skyIrradiance);
+  return sky > 1e-9 ? (Math.max(sunIntensity, 0) * luminance(sunColor) * Math.max(Math.sin(sunElDeg * (Math.PI / 180)), 0)) / sky : 0;
+}
 
 /** Illuminance proxy of an up-facing surface: direct sun · sin(el) + ambient irradiance luminance. */
 export function surfaceIlluminance(sunIntensity: number, sunElDeg: number, ambientLuminance: number): number {

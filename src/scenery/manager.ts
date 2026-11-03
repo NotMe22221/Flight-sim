@@ -21,6 +21,7 @@ import { TileSource, type FetchJson } from './source';
 import { SCENERY_ZOOM, TileProjector, expandTileUrl, tilesAround, type TileDist } from './tileMath';
 import { TileObject, type SharedTreeGeometry } from './tileObject';
 import type { FetchLike } from './workerCore';
+import type { PavementArea } from '../world/pavement';
 
 export interface SceneryManagerOptions extends SceneryHostOptions {
   /** fetch override (tests); implies the in-thread loader */
@@ -61,6 +62,8 @@ const RESAMPLE_SHARE = 0.3;
  * and at most this many per tile visit.
  */
 const PROBES_PER_SECOND = 2000;
+/** Scenery tiles whose pavement stays published (oldest dropped first; the world keeps what it accepted). */
+const MAX_PAVEMENT_TILES = 300;
 const PROBES_MIN_PER_FRAME = 8;
 const PROBE_CHUNK = 16;
 
@@ -85,6 +88,11 @@ export class SceneryManager implements SceneryLike {
   private readonly arrivals: WorkerResponse[] = [];
   private readonly parkingWaiters = new Map<number, (r: WorkerResponse | null) => void>();
   private readonly parkingCache = new Map<string, ParkingSpotLocal[]>();
+  /** airport pavement per scenery tile (full and parking-only builds), for terrain flattening */
+  private readonly pavementByTile = new Map<string, PavementArea[]>();
+  private pavementRev = 0;
+  private pavementList: PavementArea[] = [];
+  private pavementListRev = -1;
   private wanted: TileDist[] = [];
   private nextId = 1;
   private frameNo = 0;
@@ -226,6 +234,38 @@ export class SceneryManager implements SceneryLike {
     };
   }
 
+  /**
+   * Revision of the published airport pavement: changes whenever a scenery tile with aprons or
+   * taxiways arrives (including tiles loaded by `parkingSpots`). See `pavementAreas`.
+   */
+  pavementRevision(): number { return this.pavementRev; }
+
+  /**
+   * Airport pavement of the tiles the scenery has (aprons, taxiway areas, helipads and taxiway
+   * centre lines with their width, in lon/lat, clipped to their tiles), for terrain flattening
+   * (src/world/pavement.ts). Keys are stable per tile and piece. The array is reused until the
+   * revision changes.
+   */
+  pavementAreas(): readonly PavementArea[] {
+    if (this.pavementListRev !== this.pavementRev) {
+      this.pavementList = [];
+      for (const list of this.pavementByTile.values()) for (const a of list) this.pavementList.push(a);
+      this.pavementListRev = this.pavementRev;
+    }
+    return this.pavementList;
+  }
+
+  private storePavement(key: string, areas: PavementArea[] | undefined): void {
+    if (!areas || areas.length === 0 || this.pavementByTile.has(key)) return;
+    this.pavementByTile.set(key, areas);
+    while (this.pavementByTile.size > MAX_PAVEMENT_TILES) {
+      const oldest = this.pavementByTile.keys().next().value;
+      if (oldest === undefined) break;
+      this.pavementByTile.delete(oldest);
+    }
+    this.pavementRev++;
+  }
+
   /** Gates and apron stands within `radiusM`, nearest first; loads the needed tiles on demand. */
   async parkingSpots(lat: number, lon: number, radiusM: number): Promise<ParkingSpot[]> {
     if (this.disposed || !Number.isFinite(lat) || !Number.isFinite(lon)) return [];
@@ -340,6 +380,7 @@ export class SceneryManager implements SceneryLike {
       }
       const res = r.result;
       this.parkingCache.set(e.key, res.parking);
+      this.storePavement(e.key, res.pavement);
       const hasContent = !!(res.buildings || res.surfaces || res.markings || res.trees || res.streetlights || res.airportLights || res.lightPools);
       if (!hasContent) { this.arrivals.shift(); e.state = 'empty'; continue; }
       // one tile object per frame (and none once the frame budget is spent)
@@ -460,7 +501,7 @@ export class SceneryManager implements SceneryLike {
       const timer = setTimeout(() => { this.parkingWaiters.delete(id); this.loader.cancel(id); resolve([]); }, 15000);
       this.parkingWaiters.set(id, (r) => {
         clearTimeout(timer);
-        if (r && r.type === 'built') { this.parkingCache.set(t.key, r.result.parking); resolve(r.result.parking); }
+        if (r && r.type === 'built') { this.parkingCache.set(t.key, r.result.parking); this.storePavement(t.key, r.result.pavement); resolve(r.result.parking); }
         else resolve([]);
       });
       this.loader.request({ type: 'build', id, key: t.key, z: t.z, x: t.x, y: t.y, url: expandTileUrl(template, t.z, t.x, t.y), settings: this.build, parkingOnly: true });

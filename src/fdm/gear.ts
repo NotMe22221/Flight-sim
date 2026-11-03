@@ -6,11 +6,20 @@
  * Stability measures from §5.6: compression rate clamped to δ/dt, tanh-saturated Coulomb
  * friction, the lateral slip angle computed with a 1 m/s floor on rolling speed, and a stiff
  * spring-damper "anchor" holding braked wheels at rest so a parked aircraft never creeps.
+ *
+ * Steering: `GearInputs.steerRad` is the turn command (+ = turn right); a steerable wheel behind
+ * the CG (a tail wheel) is turned the opposite way. A wheel with `casters` and a `swivel` spec
+ * breaks out of its steering lock when the tyre side force exceeds the breakout force and then
+ * castors freely (it rolls along its contact-point velocity, no side force) until it swivels back
+ * within the relock angle of the steering angle. Brakes may be torque-limited (`brakeMu`).
  */
 import { qConj, qRotate } from '../core/math';
 import type { Environment, GearSpec, Quat, Vec3 } from '../core/types';
 
 const R2D = 180 / Math.PI;
+const D2R = Math.PI / 180;
+/** ground speed of the contact point above which a castering wheel aligns with its motion, m/s */
+const CASTER_ALIGN_SPEED = 0.3;
 const V_EPS = 0.3;
 const ANCHOR_K = 60_000;
 const ANCHOR_C = 9_000;
@@ -25,7 +34,7 @@ const WHEEL_COLLAPSE_W = 3;
 export interface GearInputs {
   brakeLeft: number;
   brakeRight: number;
-  /** nose-wheel steering angle, rad (+ = turn right) */
+  /** steering command, rad (+ = turn right; a wheel behind the CG is turned the other way) */
   steerRad: number;
 }
 
@@ -43,6 +52,10 @@ export interface GearOutput {
   contactE: Float64Array;
   inContact: Uint8Array;
   anchorSaturated: Uint8Array;
+  /** wheel heading relative to body x in the evaluated state, rad (+ = wheel turned right) */
+  wheelAngle: Float64Array;
+  /** tyre side force magnitude, N (swivel breakout) */
+  sideForce: Float64Array;
   /** count of wheel (not structure) contacts touching the ground */
   wheelsOnGround: number;
   /** non-empty when a structural limit was exceeded */
@@ -61,6 +74,12 @@ export class GearModel {
   readonly anchored: Uint8Array;
   readonly anchorN: Float64Array;
   readonly anchorE: Float64Array;
+  /** 1 while a swivelling wheel is unlocked and castering freely */
+  readonly castering: Uint8Array;
+  /** heading of a castering wheel relative to body x, rad (held while it is too slow to align) */
+  readonly casterAngle: Float64Array;
+  /** +1 for steerable wheels ahead of the empty CG, −1 behind it, 0 for fixed wheels */
+  private readonly steerSign: Float64Array;
   private readonly r: Vec3 = [0, 0, 0];
   private readonly d: Vec3 = [0, 0, 0];
   private readonly vb: Vec3 = [0, 0, 0];
@@ -80,6 +99,9 @@ export class GearModel {
     this.anchored = new Uint8Array(this.count);
     this.anchorN = new Float64Array(this.count);
     this.anchorE = new Float64Array(this.count);
+    this.castering = new Uint8Array(this.count);
+    this.casterAngle = new Float64Array(this.count);
+    this.steerSign = Float64Array.from(specs, (g) => (g.type === 'wheel' && g.maxSteerDeg > 0 ? (g.pos[0] < 0 ? -1 : 1) : 0));
   }
 
   newOutput(): GearOutput {
@@ -87,7 +109,7 @@ export class GearModel {
     return {
       F: new Float64Array(3), M: new Float64Array(3), compression: new Float64Array(n), normalForce: new Float64Array(n),
       rollSpeed: new Float64Array(n), sideSpeed: new Float64Array(n), contactN: new Float64Array(n), contactE: new Float64Array(n),
-      inContact: new Uint8Array(n), anchorSaturated: new Uint8Array(n), wheelsOnGround: 0, crash: '',
+      inContact: new Uint8Array(n), anchorSaturated: new Uint8Array(n), wheelAngle: new Float64Array(n), sideForce: new Float64Array(n), wheelsOnGround: 0, crash: '',
     };
   }
 
@@ -116,6 +138,11 @@ export class GearModel {
       out.compression[i] = 0;
       out.normalForce[i] = 0;
       out.anchorSaturated[i] = 0;
+      out.sideForce[i] = 0;
+      // steering: the turn command, mirrored for a wheel behind the CG; a castering wheel keeps its swivel angle
+      const sgn = this.steerSign[i];
+      const steer = this.castering[i] ? this.casterAngle[i] : sgn !== 0 ? sgn * ctl.steerRad : 0;
+      out.wheelAngle[i] = steer;
       const r = this.r;
       r[0] = g.pos[0] - cg[0]; r[1] = g.pos[1] - cg[1]; r[2] = g.pos[2] - cg[2];
       qRotate(qbn, r, this.d);
@@ -151,14 +178,27 @@ export class GearModel {
       if (g.type === 'wheel') out.wheelsOnGround++;
 
       // wheel heading projected on the ground plane
-      const steer = g.maxSteerDeg > 0 ? ctl.steerRad : 0;
-      this.fwd[0] = Math.cos(steer); this.fwd[1] = Math.sin(steer); this.fwd[2] = 0;
-      qRotate(qbn, this.fwd, this.fw);
-      const fDotN = this.fw[0] * nrm[0] + this.fw[1] * nrm[1] + this.fw[2] * nrm[2];
       const t = this.t;
-      t[0] = this.fw[0] - fDotN * nrm[0]; t[1] = this.fw[1] - fDotN * nrm[1]; t[2] = this.fw[2] - fDotN * nrm[2];
-      const tl = Math.sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]) || 1; // not Math.hypot: its varargs can allocate
-      t[0] /= tl; t[1] /= tl; t[2] /= tl;
+      let aligned = false;
+      if (this.castering[i]) {
+        // free castering: the wheel trails its contact-point velocity (ground-plane part)
+        const gx = vn[0] - vDotN * nrm[0], gy = vn[1] - vDotN * nrm[1], gz = vn[2] - vDotN * nrm[2];
+        const gsp = Math.sqrt(gx * gx + gy * gy + gz * gz);
+        if (gsp > CASTER_ALIGN_SPEED) {
+          t[0] = gx / gsp; t[1] = gy / gsp; t[2] = gz / gsp;
+          const tb = qRotate(this.qnb, t, this.fB);
+          out.wheelAngle[i] = Math.atan2(tb[1], tb[0]);
+          aligned = true;
+        }
+      }
+      if (!aligned) {
+        this.fwd[0] = Math.cos(steer); this.fwd[1] = Math.sin(steer); this.fwd[2] = 0;
+        qRotate(qbn, this.fwd, this.fw);
+        const fDotN = this.fw[0] * nrm[0] + this.fw[1] * nrm[1] + this.fw[2] * nrm[2];
+        t[0] = this.fw[0] - fDotN * nrm[0]; t[1] = this.fw[1] - fDotN * nrm[1]; t[2] = this.fw[2] - fDotN * nrm[2];
+        const tl = Math.sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]) || 1; // not Math.hypot: its varargs can allocate
+        t[0] /= tl; t[1] /= tl; t[2] /= tl;
+      }
       // right = down × t, with down = −n
       const s = this.s;
       s[0] = -nrm[1] * t[2] + nrm[2] * t[1];
@@ -179,6 +219,11 @@ export class GearModel {
         fLat = -ANCHOR_K * dLat - ANCHOR_C * vLat;
         const mag = Math.sqrt(fLong * fLong + fLat * fLat);
         if (mag > fMax) { fLong *= fMax / mag; fLat *= fMax / mag; out.anchorSaturated[i] = 1; }
+        // a torque-limited brake cannot hold more than its own friction along the wheel
+        if (g.brakeMu !== undefined) {
+          const lim = g.brakeMu * surfaceBrake * Fn;
+          if (fLong > lim || fLong < -lim) { fLong = fLong > 0 ? lim : -lim; out.anchorSaturated[i] = 1; }
+        }
       } else if (g.type === 'structure') {
         const sp = Math.sqrt(vLong * vLong + vLat * vLat);
         const k = sp > 1e-6 ? (g.muDynamic * Fn * Math.tanh(sp / V_EPS)) / sp : 0;
@@ -187,13 +232,14 @@ export class GearModel {
       } else {
         const brake = g.brakeGroup === 'left' ? ctl.brakeLeft : g.brakeGroup === 'right' ? ctl.brakeRight : g.brakeGroup === 'both' ? Math.max(ctl.brakeLeft, ctl.brakeRight) : 0;
         const muRoll = g.muRolling * surfaceRoll;
-        const muLong = muRoll + brake * (g.muStatic * surfaceBrake - muRoll);
+        const muLong = muRoll + brake * ((g.brakeMu ?? g.muStatic) * surfaceBrake - muRoll);
         fLong = -muLong * Fn * Math.tanh(vLong / V_EPS);
         const slipDeg = Math.atan2(vLat, Math.max(Math.abs(vLong), 1)) * R2D;
         fLat = -pacejka(slipDeg, g.pacejka.B, g.pacejka.C, g.muStatic * surfaceBrake, g.pacejka.E) * Fn;
         const mag = Math.sqrt(fLong * fLong + fLat * fLat);
         if (mag > fMax) { fLong *= fMax / mag; fLat *= fMax / mag; }
       }
+      out.sideForce[i] = fLat < 0 ? -fLat : fLat;
 
       const fN = this.fN;
       fN[0] = Fn * nrm[0] + fLong * t[0] + fLat * s[0];
@@ -234,6 +280,30 @@ export class GearModel {
   }
 
   releaseAnchors(): void { this.anchored.fill(0); }
+
+  /**
+   * Swivel lock state of castering wheels, once per step from the latest evaluation: break out when
+   * the side force exceeds the breakout force; relock once rolling forward within the relock angle
+   * of the steering angle (or when the wheel leaves the ground: the springs centre it).
+   */
+  updateSwivel(out: GearOutput, steerRad: number): void {
+    for (let i = 0; i < this.count; i++) {
+      const g = this.specs[i], sw = g.swivel;
+      if (!sw || !g.casters || g.type !== 'wheel') continue;
+      if (!out.inContact[i]) { this.castering[i] = 0; continue; }
+      if (!this.castering[i]) {
+        if (out.sideForce[i] > sw.breakoutN) { this.castering[i] = 1; this.casterAngle[i] = out.wheelAngle[i]; }
+        continue;
+      }
+      this.casterAngle[i] = out.wheelAngle[i];
+      const cmd = this.steerSign[i] * steerRad;
+      let d = out.wheelAngle[i] - cmd;
+      if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI;
+      if (out.rollSpeed[i] > CASTER_ALIGN_SPEED && Math.abs(d) < sw.relockDeg * D2R) this.castering[i] = 0;
+    }
+  }
+
+  resetSwivel(): void { this.castering.fill(0); this.casterAngle.fill(0); }
 
   /** Re-express anchor points after a floating-origin rebase (horizontal components only). */
   rebaseAnchors(map: (index: number, n: number, e: number) => [number, number]): void {

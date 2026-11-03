@@ -2,7 +2,7 @@
  * International Standard Atmosphere (0–20 km) with a temperature offset and a non-standard
  * sea-level pressure (QNH), plus airspeed conversions (docs/research/02 §7).
  */
-import type { AtmosphereSample } from '../core/types';
+import type { AtmosphereSample, Table1DSpec } from '../core/types';
 import { Table1D } from '../core/math';
 import { KT } from '../core/units';
 
@@ -96,4 +96,35 @@ export function iasFromCas(casMs: number, flapDeg: number): number {
   const up = conv(iasUp, 48, 40, 156, 160);
   const dn = conv(ias30, 47, 40, 83, 85);
   return (up + (dn - up) * f) * KT;
+}
+
+/**
+ * Table-driven pitot-static calibration (`AircraftConfig.airspeedCalibration`): KCAS → KIAS flaps
+ * up and at full flap, blended by flap fraction. Below the first point the error scales to zero
+ * at zero speed; above the last point the last error is kept.
+ */
+export class AirspeedCalibration {
+  private readonly up: Table1D;
+  private readonly full: Table1D;
+  constructor(private readonly spec: { flapsUp: Table1DSpec; flapsFull: Table1DSpec }) {
+    this.up = new Table1D(spec.flapsUp.xs, spec.flapsUp.ys);
+    this.full = new Table1D(spec.flapsFull.xs, spec.flapsFull.ys);
+  }
+
+  /** Indicated airspeed (m/s) from calibrated airspeed (m/s) and flap fraction 0..1. */
+  ias(casMs: number, flapFraction: number): number {
+    const kcas = casMs / KT;
+    if (kcas <= 0) return 0;
+    const f = flapFraction <= 0 ? 0 : flapFraction >= 1 ? 1 : flapFraction;
+    const up = AirspeedCalibration.conv(this.up, this.spec.flapsUp, kcas);
+    const dn = f > 0 ? AirspeedCalibration.conv(this.full, this.spec.flapsFull, kcas) : up;
+    return (up + (dn - up) * f) * KT;
+  }
+
+  private static conv(t: Table1D, s: Table1DSpec, kcas: number): number {
+    const n = s.xs.length;
+    if (kcas < s.xs[0]) return (kcas * s.ys[0]) / s.xs[0];
+    if (kcas > s.xs[n - 1]) return s.ys[n - 1] + (kcas - s.xs[n - 1]);
+    return t.at(kcas);
+  }
 }

@@ -7,7 +7,7 @@
  *  - tailcone (→ tail): always visible, so the empennage stays attached when looking back.
  */
 import * as THREE from 'three';
-import type { C172Layout } from './c172Layout';
+import type { FuselageLayout } from './layoutTypes';
 import { LoftProfile, type LoftStation } from './loft';
 import type { ModelMaterials } from './materials';
 import { band, buildSkin, innerBand, inside, outlineField, outside, type SkinOutline } from './skin';
@@ -49,7 +49,7 @@ function zRange(o: SkinOutline, lo: number, hi: number): [number, number] {
   return [Math.max(lo, Math.min(...zs) - 0.02), Math.min(hi, Math.max(...zs) + 0.02)];
 }
 
-export function buildFuselage(layout: C172Layout, mats: ModelMaterials): FuselageAssembly {
+export function buildFuselage(layout: FuselageLayout, mats: ModelMaterials): FuselageAssembly {
   const group = new THREE.Group();
   group.name = 'fuselage';
   const F = layout.fuselage;

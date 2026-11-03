@@ -1,13 +1,14 @@
 /**
  * Builds worker `LoadRequest`s on the main thread: the elevation fallback chain (provider
  * tile → ancestor tiles' sub-square → procedural), the imagery chain, the per-level mesh
- * resolution and skirt depth, and only the runways that touch the tile. Pure, no Three.js.
+ * resolution and skirt depth, and only the runways and pavement areas that touch the tile. Pure, no Three.js.
  */
 import type { LocalFrameInfo } from '../core/types';
 import { tileToLonLat } from '../geo/mercator';
 import { planImagery } from './imagery';
 import type { ProceduralParams } from './procedural';
 import type { ElevationSource, LoadRequest } from './protocol';
+import { pavementForTile, type PavementFlatteningSpec } from './pavement';
 import type { ElevationProvider, ImageryProvider } from './providers';
 import { tileTouchesRunways, type RunwayFlatteningSpec } from './runways';
 import { skirtDepthFor } from './tileMesh';
@@ -77,7 +78,7 @@ export function runwaysForTile(z: number, x: number, y: number, runways: readonl
 export function buildLoadRequest(
   reqKey: string, z: number, x: number, y: number,
   frame: LocalFrameInfo, cfg: RequestConfig, runways: readonly RunwayFlatteningSpec[],
-  proceduralOnTransient = true,
+  proceduralOnTransient = true, pavement: readonly PavementFlatteningSpec[] = [],
 ): LoadRequest {
   const latC = tileToLonLat(x + 0.5, y + 0.5, z).lat;
   return {
@@ -90,6 +91,7 @@ export function buildLoadRequest(
     quads: quadsForZoom(cfg, z),
     skirt: skirtDepthFor(z, latC),
     runways: runwaysForTile(z, x, y, runways),
+    pavement: pavementForTile(z, x, y, pavement),
     procedural: cfg.procedural,
     fullHeights: z >= FULL_HEIGHTS_MIN_ZOOM,
     water: true,

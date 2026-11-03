@@ -20,7 +20,7 @@ const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
 
 /** sections of the planform cropped to [x0, x1] (interpolating chord/LE at the ends) */
-function cropSections(sections: WingSection[], x0: number, x1: number): WingSection[] {
+export function cropSections(sections: WingSection[], x0: number, x1: number): WingSection[] {
   const out: WingSection[] = [];
   const at = (x: number): WingSection => {
     const p = planformPoint(sections, x, 0, tmpA);

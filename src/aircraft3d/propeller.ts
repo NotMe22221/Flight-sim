@@ -3,7 +3,7 @@
  * spun at the true rate; above, they fade out and a translucent blurred disc fades in.
  */
 import * as THREE from 'three';
-import type { C172Layout } from './c172Layout';
+import type { PropLayout } from './layoutTypes';
 import { buildWingPanel, type AirfoilSpec } from './airfoil';
 import type { ModelMaterials } from './materials';
 import { smoothstep } from '../core/math';
@@ -21,21 +21,27 @@ export class Propeller {
   private readonly sense: 1 | -1;
   private readonly geometries: THREE.BufferGeometry[] = [];
 
-  constructor(prop: C172Layout['prop'], mats: ModelMaterials) {
+  /**
+   * @param spinnerMaterial spinner paint (default the plain airframe paint)
+   */
+  constructor(prop: PropLayout, mats: ModelMaterials, spinnerMaterial: THREE.Material = mats.paintPlain) {
     this.group.name = 'propeller';
     this.group.position.copy(prop.hub);
     this.sense = prop.sense;
     const r = prop.diameter / 2;
+    const bladeZ = prop.bladeZ ?? -0.12;
 
     // spinner: lathe profile (radius, length) revolved about Y, then pointed toward −Z
     // profile with increasing y (base → tip) so LatheGeometry's faces point outward
-    const pts = [new THREE.Vector2(0.0, 0.0), new THREE.Vector2(0.165, 0.0), new THREE.Vector2(0.163, 0.03), new THREE.Vector2(0.155, 0.07), new THREE.Vector2(0.135, 0.13), new THREE.Vector2(0.1, 0.19), new THREE.Vector2(0.05, 0.24), new THREE.Vector2(0.0, 0.265)];
+    const sp = prop.spinner ?? { radius: 0.165, length: 0.265, baseZ: -0.02 };
+    const kr = sp.radius / 0.165, kl = sp.length / 0.265;
+    const pts = [[0.0, 0.0], [0.165, 0.0], [0.163, 0.03], [0.155, 0.07], [0.135, 0.13], [0.1, 0.19], [0.05, 0.24], [0.0, 0.265]].map(([a, b]) => new THREE.Vector2(a * kr, b * kl));
     const spinnerGeo = new THREE.LatheGeometry(pts, 24);
     spinnerGeo.rotateX(-Math.PI / 2);
     this.geometries.push(spinnerGeo);
-    const spinner = new THREE.Mesh(spinnerGeo, mats.paintPlain);
+    const spinner = new THREE.Mesh(spinnerGeo, spinnerMaterial);
     spinner.name = 'spinner';
-    spinner.position.z = -0.02;
+    spinner.position.z = sp.baseZ;
     this.blades.add(spinner);
 
     // blades: span along +X (radial), pitch measured from the disc plane
@@ -54,7 +60,7 @@ export class Propeller {
     for (let i = 0; i < prop.blades; i++) {
       const b = new THREE.Mesh(bladeGeo, mats.blade);
       b.rotation.z = (2 * Math.PI * i) / prop.blades;
-      b.position.z = -0.12;
+      b.position.z = bladeZ;
       b.name = `blade${i}`;
       this.blades.add(b);
     }
@@ -65,7 +71,7 @@ export class Propeller {
     this.geometries.push(discGeo);
     this.discMaterial = mats.propDisc;
     this.disc = new THREE.Mesh(discGeo, this.discMaterial);
-    this.disc.position.z = -0.12;
+    this.disc.position.z = bladeZ;
     this.disc.visible = false;
     this.disc.renderOrder = 3;
     this.disc.name = 'propDisc';

@@ -10,22 +10,26 @@ import { cleanLine, extractFeatures, type TileFeatures } from './features';
 import { PointsBuilder, ROAD_HALF_WIDTH, buildAirportLights, buildStreetlights, type TaxiwayLine } from './lights';
 import { findParking } from './parkingLocal';
 import { distToRingSq, distToSegmentSq, pointInPolygon, pointInRing, ringBounds } from './polygon';
+import type { PavementArea } from '../world/pavement';
 import type { TileBuildResult } from './protocol';
 import { hash01, sceneryTileKey, tileSeed } from './tileMath';
 import { OccupancyGrid, scatterTrees } from './vegetation';
 
 /**
  * Lift of draped airport surfaces above the terrain (m): aprons < taxiway areas < taxiway
- * ribbons < centre lines so overlaps never z-fight; next to runways everything drops below the
- * runway slab (AirportsLayer draws it 0.12 m up) and markings stop. Within a few hundred metres
- * of the camera the material lowers the non-runway tiers by NEAR_DROP_M (materials.ts) so the
- * wheels of an aircraft standing on the ground stay visible.
+ * ribbons < centre lines, 2 mm apart, so overlaps never z-fight; next to runways everything sits
+ * a few millimetres up, below the runway slab (AirportsLayer draws it 0.12 m up), and markings
+ * stop. The terrain is flattened under airport pavement (src/terrain/pavement.ts, fed with
+ * `pavement` below), so the full 0.2 m lift only guards distant views (coarser terrain LODs at
+ * pavement edges, pavement of airfields not in the navigation database); near the camera the
+ * material lowers the non-runway tiers by NEAR_DROP_M (materials.ts) to 4–10 mm above the ground
+ * the wheels stand on.
  */
 export const SURFACE_LIFT_M = 0.2;
-export const TAXIWAY_AREA_LIFT_M = 0.22;
-export const RIBBON_LIFT_M = 0.24;
-export const NEAR_RUNWAY_LIFT_M = 0.03;
-export const MARKING_LIFT_M = 0.03;
+export const TAXIWAY_AREA_LIFT_M = 0.202;
+export const RIBBON_LIFT_M = 0.204;
+export const NEAR_RUNWAY_LIFT_M = 0.004;
+export const MARKING_LIFT_M = 0.002;
 export const POOL_LIFT_M = 0.4;
 /** Assumed runway half width when OSM gives no width (m), and the lowering margin around it. */
 export const DEFAULT_RUNWAY_HALF_WIDTH_M = 30;
@@ -100,6 +104,30 @@ function apronInterior(f: TileFeatures, inset: number): ZoneFn {
 
 const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/**
+ * The tile's airport pavement in lon/lat for terrain flattening (src/world/pavement.ts): aprons,
+ * taxiway areas and helipads (with holes) and taxiway / taxilane centre lines with their width,
+ * each clipped to the tile square like everything else (pieces of one apron in neighbouring tiles
+ * meet on the shared border). Keys are stable: `<tile>/<kind letter><index>`.
+ */
+export function pavementAreas(f: TileFeatures, lines: readonly { line: number[]; width: number }[], tileKey: string): PavementArea[] {
+  const p = f.projector;
+  const g = { lat: 0, lon: 0, alt: 0 };
+  const toLL = (pts: readonly number[]): number[] => {
+    const out = new Array<number>(pts.length);
+    for (let i = 0; i + 1 < pts.length; i += 2) { p.toLonLat(pts[i], pts[i + 1], g); out[i] = g.lon; out[i + 1] = g.lat; }
+    return out;
+  };
+  const out: PavementArea[] = [];
+  const polys = (list: readonly { outer: number[]; holes: number[][] }[], kind: PavementArea['kind'], k: string) =>
+    list.forEach((a, i) => out.push({ key: `${tileKey}/${k}${i}`, kind, rings: [toLL(a.outer), ...a.holes.map(toLL)], line: [], widthM: 0 }));
+  polys(f.aprons, 'apron', 'a');
+  polys(f.taxiwayPolys, 'taxiway', 't');
+  polys(f.helipads, 'helipad', 'h');
+  lines.forEach((t, i) => { if (t.line.length >= 4) out.push({ key: `${tileKey}/l${i}`, kind: 'taxiline', rings: [], line: toLL(t.line), widthM: t.width }); });
+  return out;
+}
+
 /** Build one tile from its vector-tile bytes. Throws only on an undecodable tile. */
 export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s: BuildSettings, parkingOnly = false): TileBuildResult {
   const t0 = nowMs();
@@ -123,6 +151,7 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
     key: sceneryTileKey(z, x, y), z, x, y,
     buildings: null, surfaces: null, markings: null, trees: null, streetlights: null, airportLights: null, lightPools: null,
     parking,
+    pavement: pavementAreas(f, taxiLines, sceneryTileKey(z, x, y)),
     stats: { buildings: 0, trees: 0, lights: 0, triangles: 0 },
     decodeErrors: tile.errors,
     buildMs: 0,
@@ -132,8 +161,8 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
   // ── airport surfaces ──
   const liftFn = (h: number, nearH: number) => (px: number, pz: number): number => (nearRunway(px, pz) ? nearH : h);
   const apronLift = liftFn(SURFACE_LIFT_M, NEAR_RUNWAY_LIFT_M);
-  const areaLift = liftFn(TAXIWAY_AREA_LIFT_M, NEAR_RUNWAY_LIFT_M + 0.01);
-  const ribbonLift = liftFn(RIBBON_LIFT_M, NEAR_RUNWAY_LIFT_M + 0.02);
+  const areaLift = liftFn(TAXIWAY_AREA_LIFT_M, NEAR_RUNWAY_LIFT_M + 0.002);
+  const ribbonLift = liftFn(RIBBON_LIFT_M, NEAR_RUNWAY_LIFT_M + 0.004);
   const surfaces = new DrapeBuilder(10, 4096);
   // weathered concrete (sRGB ≈ 0.5, slightly warm: the sky light adds blue) and dark asphalt
   const concrete = (k: number): DrapeStyle => {

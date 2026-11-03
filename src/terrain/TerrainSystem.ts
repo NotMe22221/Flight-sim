@@ -25,6 +25,7 @@ import { imageryUvTransform } from './imagery';
 import { DETAIL_PERIOD_M, WAVE_TIME_PERIOD_S, createTerrainSharedUniforms, textureFromBitmap, textureFromRgba, type TerrainSharedUniforms } from './materials';
 import type { SkySharedUniforms } from '../sky/skyUniforms';
 import { DEFAULT_PROCEDURAL_PARAMS, type ProceduralParams } from './procedural';
+import { tileTouchesPavement, type PavementFlatteningSpec } from './pavement';
 import type { ErrorResponse, TileResponse } from './protocol';
 import { DEFAULT_IMAGERY_CHAIN, awsTerrarium, collectAttribution, proceduralElevation, proceduralImagery, type ElevationProvider, type ImageryProvider } from './providers';
 import { Quadtree, type SelectedNode } from './quadtree';
@@ -104,6 +105,12 @@ export interface TerrainStats {
 /** Runway centreline for flattening (`AirportsLayer.flatteningSegments()`); `alt` = threshold elevation. */
 export interface RunwaySegment { a: Geodetic; b: Geodetic; widthM: number }
 
+/** A tile whose heights changed (loaded, reloaded or evicted), for `changesSince`. */
+export interface TerrainChange { z: number; x: number; y: number }
+
+/** Height changes remembered for `changesSince` (older callers get null: re-check everything). */
+const CHANGE_LOG_SIZE = 512;
+
 /**
  * Reloads of a tile whose imagery failed transiently (network, timeout, 5xx). Synthetic
  * heights standing in for unreachable real elevation are retried without a limit.
@@ -146,6 +153,11 @@ export class TerrainSystem {
   private readonly requestCfg: RequestConfig;
   private runwayMap = new Map<string, RunwayFlatteningSpec>();
   private runways: RunwayFlatteningSpec[] = [];
+  private pavementMap = new Map<string, PavementFlatteningSpec>();
+  private pavement: PavementFlatteningSpec[] = [];
+  /** bumped on every change of the collision heights (tile load, reload, eviction) */
+  private heightRev = 0;
+  private readonly changeLog: (TerrainChange & { rev: number })[] = [];
   private imageryMode: ImageryMode;
   private readonly anisotropy: number;
   private readonly maxResident: number;
@@ -349,7 +361,7 @@ export class TerrainSystem {
     // Once a tile has data, or real data covers it from an ancestor, a network outage must not
     // replace that with synthetic heights: the worker then answers a transient error instead.
     const proceduralOnTransient = !rec.hasData && !this.hasRealCover(rec);
-    rec.req = buildLoadRequest(rec.reqKey, rec.z, rec.x, rec.y, this.frame, this.requestCfg, this.runways, proceduralOnTransient);
+    rec.req = buildLoadRequest(rec.reqKey, rec.z, rec.x, rec.y, this.frame, this.requestCfg, this.runways, proceduralOnTransient, this.pavement);
     this.byReqKey.set(rec.reqKey, rec);
     this.loader.request(rec.req, priority);
   }
@@ -394,6 +406,7 @@ export class TerrainSystem {
     // triangles, so wheels rest on the visible surface (not on a smoother bilinear DEM).
     const lattice = r.mesh.height.subarray(0, (r.mesh.quads + 1) * (r.mesh.quads + 1));
     this.heights.setMeshLattice(rec.z, rec.x, rec.y, lattice, r.mesh.quads, r.mesh.minH, r.mesh.maxH, now);
+    this.noteChange(rec.z, rec.x, rec.y);
     rec.hasData = true;
     rec.dataProviderId = r.elevationProviderId;
     if (rec.degraded !== standIn) { rec.degraded = standIn; this.degradedCount += standIn ? 1 : -1; }
@@ -455,6 +468,7 @@ export class TerrainSystem {
 
   /** Forget a record's heights and GPU objects (the record itself stays). */
   private dropData(rec: TileRecord): void {
+    if (rec.hasData) this.noteChange(rec.z, rec.x, rec.y);
     this.heights.delete(rec.z, rec.x, rec.y);
     if (rec.gpu) disposeTileGpu(rec.gpu, this.textures, true);
     discardResponse(rec.pending);
@@ -744,6 +758,59 @@ export class TerrainSystem {
     this.lastSelectAt = -Infinity;
   }
 
+  /**
+   * Airport pavement flattening input (aprons, taxiway areas, buffered taxiway centre lines with
+   * their target plane, see pavement.ts). A key identifies immutable content: tiles touching added
+   * or removed keys reload (old data stays drawn meanwhile, a pending `prefetch` waits for the new
+   * version); unchanged input is a no-op.
+   */
+  setPavement(specs: readonly PavementFlatteningSpec[]): void {
+    if (this.disposed) return;
+    const next = new Map<string, PavementFlatteningSpec>();
+    for (const s of specs) if (s && typeof s.key === 'string' && !next.has(s.key)) next.set(s.key, s);
+    const changed: PavementFlatteningSpec[] = [];
+    for (const [k, spec] of next) if (!this.pavementMap.has(k)) changed.push(spec);
+    for (const [k, spec] of this.pavementMap) if (!next.has(k)) changed.push(spec);
+    if (changed.length === 0) return;
+    this.pavementMap = next;
+    this.pavement = [...next.values()];
+    for (const rec of this.records.values()) {
+      if ((rec.hasData || rec.reqKey) && tileTouchesPavement(rec.z, rec.x, rec.y, changed)) rec.wantVersion++;
+    }
+    this.lastSelectAt = -Infinity;
+  }
+
+  /** Number of pavement areas currently flattened (debugging, tests). */
+  get pavementCount(): number { return this.pavement.length; }
+
+  /**
+   * Change counter of the collision heights (`heightAt`, `heightAtLocalNED`): bumped whenever a
+   * tile's heights arrive, are replaced by a reload, or are evicted. Compare with an earlier value
+   * to know whether ground samples may be stale.
+   */
+  revision(): number { return this.heightRev; }
+
+  /**
+   * Tiles whose heights changed after revision `since` (oldest first; a tile can repeat), or null
+   * when `since` is older than the remembered log (then treat everything as changed). Each entry
+   * bounds the area where `heightAt` may differ from before (the tile's square).
+   */
+  changesSince(since: number): TerrainChange[] | null {
+    if (since >= this.heightRev) return [];
+    const log = this.changeLog;
+    if (log.length === 0 || log[0].rev > since + 1) return null;
+    const out: TerrainChange[] = [];
+    for (const c of log) if (c.rev > since) out.push({ z: c.z, x: c.x, y: c.y });
+    return out;
+  }
+
+  private noteChange(z: number, x: number, y: number): void {
+    this.heightRev++;
+    const log = this.changeLog;
+    if (log.length >= CHANGE_LOG_SIZE) log.shift();
+    log.push({ rev: this.heightRev, z, x, y });
+  }
+
   /** Switch the imagery chain; resident tiles reload in the background (keeping their old look until then). */
   setImagery(mode: ImageryMode): void {
     if (this.disposed || mode === this.imageryMode) return;
@@ -819,6 +886,8 @@ export class TerrainSystem {
     this.selection = [];
     this.pinned.clear();
     this.heights.clear();
+    this.heightRev++;
+    this.changeLog.length = 0;
     this.textures.dispose();
     this.group.clear();
     this.group.removeFromParent();

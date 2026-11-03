@@ -87,10 +87,26 @@ export class FlightPanels {
   }
 
   isVisible(id: PanelId): boolean { return this.panels.get(id)?.visible ?? false; }
-  toggle(id: PanelId): void { this.panels.get(id)?.toggle(); }
-  show(id: PanelId): void { this.panels.get(id)?.show(); }
+  toggle(id: PanelId): void { if (this.isVisible(id)) this.hide(id); else this.show(id); }
+  show(id: PanelId): void { this.arrangeTopLeft(id); this.panels.get(id)?.show(); }
   hide(id: PanelId): void { this.panels.get(id)?.hide(); }
   hideAll(): void { for (const p of this.panels.values()) p.hide(); }
+  /**
+   * The objectives (during an activity) and the checklist share the top-left default slot: the
+   * objectives keep it (as in MSFS) and a checklist the pilot has not placed opens beside them, not
+   * exactly on top. Runs before `id` is shown; panels the pilot moved are left where they are.
+   */
+  private arrangeTopLeft(id: PanelId): void {
+    const obj = this.panels.get('objectives'), cl = this.panels.get('checklist');
+    if (!obj || !cl || cl.userPlaced || (id !== 'checklist' && id !== 'objectives')) return;
+    // a visible checklist is only moved when the objectives appear (at an activity start, behind the loading screen)
+    if (id === 'checklist' && cl.visible) return;
+    const beside = id === 'objectives' || obj.visible;
+    const o = obj.userPlaced ? null : obj.defaultRect;
+    const d = cl.defaultRect;
+    cl.placeAt(beside && o ? o.x + (o.w ?? 340) + 12 : d.x, d.y);
+  }
+
   /** Settings › Reset window layout: every panel back to its default place now (not only after a reload). */
   resetPositions(): void { for (const p of this.panels.values()) p.resetPosition(); }
   /** Keeps panels on screen after a window resize. */
