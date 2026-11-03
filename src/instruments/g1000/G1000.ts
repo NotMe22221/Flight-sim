@@ -412,3 +412,4 @@ export class G1000 {
 
 // The simulator's plugin loader only sees this module's exports.
 export { G1000Panel } from './panel';
+export { applyG1000Command, syncCom1 } from './wiring';

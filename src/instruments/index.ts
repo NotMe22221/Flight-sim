@@ -18,6 +18,7 @@ export {
 } from './g1000/input';
 export type { G1000NavDb, G1000Planner, FmsTarget } from './g1000/fmsCore';
 export { G1000Fms, MFD_GROUPS } from './g1000/fms';
+export { applyG1000Command, syncCom1, type G1000Host, type NavTuningLike } from './g1000/wiring';
 export { Hud, type HudOptions } from './Hud';
 export type { HudValues } from './hud/values';
 export {
