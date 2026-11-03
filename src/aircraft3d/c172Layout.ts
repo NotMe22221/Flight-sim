@@ -88,7 +88,7 @@ export interface C172Layout {
   };
   strut: { fuselage: THREE.Vector3; wing: THREE.Vector3 };
   hstab: { sections: WingSection[]; hingeFraction: number; halfSpan: number };
-  fin: { sections: WingSection[]; hingeFraction: number };
+  fin: { sections: WingSection[]; hingeFraction: number; rootY: number; span: number };
   prop: { hub: THREE.Vector3; diameter: number; blades: number; sense: 1 | -1 };
   gear: { nose: GearLayout | null; mains: GearLayout[] };
   eye: THREE.Vector3;
@@ -159,8 +159,8 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
     { z: 2.6, width: 0.6, height: 0.8, yCenter: 0.33, n: 2.3 },
     { z: 3.6, width: 0.42, height: 0.56, yCenter: 0.4, n: 2.2 },
     { z: 4.6, width: 0.3, height: 0.42, yCenter: 0.47, n: 2.1 },
-    { z: 5.5, width: 0.2, height: 0.34, yCenter: 0.53, n: 2.0 },
-    { z: 6.05, width: 0.12, height: 0.28, yCenter: 0.58, n: 2.0 },
+    { z: 5.4, width: 0.2, height: 0.34, yCenter: 0.53, n: 2.0 },
+    { z: 5.95, width: 0.12, height: 0.28, yCenter: 0.58, n: 2.0 },
   ];
 
   const T_RIGHT = Math.PI / 2, T_TOP = Math.PI, T_LEFT = 1.5 * Math.PI;
@@ -196,14 +196,17 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
 
   const hHalf = 1.72;
   const hstabSections: WingSection[] = [
-    { x: 0, chord: 1.15, le: { x: 0, y: 0.56, z: 5.0 } },
-    { x: hHalf, chord: 0.72, le: { x: 0, y: 0.56, z: 5.35 } },
+    { x: 0, chord: 1.15, le: { x: 0, y: 0.56, z: 4.9 } },
+    { x: hHalf, chord: 0.72, le: { x: 0, y: 0.56, z: 5.25 } },
   ];
   const finTop = cfg.geometry.heightM - cgAglM;
+  const finRootY = 0.64; // tailcone top where the fin root sits
+  const finSpan = Math.max(0.5, finTop - finRootY);
+  // fin sections: 'x' is the vertical span (0 at the root, up), y = 0 (centred laterally)
   const finSections: WingSection[] = [
-    { x: 0, chord: 1.55, le: { x: 0, y: 0.0, z: 4.55 } },      // root at the tailcone top (y set as 'x' along span below)
-    { x: finTop - 0.62, chord: 1.15, le: { x: 0, y: 0.0, z: 4.95 } },
-    { x: finTop - 0.62 + 0.3, chord: 0.62, le: { x: 0, y: 0.0, z: 5.5 } },
+    { x: 0, chord: 1.5, le: { x: 0, y: 0, z: 4.4 } },
+    { x: 0.3 * finSpan, chord: 1.15, le: { x: 0, y: 0, z: 4.85 } },
+    { x: finSpan, chord: 0.62, le: { x: 0, y: 0, z: 5.4 } },
   ];
 
   const tipY = rootY + halfSpan * dz;
@@ -214,7 +217,7 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
     wing: { sections: wingSections, hingeFraction: 0.75, flapSpan: [0.6, breakX - 0.05], aileronSpan: [breakX + 0.08, halfSpan - 0.15], dihedralRad, halfSpan },
     strut: { fuselage: v(0.5, -0.38, -0.3), wing: v(breakX * 0.95, rootY + breakX * 0.95 * dz - 0.02, leZ + rootChord * 0.4) },
     hstab: { sections: hstabSections, hingeFraction: 0.62, halfSpan: hHalf },
-    fin: { sections: finSections, hingeFraction: 0.62 },
+    fin: { sections: finSections, hingeFraction: 0.62, rootY: finRootY, span: finSpan },
     prop: { hub, diameter, blades: propSpec?.blades ?? 2, sense: propSpec?.sense ?? 1 },
     gear: { nose, mains },
     eye,
@@ -223,8 +226,8 @@ export function resolveC172Layout(cfg: AircraftModelConfig): C172Layout {
     lights: {
       navLeft: v(-halfSpan + 0.03, tipY + 0.02, wingTipLE + tipChord * 0.15),
       navRight: v(halfSpan - 0.03, tipY + 0.02, wingTipLE + tipChord * 0.15),
-      navTail: v(0, 0.62 + finTop - 0.62 + 0.3 - 0.05, 6.1),
-      beacon: v(0, 0.62 + finTop - 0.3, 5.6),
+      navTail: v(0, finRootY + finSpan - 0.06, 6.0),
+      beacon: v(0, finRootY + finSpan + 0.03, 5.58),
       strobeLeft: v(-halfSpan + 0.03, tipY + 0.02, wingTipLE + tipChord * 0.3),
       strobeRight: v(halfSpan - 0.03, tipY + 0.02, wingTipLE + tipChord * 0.3),
       landing: v(-0.22, hub.y - 0.16, hub.z + 0.06),

@@ -18,7 +18,7 @@ const tmpMat = new THREE.Matrix4();
  * mesh's geometry into the pivot's local frame and add the mesh to the pivot.
  * The caller adds the pivot to the parent that the hinge points were expressed in.
  */
-export function attachToHinge(mesh: THREE.Mesh, p0: THREE.Vector3, p1: THREE.Vector3, axis: 'x' | 'y' = 'x'): THREE.Group {
+export function attachToHinge(mesh: THREE.Mesh | THREE.Mesh[], p0: THREE.Vector3, p1: THREE.Vector3, axis: 'x' | 'y' = 'x'): THREE.Group {
   tmpDir.subVectors(p1, p0).normalize();
   const comp = axis === 'x' ? tmpDir.x : tmpDir.y;
   if (comp < 0) tmpDir.negate();
@@ -27,8 +27,10 @@ export function attachToHinge(mesh: THREE.Mesh, p0: THREE.Vector3, p1: THREE.Vec
   pivot.quaternion.setFromUnitVectors(axis === 'x' ? X_AXIS : Y_AXIS, tmpDir);
   pivot.updateMatrix();
   tmpMat.copy(pivot.matrix).invert();
-  mesh.geometry.applyMatrix4(tmpMat);
-  mesh.geometry.computeVertexNormals();
-  pivot.add(mesh);
+  for (const m of Array.isArray(mesh) ? mesh : [mesh]) {
+    m.geometry.applyMatrix4(tmpMat);
+    m.geometry.computeVertexNormals();
+    pivot.add(m);
+  }
   return pivot;
 }

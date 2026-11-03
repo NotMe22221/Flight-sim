@@ -8,7 +8,7 @@
  * bank), or when the waypoint has been passed abeam. The final waypoint is never sequenced
  * past; `complete` becomes true once it has been passed.
  */
-import type { FlightPlan, Geodetic, Waypoint } from '../core/types';
+import type { Geodetic, Waypoint } from '../core/types';
 import { deltaDeg } from '../core/math';
 import { greatCircleDistance, initialBearingDeg } from '../geo/wgs84';
 import type { FlightPlanEx } from './navTypes';
@@ -188,5 +188,3 @@ export const waypointFromAirport = (a: { icao: string; position: Geodetic }): Wa
 
 /** Convenience: a waypoint from a navaid-like object. */
 export const waypointFromNavaid = (n: { id: string; position: Geodetic }): Waypoint => ({ id: n.id, position: n.position, type: 'navaid' });
-
-export type { FlightPlan };

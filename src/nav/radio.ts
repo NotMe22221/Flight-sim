@@ -72,46 +72,66 @@ export function vorRadialDeg(station: Navaid, aircraft: Geodetic): number {
   return wrap360(initialBearingDeg(station.position, aircraft) - station.magneticVariationDeg);
 }
 
+/** Result of {@link vorDeviationDeg}. */
+export interface VorDeviation { toFrom: 'to' | 'from'; /** deg, + = fly right, unclamped */ deviationDeg: number }
+
 /**
- * VOR course deviation for an OBS course and the radial the aircraft is on.
- * Returns the TO/FROM sense and the deviation in degrees (+ = fly right), unclamped.
+ * VOR course deviation for an OBS course and the radial the aircraft is on: the TO/FROM sense
+ * and the deviation in degrees (+ = fly right), unclamped. Pass `out` to avoid allocating.
  */
-export function vorDeviationDeg(obsDeg: number, radialDeg: number): { toFrom: 'to' | 'from'; deviationDeg: number } {
+export function vorDeviationDeg(obsDeg: number, radialDeg: number, out?: VorDeviation): VorDeviation {
+  const o = out ?? ({} as VorDeviation);
   const d = deltaDeg(obsDeg, radialDeg); // course − radial, (−180, 180]
-  if (Math.abs(d) <= 90) return { toFrom: 'from', deviationDeg: d };
-  return { toFrom: 'to', deviationDeg: deltaDeg(180, d) };
+  if (Math.abs(d) <= 90) { o.toFrom = 'from'; o.deviationDeg = d; }
+  else { o.toFrom = 'to'; o.deviationDeg = deltaDeg(180, d); }
+  return o;
 }
 
 // ───────────────────────────── ILS ─────────────────────────────
 
+/** Result of {@link localizerDeviation}. */
+export interface LocalizerDeviation { /** −1..1, + = fly right */ cdi: number; /** signed angle off the course line, deg */ angleDeg: number; backCourse: boolean }
+
 /**
- * Localizer deviation. `off` is the angle between the course line (seen from the antenna) and
- * the aircraft; the result is normalised to full scale and signed so + = fly right, with
+ * Localizer deviation. `angleDeg` is the angle between the course line (seen from the antenna)
+ * and the aircraft; `cdi` is that normalised to full scale and signed so + = fly right, with
  * reverse sensing on the back course exactly as a real receiver without BC mode.
  */
-export function localizerDeviation(ils: IlsGeometry, aircraft: Geodetic): { cdi: number; angleDeg: number; backCourse: boolean } {
+export function localizerDeviation(ils: IlsGeometry, aircraft: Geodetic, out?: LocalizerDeviation): LocalizerDeviation {
+  const o = out ?? ({} as LocalizerDeviation);
   const brgFromLoc = initialBearingDeg(ils.locAntenna, aircraft);
   const offFront = deltaDeg(brgFromLoc, ils.courseDeg + 180); // 0 on the front course centreline
   const backCourse = Math.abs(offFront) > 90;
   // Geographic side relative to the front-course direction decides the needle: an aircraft on
   // the right-hand side (as seen flying the front course) always shows "fly left".
   const angleDeg = backCourse ? -deltaDeg(brgFromLoc, ils.courseDeg) : offFront;
-  return { cdi: clamp(angleDeg / ils.locFullScaleDeg, -1, 1), angleDeg, backCourse };
+  o.cdi = clamp(angleDeg / ils.locFullScaleDeg, -1, 1); o.angleDeg = angleDeg; o.backCourse = backCourse;
+  return o;
 }
 
+/** Result of {@link glideslopeDeviation}. */
+export interface GlideslopeDeviation { /** −1..1, + = fly up */ gs: number; /** glidepath − elevation angle, deg */ errorDeg: number; /** ground distance to the GS reference, m */ distanceM: number; /** on the approach side */ inFront: boolean }
+
 /**
- * Glideslope deviation relative to the glidepath from the GS reference point. Returns the
- * full-scale normalised deviation (+ = fly up), the raw error in degrees and whether the
- * aircraft is on the approach side of the reference point.
+ * Glideslope deviation relative to the glidepath from the GS reference point: full-scale
+ * normalised deviation (+ = fly up), the raw error in degrees and whether the aircraft is on
+ * the approach side of the reference point.
  */
-export function glideslopeDeviation(ils: IlsGeometry, aircraft: Geodetic): { gs: number; errorDeg: number; distanceM: number; inFront: boolean } {
+export function glideslopeDeviation(ils: IlsGeometry, aircraft: Geodetic, out?: GlideslopeDeviation): GlideslopeDeviation {
+  const o = out ?? ({} as GlideslopeDeviation);
   const distanceM = greatCircleDistance(ils.gsReference, aircraft);
   const dh = aircraft.alt - ils.gsReference.alt;
   const elevDeg = Math.atan2(dh, Math.max(distanceM, 1)) * R2D;
   const errorDeg = ils.glideslopeDeg - elevDeg; // + when below the path → fly up
-  const inFront = Math.abs(deltaDeg(initialBearingDeg(ils.gsReference, aircraft), ils.courseDeg + 180)) < 90;
-  return { gs: clamp(errorDeg / GS_FULL_SCALE_DEG, -1, 1), errorDeg, distanceM, inFront };
+  o.gs = clamp(errorDeg / GS_FULL_SCALE_DEG, -1, 1); o.errorDeg = errorDeg; o.distanceM = distanceM;
+  o.inFront = Math.abs(deltaDeg(initialBearingDeg(ils.gsReference, aircraft), ils.courseDeg + 180)) < 90;
+  return o;
 }
+
+// Scratch results reused by the per-frame assembly below (keeps the hot path allocation-free).
+const vorScratch: VorDeviation = { toFrom: 'from', deviationDeg: 0 };
+const locScratch: LocalizerDeviation = { cdi: 0, angleDeg: 0, backCourse: false };
+const gsScratch: GlideslopeDeviation = { gs: 0, errorDeg: 0, distanceM: 0, inFront: false };
 
 /** Which marker beacon (if any) the aircraft is over: within ±300 m along track and ±300 m laterally. */
 export function markerBeacon(ils: IlsGeometry, aircraft: Geodetic): MarkerBeacon {
@@ -240,7 +260,7 @@ export function computeVorRadio(aircraft: Geodetic, magVarDeg: number, station: 
   const overhead = distanceM < VOR_CONE_RADIUS_M;
   o.valid = inRange;
   if (inRange && hasAzimuth && !overhead) {
-    const dev = vorDeviationDeg(tuning.obsDeg, o.radialDeg);
+    const dev = vorDeviationDeg(tuning.obsDeg, o.radialDeg, vorScratch);
     o.cdi = clamp(dev.deviationDeg / VOR_FULL_SCALE_DEG, -1, 1);
     o.toFrom = dev.toFrom;
   } else {
@@ -260,7 +280,7 @@ export function computeIlsRadio(aircraft: Geodetic, magVarDeg: number, ils: IlsG
   o.dmeNm = dmeSlantNm(aircraft, ils.threshold);
   o.bearingDeg = wrap360(initialBearingDeg(aircraft, ils.threshold) - magVarDeg);
   o.radialDeg = wrap360(ils.courseDeg - magVarDeg); // magnetic front course, handy for the HSI
-  const loc = localizerDeviation(ils, aircraft);
+  const loc = localizerDeviation(ils, aircraft, locScratch);
   const distLocNm = greatCircleDistance(aircraft, ils.locAntenna) / NM;
   const absAngle = Math.abs(loc.angleDeg);
   const usableNm = absAngle <= 10 ? LOC_RANGE_NM : absAngle <= 35 ? LOC_WIDE_RANGE_NM : 0;
@@ -269,7 +289,7 @@ export function computeIlsRadio(aircraft: Geodetic, magVarDeg: number, ils: IlsG
   o.backCourse = loc.backCourse;
   o.cdi = o.valid ? loc.cdi : 0;
   if (o.valid) {
-    const gs = glideslopeDeviation(ils, aircraft);
+    const gs = glideslopeDeviation(ils, aircraft, gsScratch);
     o.gsValid = !loc.backCourse && gs.inFront && gs.distanceM / NM <= GS_RANGE_NM && absAngle <= 8;
     o.gsDeviation = o.gsValid ? gs.gs : 0;
     o.marker = markerBeacon(ils, aircraft);

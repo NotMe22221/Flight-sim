@@ -73,10 +73,10 @@ describe('FlightPlanner', () => {
   it('never sequences past the last waypoint; marks the plan complete when it is passed', () => {
     const fp = new FlightPlanner(plan());
     fp.activate(2);
-    const course = initialBearingDeg(KHAF, LOWI);
-    const past = destinationPoint(LOWI, initialBearingDeg(KHAF, LOWI) + 0, 0); // at the waypoint
-    expect(fp.update(past, GS)!.complete).toBe(false);
-    const beyond = destinationPoint(LOWI, (course + 180 + 180) % 360, 2000); // 2 km beyond along the inbound course
+    expect(fp.update(destinationPoint(LOWI, 0, 0), GS)!.complete).toBe(false); // at the waypoint
+    // The great circle from KHAF bends a lot over 5000 nm: use the final (inbound) course at LOWI.
+    const finalCourse = initialBearingDeg(LOWI, KHAF) + 180;
+    const beyond = destinationPoint(LOWI, finalCourse, 2000); // 2 km beyond along the inbound course
     const s = fp.update(beyond, GS)!;
     expect(s.activeLeg).toBe(2);
     expect(s.complete).toBe(true);

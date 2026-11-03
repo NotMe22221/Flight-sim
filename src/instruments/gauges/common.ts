@@ -79,7 +79,7 @@ export function drawText(ctx: Ctx2D, text: string, x: number, y: number, font: s
  * Pointer needle. The context must be translated to the hub; the needle is rotated to `angleDeg`
  * and points "up" (toward 12 o'clock before rotation).
  */
-export function drawNeedle(ctx: Ctx2D, angleDeg: number, length: number, tail: number, width: number, color = GAUGE_COLORS.needle): void {
+export function drawNeedle(ctx: Ctx2D, angleDeg: number, length: number, tail: number, width: number, color: string = GAUGE_COLORS.needle): void {
   ctx.save();
   ctx.rotate(angleDeg * DEG);
   ctx.beginPath();
@@ -94,7 +94,7 @@ export function drawNeedle(ctx: Ctx2D, angleDeg: number, length: number, tail: n
 }
 
 /** Needle hub cap. */
-export function drawHub(ctx: Ctx2D, r: number, color = '#3a3a3e'): void {
+export function drawHub(ctx: Ctx2D, r: number, color: string = '#3a3a3e'): void {
   ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.fillStyle = color; ctx.fill();
   ctx.beginPath(); ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
@@ -102,14 +102,14 @@ export function drawHub(ctx: Ctx2D, r: number, color = '#3a3a3e'): void {
 }
 
 /** Small rectangular readout window with a dark background and thin border. Text is optional. */
-export function drawWindow(ctx: Ctx2D, x: number, y: number, w: number, h: number, text?: string, font?: string, color = GAUGE_COLORS.white): void {
+export function drawWindow(ctx: Ctx2D, x: number, y: number, w: number, h: number, text?: string, font?: string, color: string = GAUGE_COLORS.white): void {
   ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = '#555'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (text !== undefined && font) drawText(ctx, text, x + w / 2, y + h / 2, font, color);
 }
 
 /** Red/orange warning flag with a label (GYRO, OFF…). Context translated to the gauge centre. */
-export function drawFlag(ctx: Ctx2D, x: number, y: number, w: number, h: number, label: string, color = GAUGE_COLORS.red): void {
+export function drawFlag(ctx: Ctx2D, x: number, y: number, w: number, h: number, label: string, color: string = GAUGE_COLORS.red): void {
   ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
   drawText(ctx, label, x + w / 2, y + h / 2, gaugeFont(h * 0.6, true), '#111');
 }

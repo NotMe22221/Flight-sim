@@ -6,7 +6,7 @@
  * `loadRegion`. Every loaded record is inserted into a 1° spatial grid, so nearest queries,
  * frequency lookups and runway-in-use selection are independent of the dataset size.
  */
-import type { Airport, Geodetic, NavDatabase, Navaid, Runway } from '../core/types';
+import type { Airport, Geodetic, NavDatabase, Runway } from '../core/types';
 import { deltaDeg } from '../core/math';
 import { NM } from '../core/units';
 import { greatCircleDistance } from '../geo/wgs84';
@@ -251,5 +251,3 @@ export function shardCellsAround(center: Geodetic, radiusM: number): string[] {
   }
   return [...new Set(out)];
 }
-
-export type { Navaid };

@@ -1,0 +1,198 @@
+/**
+ * Procedural low-poly Cessna 172 for the render scene.
+ *
+ * - Authored nose −Z, up +Y, right wing +X, origin at the empty CG (see docs/DESIGN.md).
+ * - `setPose()` takes the Three.js position and quaternion produced by the integrator from
+ *   the FDM state via {@link bodyQuatToThree} / {@link nedToThreeVec}.
+ * - `update()` animates control surfaces (SurfaceState), propeller (rpm), gear
+ *   (compression, wheel speed, steering), lights (ControlInputs.lights) and the cockpit
+ *   controls, and switches between the exterior cabin shell and the interior shell.
+ *
+ * No per-frame allocations: everything is built in the constructor.
+ */
+import * as THREE from 'three';
+import type { AircraftConfig, AircraftState, ControlInputs } from '../core/types';
+import { c172ModelConfig, resolveC172Layout, toModelConfig, type AircraftModelConfig, type C172Layout } from './c172Layout';
+import { buildFuselage } from './fuselage';
+import { buildWings } from './wings';
+import { buildTail } from './tail';
+import { Propeller } from './propeller';
+import { LandingGear } from './gear';
+import { AircraftLights } from './lights';
+import { CockpitInterior, type PanelVariant } from './interior';
+import { createModelMaterials, type ModelMaterials } from './materials';
+
+const D2R = Math.PI / 180;
+
+export interface AircraftModelOptions {
+  /** registration painted on the fuselage (default 'N172FS') */
+  registration?: string;
+  /** cast/receive shadows on the airframe (default true) */
+  shadows?: boolean;
+  /** landing / taxi SpotLight intensity (cd, physically based lights, decay 2) */
+  landingLightIntensity?: number;
+  taxiLightIntensity?: number;
+  /** let the landing light cast shadows (expensive, default false) */
+  spotShadows?: boolean;
+  /** sun elevation below which it is "night" and spotlights also light the cockpit view (default −3°) */
+  nightSunElevationRad?: number;
+}
+
+/** Hinged-surface pivot groups; rotation applied by {@link AircraftModel.update}. */
+export interface ControlSurfacePivots {
+  aileronLeft: THREE.Group;
+  aileronRight: THREE.Group;
+  flapLeft: THREE.Group;
+  flapRight: THREE.Group;
+  elevator: THREE.Group;
+  rudder: THREE.Group;
+}
+
+export class AircraftModel {
+  /** add this to the scene; `setPose` drives it */
+  readonly root = new THREE.Group();
+  /** exterior airframe (fuselage, wings, tail, gear, prop, lights) */
+  readonly exterior = new THREE.Group();
+  /** cockpit shell, only shown in cockpit view */
+  readonly interior: THREE.Group;
+  /** instrument panel plane (steam six-pack size, 1.0 × 0.45 m); set `material.map` */
+  readonly panelMesh: THREE.Mesh;
+  /** G1000-sized alternative (1.0 × 0.36 m), hidden unless {@link setPanelVariant}('g1000') */
+  readonly panelMeshG1000: THREE.Mesh;
+  /** pilot eye point in model-local coordinates (from config.geometry.eyePoint) */
+  readonly eyePointLocal: THREE.Vector3;
+  readonly layout: C172Layout;
+  readonly materials: ModelMaterials;
+  readonly propeller: Propeller;
+  readonly gear: LandingGear;
+  readonly lights: AircraftLights;
+  readonly cockpit: CockpitInterior;
+  readonly surfaces: ControlSurfacePivots;
+  /** cabin skin + exterior glass; hidden while the camera is inside */
+  readonly cabinShell: THREE.Group;
+
+  private exteriorEnabled = true;
+  private interiorEnabled = true;
+  private night = false;
+  private readonly nightElevation: number;
+  private disposed = false;
+
+  constructor(config: AircraftConfig | AircraftModelConfig = c172ModelConfig(), options: AircraftModelOptions = {}) {
+    const cfg = toModelConfig(config);
+    this.layout = resolveC172Layout(cfg);
+    const L = this.layout;
+    const len = L.zTail - L.zNose;
+    this.materials = createModelMaterials({
+      registration: options.registration ?? 'N172FS',
+      regU: [(2.3 - L.zNose) / len, (4.4 - L.zNose) / len],
+      cowlUEnd: (-1.05 - L.zNose) / len,
+    });
+    this.nightElevation = options.nightSunElevationRad ?? -3 * D2R;
+    this.root.name = 'aircraft';
+    this.exterior.name = 'exterior';
+
+    const fuselage = buildFuselage(L, this.materials);
+    const wings = buildWings(L, this.materials);
+    const tail = buildTail(L, this.materials);
+    this.propeller = new Propeller(L.prop, this.materials);
+    this.gear = new LandingGear(L.gear, this.materials);
+    this.lights = new AircraftLights(L.lights, this.materials, {
+      landingIntensity: options.landingLightIntensity,
+      taxiIntensity: options.taxiLightIntensity,
+      spotShadows: options.spotShadows,
+    });
+    this.cockpit = new CockpitInterior(L, fuselage.cabinProfile, this.materials);
+    this.cabinShell = fuselage.cabinShell;
+    this.surfaces = {
+      aileronLeft: wings.aileronLeft, aileronRight: wings.aileronRight,
+      flapLeft: wings.flapLeft, flapRight: wings.flapRight,
+      elevator: tail.elevator, rudder: tail.rudder,
+    };
+    this.exterior.add(fuselage.group, wings.group, tail.group, this.propeller.group, this.gear.group, this.lights.group);
+    this.interior = this.cockpit.group;
+    this.interior.visible = false;
+    this.panelMesh = this.cockpit.panelMesh;
+    this.panelMeshG1000 = this.cockpit.panelMeshG1000;
+    this.eyePointLocal = L.eye.clone();
+    this.root.add(this.exterior, this.interior);
+
+    const shadows = options.shadows ?? true;
+    const m = this.materials;
+    this.root.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const mat = o.material as THREE.Material;
+      const transparentish = mat === m.glass || mat === m.glassInterior || mat === m.propDisc || mat === m.navRed || mat === m.navGreen || mat === m.navWhite;
+      o.castShadow = shadows && !transparentish;
+      o.receiveShadow = shadows && !transparentish;
+    });
+  }
+
+  /** Place the model from the integrator's render-frame pose (see frames.ts). */
+  setPose(posThree: THREE.Vector3, qThree: THREE.Quaternion): void {
+    this.root.position.copy(posThree);
+    this.root.quaternion.copy(qThree);
+  }
+
+  /**
+   * Animate from the latest state.
+   * @param cameraIsCockpit hide the cabin shell / show the interior, and switch the
+   *        landing/taxi spotlights off in daylight to save a shadow-casting light.
+   */
+  update(state: AircraftState, inputs: ControlInputs, dt: number, cameraIsCockpit: boolean): void {
+    const s = state.surfaces;
+    const sf = this.surfaces;
+    // positive = trailing edge down (δe > 0 nose down; per-surface aileron deflection)
+    sf.aileronLeft.rotation.x = s.aileronLeftRad;
+    sf.aileronRight.rotation.x = s.aileronRightRad;
+    const flap = s.flapDeg * D2R;
+    sf.flapLeft.rotation.x = flap;
+    sf.flapRight.rotation.x = flap;
+    sf.elevator.rotation.x = s.elevatorRad;
+    // δr > 0 = trailing edge left; the hinge axis points up so a negative rotation swings the TE left
+    sf.rudder.rotation.y = -s.rudderRad;
+
+    this.propeller.update(state.engine.rpm, dt);
+    this.gear.update(state.gear, dt);
+    this.lights.update(dt, inputs.lights, !cameraIsCockpit || this.night);
+    this.cockpit.update(inputs);
+
+    this.cabinShell.visible = this.exteriorEnabled && !cameraIsCockpit;
+    this.interior.visible = this.interiorEnabled && cameraIsCockpit;
+  }
+
+  /** Master visibility of the exterior airframe and of the cockpit shell. */
+  setVisibility(exterior: boolean, interior: boolean): void {
+    this.exteriorEnabled = exterior;
+    this.interiorEnabled = interior;
+    this.exterior.visible = exterior;
+    this.cabinShell.visible = exterior && !this.interior.visible;
+    if (!interior) this.interior.visible = false;
+  }
+
+  /** Feed the sun elevation (rad) so spotlights are also enabled in the cockpit view at night. */
+  setSunElevation(elevationRad: number): void {
+    this.night = elevationRad < this.nightElevation;
+  }
+
+  get isNight(): boolean { return this.night; }
+
+  /** Choose which instrument panel plane is shown. */
+  setPanelVariant(v: PanelVariant): void { this.cockpit.setPanelVariant(v); }
+
+  /** Release all GPU resources (geometries, materials, textures, lights). */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    const seen = new Set<THREE.BufferGeometry>();
+    this.root.traverse((o) => {
+      const geo = (o as THREE.Mesh).geometry;
+      if (geo instanceof THREE.BufferGeometry && !seen.has(geo)) { seen.add(geo); geo.dispose(); }
+    });
+    this.propeller.dispose();
+    this.gear.dispose();
+    this.lights.dispose();
+    this.cockpit.dispose();
+    this.materials.dispose();
+    this.root.removeFromParent();
+  }
+}

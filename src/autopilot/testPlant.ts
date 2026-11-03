@@ -5,7 +5,7 @@
  * coordinated-turn heading rate g·tan(φ)/V, a lagged sideslip response to rudder/aileron and
  * ISA atmosphere. It fills a complete `AircraftState` in place every step (no allocation).
  *
- * Attitude model:
+ * Attitude model (authorities quoted at 100 kt and proportional to airspeed, like Clδa·2V/b):
  *   ṗ = (p_cmd − p)/τ_roll,  p_cmd = rollAuthority · δa                (τ 0.1 s, 90°/s)
  *   q̇ = (q_cmd − q)/τ_pitch, q_cmd = pitchAuthority · δe − Kα · (α − α_trim)   (τ 0.5 s, 15°/s)
  *   δe = stick + trimFraction · trim ; α_trim is the angle of attack that trims level flight at
@@ -32,6 +32,8 @@ export interface TestPlantConfig {
   maxPowerW: number;
   propEfficiency: number;
   staticThrustN: number;
+  /** speed at which the quoted control authorities apply; they scale with V / authorityRefSpeedMs (clamped 0.3..2) */
+  authorityRefSpeedMs: number;
   /** roll-rate response: authority at full aileron (rad/s) and time constant (s) */
   rollAuthorityRadS: number;
   rollTauS: number;
@@ -66,6 +68,7 @@ export const defaultTestPlantConfig = (): TestPlantConfig => ({
   maxPowerW: 134000,
   propEfficiency: 0.75,
   staticThrustN: 2600,
+  authorityRefSpeedMs: 100 * KT,
   rollAuthorityRadS: 90 * DEG,
   rollTauS: 0.1,
   pitchAuthorityRadS: 15 * DEG,
@@ -239,9 +242,10 @@ export class TestPlant {
     const T = Math.min((c.propEfficiency * pAvail) / Math.max(this.V, 15), c.staticThrustN * throttle);
     const m = c.massKg;
 
-    // rates: exact first-order lags for a constant command over the step
-    const pCmd = c.rollAuthorityRadS * da;
-    const qCmd = c.pitchAuthorityRadS * de - c.alphaStiffnessPerS * (alpha - this.alphaTrim);
+    // rates: exact first-order lags for a constant command over the step; control power ∝ V
+    const auth = clamp(this.V / c.authorityRefSpeedMs, 0.3, 2);
+    const pCmd = c.rollAuthorityRadS * auth * da;
+    const qCmd = c.pitchAuthorityRadS * auth * de - c.alphaStiffnessPerS * (alpha - this.alphaTrim);
     this.p += (pCmd - this.p) * (1 - Math.exp(-dt / c.rollTauS));
     this.q += (qCmd - this.q) * (1 - Math.exp(-dt / c.pitchTauS));
     const betaSS = -c.betaPerRudderRad * dr + c.betaPerAileronRad * da;

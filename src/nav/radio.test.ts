@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Geodetic, Navaid } from '../core/types';
+import { deltaDeg } from '../core/math';
 import { FT, NM } from '../core/units';
 import { destinationPoint, greatCircleDistance } from '../geo/wgs84';
 import { PUBLIC_DIR } from './__tests__/fsLoader';
@@ -41,11 +42,11 @@ function onApproach(ils: IlsGeometry, nm: number, extraM = 0, lateralM = 0): Geo
 describe('radio: VOR', () => {
   it('10 nm due magnetic north: radial 000, bearing-to 180, OBS 180 → TO centred, OBS 360 → FROM centred', () => {
     const ac = onRadial(0, 10);
-    expect(vorRadialDeg(VOR, ac)).toBeCloseTo(0, 1);
+    expect(Math.abs(deltaDeg(vorRadialDeg(VOR, ac), 0))).toBeLessThan(0.05);
     const s = computeVorRadio(ac, MAGVAR, VOR, tuning(180));
     expect(s.valid).toBe(true);
     expect(s.ident).toBe('TST');
-    expect(Math.abs(s.radialDeg % 360)).toBeLessThan(0.1);
+    expect(Math.abs(deltaDeg(s.radialDeg, 0))).toBeLessThan(0.1);
     expect(s.bearingDeg).toBeCloseTo(180, 1);
     expect(s.toFrom).toBe('to');
     expect(Math.abs(s.cdi)).toBeLessThan(0.01);
@@ -147,8 +148,8 @@ describe('radio: ILS', () => {
     expect(Math.abs(s.gsDeviation)).toBeLessThan(0.02);
     expect(s.ident).toBe('ISFO');
     expect(s.toFrom).toBe('off');
-    expect(s.dmeNm).toBeGreaterThan(3);
-    expect(s.dmeNm).toBeLessThan(3.3);
+    // DME reads to the threshold, 300 m short of the GS reference point: (3 nm − 300 m) slant
+    expect(s.dmeNm).toBeCloseTo(Math.hypot(3 * NM - 300, 3 * NM * Math.tan(3 * D2R)) / NM, 2);
     expect(s.radialDeg).toBeCloseTo(285, 6); // magnetic front course
   });
 
@@ -248,8 +249,8 @@ describe('radio: GPS leg geometry', () => {
   it('turn radius and anticipation follow r = V²/(g·tan φ)', () => {
     const r = turnRadiusM(56.6, 25);
     expect(r).toBeCloseTo((56.6 * 56.6) / (9.80665 * Math.tan(25 * D2R)), 6);
-    expect(r).toBeGreaterThan(680);
-    expect(r).toBeLessThan(700);
+    expect(r).toBeGreaterThan(690); // ≈ 700 m at 110 kt
+    expect(r).toBeLessThan(710);
     expect(turnAnticipationM(56.6, 90)).toBeCloseTo(r, 6);
     expect(turnAnticipationM(56.6, 60)).toBeCloseTo(r * Math.tan(30 * D2R), 6);
     expect(turnAnticipationM(56.6, 150)).toBeCloseTo(r, 6); // capped at 90° (abeam logic)

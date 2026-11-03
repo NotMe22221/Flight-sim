@@ -6,6 +6,7 @@
  * `range[l−1]` (otherwise its children take over). Children that fall outside their own
  * range are drawn as *parent patches*: the parent's mesh restricted to that quadrant.
  * Per-node hysteresis (split at r, merge at (1+h)·r) stops flapping at range boundaries.
+ * Distances are measured horizontally to the node centre and vertically to its height box.
  *
  * No Three.js: the frustum is any object with `intersectsBox(min, max)`, positions are
  * Three.js-frame arrays (x East, y Up, z South), AABBs come from a height-range callback.
@@ -183,14 +184,18 @@ export class Quadtree {
     computeTileAabb(this.frame, nd.z, nd.x, nd.y, minH, maxH, nd.min, nd.max, this.tmp);
   }
 
+  /**
+   * Range metric: horizontal distance to the node's centre plus the vertical distance to its
+   * height extent. Centre-based horizontally so that a ring holds ~π·(range/width)² tiles
+   * (the budget in docs/research/03 §3.2) instead of also promoting every tile that merely
+   * touches the range circle; box-based vertically so altitude removes the fine rings exactly.
+   */
   private distSq(nd: Node): number {
     const c = this.cam;
-    let d = 0;
-    for (let i = 0; i < 3; i++) {
-      const v = c[i] < nd.min[i] ? nd.min[i] - c[i] : c[i] > nd.max[i] ? c[i] - nd.max[i] : 0;
-      d += v * v;
-    }
-    return d;
+    const dx = c[0] - 0.5 * (nd.min[0] + nd.max[0]);
+    const dz = c[2] - 0.5 * (nd.min[2] + nd.max[2]);
+    const dy = c[1] < nd.min[1] ? nd.min[1] - c[1] : c[1] > nd.max[1] ? c[1] - nd.max[1] : 0;
+    return dx * dx + dy * dy + dz * dz;
   }
 
   /** True when every point of the box is hidden below the camera's horizon (conservative). */

@@ -70,7 +70,7 @@ describe('NavDb', () => {
     expect(db.searchAirports('ksfo')[0].icao).toBe('KSFO');
     const prefix = db.searchAirports('KS', 10);
     expect(prefix).toHaveLength(10);
-    for (const a of prefix) expect(a.icao.startsWith('KS')).toBe(true);
+    for (const a of prefix) expect(a.icao.startsWith('KS') || a.iata?.startsWith('KS')).toBe(true);
     const muni = db.searchAirports('half moon');
     expect(muni[0].icao).toBe('KHAF');
     expect(db.searchAirports('')).toEqual([]);

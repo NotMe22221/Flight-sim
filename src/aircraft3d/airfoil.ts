@@ -166,3 +166,22 @@ export function planformPoint(sections: WingSection[], x: number, f: number, out
   const lez = a.le.z + (b.le.z - a.le.z) * k;
   return out.set(x, ley, lez + chord * f);
 }
+
+/**
+ * Mirror a geometry in X (for the left wing / left stabiliser): scales by −1, reverses the
+ * triangle winding so faces stay outward and recomputes the normals.
+ */
+export function mirrorGeometryX(src: THREE.BufferGeometry): THREE.BufferGeometry {
+  const g = src.clone();
+  g.applyMatrix4(new THREE.Matrix4().makeScale(-1, 1, 1));
+  const idx = g.getIndex();
+  if (idx) {
+    for (let i = 0; i < idx.count; i += 3) {
+      const b = idx.getX(i + 1), c = idx.getX(i + 2);
+      idx.setX(i + 1, c); idx.setX(i + 2, b);
+    }
+    idx.needsUpdate = true;
+  }
+  g.computeVertexNormals();
+  return g;
+}

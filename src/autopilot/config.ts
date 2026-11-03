@@ -42,6 +42,10 @@ export interface AutopilotGains {
   roll: PidConfig;
   /** pitch → elevator inner loop, per rad / rad·s⁻¹ */
   pitch: PidConfig;
+  /** feed-forward from the roll-command slew rate to aileron (per rad/s); ≈ 1 / full-aileron roll rate */
+  rollFeedForward: number;
+  /** feed-forward from the pitch-command slew rate to elevator (per rad/s) */
+  pitchFeedForward: number;
   /** HDG: bank command per rad of heading (track) error */
   hdgToBank: number;
   /** ALT: vertical-speed command per metre of altitude error (1/s). 8 fpm/ft = 0.133/s */
@@ -55,9 +59,12 @@ export interface AutopilotGains {
   /** VS → pitch PI (rad per m/s, rad per m/s per s) */
   vsToPitchKp: number;
   vsToPitchKi: number;
-  /** FLC speed → pitch PI (rad per m/s of speed error; positive = nose up when fast) */
+  /** FLC speed → pitch PID (rad per m/s of speed error, rad per m/s per s, rad per m/s²; positive = nose up when fast) */
   flcKp: number;
   flcKi: number;
+  flcKd: number;
+  /** FLC acceleration filter time constant, s */
+  flcTauD: number;
   /** GPS/NAV intercept: rad of intercept angle per metre of cross-track; cap */
   gpsInterceptRadPerM: number;
   gpsInterceptMaxRad: number;
@@ -98,9 +105,11 @@ export interface AutopilotGains {
   gsCaptureDots: number;
   /** seconds a nav source may be invalid before the mode reverts to ROL / PIT */
   sourceLossGraceS: number;
-  /** gain scheduling of the inner loops with dynamic pressure: k·(Vref/IAS)² clamped */
+  /** gain scheduling of the inner loops with airspeed: kp, kd × (Vref/IAS)^exponent, clamped */
   qbarScheduling: boolean;
   qbarRefSpeedMs: number;
+  /** 1: control power ∝ V (rate response, C172 ailerons/elevator); 2: ∝ dynamic pressure */
+  qbarScheduleExponent: number;
   qbarScaleMin: number;
   qbarScaleMax: number;
   /** yaw damper: rudder per rad/s of washed-out yaw rate; washout time constant; authority */
@@ -166,6 +175,8 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     roll: { kp: 0.025 / DEG, ki: 0.004 / DEG, kd: 0.010 / DEG, outMin: -0.5, outMax: 0.5, iLim: 0.15, tt: 1.0 },
     // Spec §5.2: Kp 0.045 /deg, Ki 0.010 /deg/s, Kd 0.020 per deg/s, out ±0.5, iLim 0.20
     pitch: { kp: 0.045 / DEG, ki: 0.010 / DEG, kd: 0.020 / DEG, outMin: -0.5, outMax: 0.5, iLim: 0.2, tt: 1.0 },
+    rollFeedForward: 0.6, // 1 / (95°/s)
+    pitchFeedForward: 1.5, // 1 / (38°/s)... the pitch servo also carries the α-stiffness load, see README
     hdgToBank: 1.0,
     altToVs: 8 * FPM / 0.3048, // 8 fpm per ft = 0.1333 /s
     altCaptureAccelMs2: 0.03 * G0, // 1000 fpm captures ~185 ft out
@@ -173,8 +184,10 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     altHoldThresholdM: 15,
     vsToPitchKp: 0.008 * DEG / FPM, // 0.008 deg per fpm → 500 fpm error = 4°
     vsToPitchKi: 0.0012 * DEG / FPM,
-    flcKp: 0.4 * DEG / KT, // 0.4 deg per kt
-    flcKi: 0.03 * DEG / KT,
+    flcKp: 0.6 * DEG / KT, // 0.6 deg per kt
+    flcKi: 0.06 * DEG / KT,
+    flcKd: 0.5 * DEG / KT, // 0.5 deg per kt/s of acceleration
+    flcTauD: 0.5,
     gpsInterceptRadPerM: 60 * DEG / NM, // 60° per nm en route
     gpsInterceptMaxRad: 45 * DEG,
     vorInterceptRad: 45 * DEG, // full-scale needle → 45°
@@ -203,6 +216,7 @@ export const defaultAutopilotConfig = (): AutopilotConfig => ({
     sourceLossGraceS: 2,
     qbarScheduling: true,
     qbarRefSpeedMs: 100 * KT,
+    qbarScheduleExponent: 1,
     qbarScaleMin: 0.5,
     qbarScaleMax: 2.0,
     ydGain: 0.8, // rudder per rad/s of washed-out yaw rate

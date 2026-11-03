@@ -51,7 +51,12 @@ export function isaPressurePa(pressureAltFt: number): number {
 
 export interface InstrumentReadings {
   iasKt: number; casKt: number; tasKt: number; gsKt: number;
+  /** vacuum attitude indicator (with spin-up / erection error) */
   attitude: { pitchDeg: number; rollDeg: number; valid: boolean; spin: number };
+  /** solid-state AHRS truth for glass displays; valid while the avionics bus is live */
+  ahrs: { pitchDeg: number; rollDeg: number; valid: boolean };
+  /** avionics bus live (> 20 V) */
+  avionicsOn: boolean;
   altimeter: { indicatedFt: number; pressureAltFt: number; settingInHg: number; settingHPa: number; modeCFt: number };
   turn: { rateStd: number; ballWidths: number; valid: boolean };
   heading: {
@@ -109,6 +114,8 @@ export function createReadings(): InstrumentReadings {
   return {
     iasKt: 0, casKt: 0, tasKt: 0, gsKt: 0,
     attitude: { pitchDeg: 0, rollDeg: 0, valid: false, spin: 0 },
+    ahrs: { pitchDeg: 0, rollDeg: 0, valid: false },
+    avionicsOn: false,
     altimeter: { indicatedFt: 0, pressureAltFt: 0, settingInHg: 29.92, settingHPa: 1013, modeCFt: 0 },
     turn: { rateStd: 0, ballWidths: 0, valid: false },
     heading: { dgDeg: 0, dgValid: false, bugDeg: 0, bugErrorDeg: 0, compassDeg: 0, magDeg: 0, trueDeg: 0, trackMagDeg: 0, magVarDeg: 0 },
@@ -241,6 +248,8 @@ export class InstrumentModel {
     this.electrical.step(inp, running, ac.engine.rpm, flapsMoving, dt);
     r.voltsV = this.electrical.voltsV; r.ampsA = this.electrical.ampsA;
     const busLive = r.voltsV > 20;
+    r.avionicsOn = busLive;
+    r.ahrs.pitchDeg = pitchRad * RAD; r.ahrs.rollDeg = rollRad * RAD; r.ahrs.valid = busLive;
     r.suctionInHg = suctionInHg(running, ac.engine.rpm);
     const vacPower = r.suctionInHg / cfg.minVacuumInHg;
 
