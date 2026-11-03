@@ -42,7 +42,8 @@ export class ReplayBar {
     this.slider = document.createElement('input');
     this.slider.type = 'range'; this.slider.min = '0'; this.slider.max = '1000'; this.slider.value = '0';
     this.slider.oninput = () => { this.scrubbing = true; this.rc.seek(this.rc.start + (Number(this.slider.value) / 1000) * (this.rc.end - this.rc.start)); };
-    this.slider.onchange = () => { this.scrubbing = false; };
+    // drop focus after scrubbing: while a range input has focus the input module ignores flight keys
+    this.slider.onchange = () => { this.scrubbing = false; this.slider.blur(); };
     this.time = el('span', 'rp-time', '0:00 / 0:00') as HTMLSpanElement;
     this.speed = el('button', '', '1×') as HTMLButtonElement;
     const speeds = [0.25, 0.5, 1, 2, 4];

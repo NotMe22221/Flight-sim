@@ -437,7 +437,7 @@ filtered noise plus resonant tones in exactly this way):
 - All devices are normalised to the same `SimAxis` space; the manager arbitrates per axis by **most-recent activity**
   (if the stick moved in the last 0.5 s it owns `pitch`; otherwise keyboard ramps may drive it) — this is how MSFS
   behaves when two devices share an axis.
-- Bindings are data (JSON), rebindable at runtime, persisted in `localStorage['fs.bindings.v1']`, keyed per device.
+- Bindings are data (JSON), rebindable at runtime, persisted in `localStorage['flightsim.bindings.v1']`, keyed per device.
 
 ## B2. Keyboard — MSFS 2020 default layout
 
@@ -693,7 +693,7 @@ Expose `mixture`/`propeller` as extra axes for HOTAS throttles with multiple lev
 
 | Control | Axis/button | SimAxis / SimAction |
 |---|---|---|
-| Stick X / Y | `axes[0]` / `axes[1]` | `roll` / `pitch` (pitch: pull back = +1 = nose up, so **invert** Y which is −1 up) |
+| Stick X / Y | `axes[0]` / `axes[1]` | `roll` / `pitch` (HID Y reads −1 pushed forward, so pull back = +1 = nose up with no inversion) |
 | Twist | `axes[5]` | `yaw` (curve 0.4) |
 | Slider | `axes[6]` (inverted) | `throttle` |
 | Hat | `axes[9]` (Windows/macOS) or two axes (Linux) | `lookYaw`/`lookPitch` snap views (cockpit), `trimNoseUp/Down` when `Alt` held |
@@ -753,7 +753,7 @@ export interface BindingProfile {
 // src/input/inputManager.ts
 export interface InputSource { readonly id: string; attach(el: HTMLElement): void; detach(): void; poll(dt: number, out: FrameInput): void; }
 export class InputManager {
-  constructor(private canvas: HTMLElement, private profiles: BindingProfile[], private store = new BindingStore('fs.bindings.v1')) {}
+  constructor(private canvas: HTMLElement, private profiles: BindingProfile[], private store = new BindingStore('flightsim.bindings.v1')) {}
   poll(dt: number): InputSnapshot;      // merges KeyboardSource, MouseSource, GamepadSource, TouchSource with per-axis arbitration
   startRebind(target: { action: SimAction } | { axis: SimAxis }, timeoutMs = 4000): Promise<ActionTrigger | AxisSource | null>; // captures next chord / button / axis with |Δ|>0.5
   setProfile(deviceKey: string, p: BindingProfile): void;  // persists
