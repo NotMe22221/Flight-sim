@@ -76,6 +76,8 @@ export class FlightPanels {
   show(id: PanelId): void { this.panels.get(id)?.show(); }
   hide(id: PanelId): void { this.panels.get(id)?.hide(); }
   hideAll(): void { for (const p of this.panels.values()) p.hide(); }
+  /** Settings › Reset window layout: every panel back to its default place now (not only after a reload). */
+  resetPositions(): void { for (const p of this.panels.values()) p.resetPosition(); }
   /** Keeps panels on screen after a window resize. */
   clampAll(): void { for (const p of this.panels.values()) if (p.visible) p.clampToViewport(); }
 

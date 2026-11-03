@@ -178,7 +178,8 @@ describe('electrical power from the FDM', () => {
   it('avionics master off: the PFD stays on (essential bus), the MFD is black; a dead bus blanks both', () => {
     const s = makeSampleSnapshot();
     s.aircraft.electrical = elec({ avionicsPowered: false });
-    const g = new G1000({ createCanvas: (w, h) => new MockCanvasFactory().create(w, h) });
+    // bare screens: the bezel's key labels would count as text
+    const g = new G1000({ bezel: false, createCanvas: (w, h) => new MockCanvasFactory().create(w, h) });
     expect(g.update(s, 1 / 60)).toBe(true);
     const pfd = (g.pfdCanvas as unknown as { ctx: { texts(): string[] } }).ctx;
     const mfd = (g.mfdCanvas as unknown as { ctx: { texts(): string[] } }).ctx;
@@ -186,7 +187,7 @@ describe('electrical power from the FDM', () => {
     expect(mfd.texts().length).toBe(0);
     const dead = makeSampleSnapshot();
     dead.aircraft.electrical = elec({ busVolts: 0, mainPowered: false, avionicsPowered: false });
-    const g2 = new G1000({ createCanvas: (w, h) => new MockCanvasFactory().create(w, h) });
+    const g2 = new G1000({ bezel: false, createCanvas: (w, h) => new MockCanvasFactory().create(w, h) });
     g2.update(dead, 1 / 60);
     expect((g2.pfdCanvas as unknown as { ctx: { texts(): string[] } }).ctx.texts().length).toBe(0);
     expect((g2.mfdCanvas as unknown as { ctx: { texts(): string[] } }).ctx.texts().length).toBe(0);

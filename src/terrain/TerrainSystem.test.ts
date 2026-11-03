@@ -356,4 +356,20 @@ describe('TerrainSystem (in-thread, injected fetch)', () => {
     expect(u.uSunGlow.value.r).toBeCloseTo(0.5, 6);
     ts.dispose();
   });
+
+  it('keeps the procedural detail noise attached to the ground across a rebase; shares the sky uniforms', async () => {
+    const { createSkySharedUniforms } = await import('../sky/skyUniforms');
+    const sky = createSkySharedUniforms();
+    const frame = new LocalFrame(KSFO.lat, KSFO.lon, 0);
+    const { ts } = makeSystem(frame, { skyUniforms: sky });
+    expect(ts.uniforms.uSkyIrradiance).toBe(sky.uSkyIrradiance);
+    const off = ts.uniforms.uDetailOffset.value;
+    expect(off.x).toBe(0);
+    // new origin ≈ 2 km east, 1 km north: render x of a ground point drops by ≈ 2000, z rises by ≈ 1000
+    const ned = frame.ecefToNED(new LocalFrame(KSFO.lat + 1000 / 111_000, KSFO.lon + 2000 / 88_000, 0).origin);
+    ts.setFrame(new LocalFrame(KSFO.lat + 1000 / 111_000, KSFO.lon + 2000 / 88_000, 0));
+    expect(off.x).toBeCloseTo(ned[1], 6);
+    expect(off.y).toBeCloseTo(8192 - ned[0], 6);
+    ts.dispose();
+  });
 });

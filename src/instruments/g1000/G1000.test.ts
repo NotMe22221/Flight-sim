@@ -17,11 +17,16 @@ function make(opts: ConstructorParameters<typeof G1000>[0] = {}) {
 const texts = (c: MockContext2D): string => c.texts().join('|');
 
 describe('G1000', () => {
-  it('creates two 1024×768 canvases through the factory', () => {
+  it('creates two canvases through the factory: 1344×1008 with the bezel, 1024×768 without', () => {
     const { g, factory } = make();
     expect(factory.created.length).toBe(2);
-    expect(g.pfdCanvas.width).toBe(1024);
-    expect(g.mfdCanvas.height).toBe(768);
+    expect(g.pfdCanvas.width).toBe(1344);
+    expect(g.mfdCanvas.height).toBe(1008);
+    expect(g.screenRect).toEqual({ x: 160, y: 64, w: 1024, h: 768 });
+    const bare = make({ bezel: false });
+    expect(bare.g.pfdCanvas.width).toBe(1024);
+    expect(bare.g.mfdCanvas.height).toBe(768);
+    expect(bare.g.screenRect).toEqual({ x: 0, y: 0, w: 1024, h: 768 });
   });
 
   it('returns true on the first update and false when called again within 33 ms with the same snapshot', () => {

@@ -19,6 +19,16 @@ export class LayoutStore {
   reset(): void { this.layout = {}; saveJson(LAYOUT_KEY, this.layout); }
 }
 
+/**
+ * Panel position kept on screen: fully inside horizontally with an 8 px margin when it fits (a
+ * phone-wide panel is centred rather than flush with an edge), header always reachable vertically.
+ */
+export function clampPanelPosition(x: number, y: number, width: number, viewW: number, viewH: number): { x: number; y: number } {
+  const w = Math.min(width, viewW);
+  const m = Math.max(0, Math.min(8, (viewW - w) / 2));
+  return { x: Math.max(m, Math.min(viewW - w - m, x)), y: Math.max(0, Math.min(viewH - 40, y)) };
+}
+
 export interface FloatingPanelOpts {
   id: string;
   title: string;
@@ -37,11 +47,13 @@ export class FloatingPanel {
   private titleEl: HTMLElement;
   private _visible = false;
   private rect: PanelRect;
+  private readonly defaults: PanelRect;
   private onVisibility?: (v: boolean) => void;
 
   constructor(private readonly layer: HTMLElement, private readonly layout: LayoutStore, opts: FloatingPanelOpts) {
     this.onVisibility = opts.onVisibility;
     const saved = layout.get(opts.id);
+    this.defaults = { x: opts.defaultPos?.x ?? 80, y: opts.defaultPos?.y ?? 80, w: opts.width, h: opts.height };
     this.rect = { x: saved?.x ?? opts.defaultPos?.x ?? 80, y: saved?.y ?? opts.defaultPos?.y ?? 80, w: saved?.w ?? opts.width, h: saved?.h ?? opts.height };
     this.titleEl = h('span', { class: 'fp-title', text: opts.title });
     const header = h('div', { class: 'fp-header' },
@@ -66,6 +78,13 @@ export class FloatingPanel {
   show(): void { if (this._visible) return; this._visible = true; this.el.classList.add('visible'); this.bringToFront(); this.clampToViewport(); this.onVisibility?.(true); }
   hide(): void { if (!this._visible) return; this._visible = false; this.el.classList.remove('visible'); this.onVisibility?.(false); }
   toggle(): void { this._visible ? this.hide() : this.show(); }
+  /** Back to the default position and size (Settings › Data › Reset window layout). */
+  resetPosition(): void {
+    this.rect = { ...this.defaults };
+    this.el.style.width = ''; this.el.style.height = '';
+    this.applyRect();
+    if (this._visible) this.clampToViewport();
+  }
   dispose(): void { this.el.remove(); }
 
   private bringToFront(): void {
@@ -84,9 +103,8 @@ export class FloatingPanel {
   clampToViewport(): void {
     const W = this.layer.clientWidth || window.innerWidth;
     const H = this.layer.clientHeight || window.innerHeight;
-    const w = this.el.offsetWidth || this.rect.w || 300;
-    this.rect.x = Math.max(0, Math.min(W - Math.min(w, W), this.rect.x));
-    this.rect.y = Math.max(0, Math.min(H - 40, this.rect.y));
+    const p = clampPanelPosition(this.rect.x, this.rect.y, this.el.offsetWidth || this.rect.w || 300, W, H);
+    this.rect.x = p.x; this.rect.y = p.y;
     this.applyRect();
   }
 

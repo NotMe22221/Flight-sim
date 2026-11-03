@@ -41,3 +41,32 @@ describe('terrain materials', () => {
     water.dispose();
   });
 });
+
+describe('terrain materials: sky link and procedural detail', () => {
+  it('reference the sky module’s shared uniforms (default SKY_UNIFORMS) and flag only procedural colours for detail', async () => {
+    const { SKY_UNIFORMS, createSkySharedUniforms } = await import('../sky/skyUniforms');
+    const shared = createTerrainSharedUniforms();
+    expect(shared.uSkyIrradiance).toBe(SKY_UNIFORMS.uSkyIrradiance);
+    expect(shared.uCloudShadowA).toBe(SKY_UNIFORMS.uCloudShadowA);
+    const own = createSkySharedUniforms();
+    const isolated = createTerrainSharedUniforms(own);
+    expect(isolated.uSkyLinked).toBe(own.uSkyLinked);
+    const real = createTerrainMaterial(shared, null, [0, 0, 1]);
+    const synthetic = createTerrainMaterial(shared, null, [0, 0, 1], true);
+    expect(real.uniforms.uProcedural.value).toBe(0);
+    expect(synthetic.uniforms.uProcedural.value).toBe(1);
+    expect(real.uniforms.uSkyIrradiance).toBe(SKY_UNIFORMS.uSkyIrradiance);
+    expect(real.defines.CLOUD_OCTAVES).toBeGreaterThan(0);
+    const water = createWaterMaterial(shared);
+    expect(water.uniforms.uSkyHorizon).toBe(SKY_UNIFORMS.uSkyHorizon);
+    expect(water.defines.CLOUD_OCTAVES).toBeGreaterThan(0);
+    // array uniforms declared in GLSL exist too
+    for (const src of [TERRAIN_SHADERS.terrainFragment, TERRAIN_SHADERS.waterFragment]) {
+      for (const m of src.matchAll(/^uniform \w+ (\w+)\[/gm)) expect(real.uniforms, m[1]).toHaveProperty(m[1]);
+      expect(src).toContain('skyCloudShadow(vWorldPos, uSunDir)');
+    }
+    // real imagery is sampled and lit, never recoloured: the detail runs only behind the procedural flag
+    expect(TERRAIN_SHADERS.terrainFragment).toContain('if (uProcedural > 0.5) albedo = proceduralDetail(albedo, vWorldPos, dist);');
+    real.dispose(); synthetic.dispose(); water.dispose();
+  });
+});

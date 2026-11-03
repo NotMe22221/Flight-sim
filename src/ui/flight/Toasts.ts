@@ -9,6 +9,7 @@ export class Toasts {
   private queue: ToastPayload[] = [];
   private active = 0;
   private readonly maxVisible = 3;
+  private timers = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(layer: HTMLElement) {
     this.el = h('div', { class: 'toasts', role: 'status', aria: { live: 'polite' } });
@@ -21,7 +22,12 @@ export class Toasts {
     this.drain();
   }
 
-  clear(): void { this.queue = []; this.el.replaceChildren(); this.active = 0; }
+  /** Drops everything; pending removal timers are cancelled so `active` cannot go negative later. */
+  clear(): void {
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
+    this.queue = []; this.el.replaceChildren(); this.active = 0;
+  }
 
   private drain(): void {
     while (this.active < this.maxVisible && this.queue.length) {
@@ -38,11 +44,15 @@ export class Toasts {
     this.active++;
     requestAnimationFrame(() => el.classList.add('in'));
     const dur = Math.max(1200, t.durationMs ?? (kind === 'error' ? 6000 : 3500));
+    let removed = false;
+    const later = (fn: () => void, ms: number) => { const id = setTimeout(() => { this.timers.delete(id); fn(); }, ms); this.timers.add(id); return id; };
     const remove = () => {
+      if (removed) return;
+      removed = true;
       el.classList.remove('in');
-      setTimeout(() => { el.remove(); this.active--; this.drain(); }, 200);
+      later(() => { el.remove(); this.active--; this.drain(); }, 200);
     };
-    const timer = setTimeout(remove, dur);
-    el.addEventListener('click', () => { clearTimeout(timer); remove(); });
+    const timer = later(remove, dur);
+    el.addEventListener('click', () => { clearTimeout(timer); this.timers.delete(timer); remove(); });
   }
 }
