@@ -154,7 +154,6 @@ export class Simulator {
     this.interp = structuredClone(this.fdm.state);
     this.snapshot = this.buildSnapshot();
     if (typeof document !== 'undefined') this.replayBar = new ReplayBar(opts.container, this.replayer, (on) => this.setPaused(on || this.paused));
-    this.events.on('aircraft:touchdown', (e) => this.plugins.audio?.onTouchdown?.(e.verticalSpeedMs, e.lateralDriftMs));
     this.events.on('aircraft:crash', (e) => this.onCrash(e.reason));
     window.addEventListener('resize', this.onResize);
   }

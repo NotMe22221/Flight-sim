@@ -11,14 +11,13 @@ type Ctor<T> = new (...args: never[]) => T;
 const ctor = <T>(mod: Record<string, unknown>, name: string): Ctor<T> | null => (typeof mod[name] === 'function' ? (mod[name] as Ctor<T>) : null);
 
 interface UiManagerLike { update(s: SimSnapshot, dt: number): void; show(screen: string): void; onStart?(cb: () => void): void; handleAction?(a: SimAction): boolean }
-interface AudioLike { resume(): Promise<void>; update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; onTouchdown?(vs: number, drift?: number): void; setMarker?(m: 'outer' | 'middle' | 'inner' | null): void; setVolume?(bus: string, v: number): void; setMasterVolume?(v: number): void; speak?(text: string, voice?: string): void; playUi?(s: string): void }
+interface AudioLike { resume(): Promise<void>; update(dt: number, ac: AircraftState, cam: SimSnapshot['camera'], w: SimSnapshot['weather']): void; updateSnapshot?(dt: number, s: SimSnapshot): void; setSurface?(s: string): void; setListener?(posNED: [number, number, number] | null, velNED?: [number, number, number]): void; onTouchdown?(vs: number, drift?: number): void; setMarker?(m: 'outer' | 'middle' | 'inner' | null): void; setVolume?(bus: string, v: number): void; setMasterVolume?(v: number): void; speak?(text: string, voice?: string): void; playUi?(s: string): void }
 interface HudLike { readonly canvas: HTMLCanvasElement; resize(w: number, h: number, dpr: number): void; update(s: SimSnapshot, dt: number): void }
 interface G1000Like { readonly pfdCanvas: HTMLCanvasElement | OffscreenCanvas; update(s: SimSnapshot, dt: number): boolean; setNearestAirports?(l: { icao: string; lat: number; lon: number; type: string }[]): void }
 interface AtcLike { update(dt: number, ac: AircraftState, w: SimSnapshot['weather']): void; select(i: number): void; reset(a: Airport | null): void }
 
 let host: SimUiHost | null = null;
 let audio: AudioLike | null = null;
-let pendingUiStart: (() => void) | null = null;
 
 export async function attachPlugin(sim: Simulator, path: string, mod: Record<string, unknown>, container: HTMLElement): Promise<void> {
   if (path.endsWith('/UiManager.ts')) {
@@ -27,19 +26,31 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
     host ??= new SimUiHost(sim);
     const ui = new (UiManager as unknown as new (c: HTMLElement, h: SimUiHost) => UiManagerLike)(container, host);
     sim.plugins.ui = { update: (s, dt) => ui.update(s, dt), handleAction: ui.handleAction ? (a) => ui.handleAction!(a) : undefined };
-    const start = () => { void audio?.resume(); pendingUiStart = null; };
-    pendingUiStart = start;
-    ui.onStart?.(start);
+    ui.onStart?.(() => { void audio?.resume(); });
     ui.show('loading');
     return;
   }
   if (path.endsWith('/AudioSystem.ts')) {
     const AudioSystem = ctor<AudioLike>(mod, 'AudioSystem');
     if (!AudioSystem) return;
-    audio = new (AudioSystem as unknown as new () => AudioLike)();
+    // with `events` the audio system handles touchdown, autopilot disconnect and flight reset itself
+    audio = new (AudioSystem as unknown as new (o: object) => AudioLike)({ config: sim.config, events: sim.events });
+    const camPos: [number, number, number] = [0, 0, 0];
+    const camVel: [number, number, number] = [0, 0, 0];
+    let lastX = NaN, lastY = 0, lastZ = 0;
     sim.plugins.audio = {
-      update: (dt, ac, cam, w) => audio!.update(dt, ac, cam, w),
-      onTouchdown: (vs, drift) => audio!.onTouchdown?.(vs, drift),
+      update: (dt) => {
+        const a = audio!;
+        const p = sim.cameras.positionThree();
+        // render frame (x E, y U, z S) → NED
+        camPos[0] = -p.z; camPos[1] = p.x; camPos[2] = -p.y;
+        if (dt > 0 && !Number.isNaN(lastX)) { camVel[0] = -(p.z - lastZ) / dt; camVel[1] = (p.x - lastX) / dt; camVel[2] = -(p.y - lastY) / dt; }
+        lastX = p.x; lastY = p.y; lastZ = p.z;
+        a.setSurface?.(sim.world.env.surface);
+        a.setListener?.(sim.cameras.state.mode === 'cockpit' ? null : camPos, camVel);
+        if (a.updateSnapshot) a.updateSnapshot(dt, sim.snapshot);
+        else a.update(dt, sim.snapshot.aircraft, sim.snapshot.camera, sim.snapshot.weather);
+      },
       setMarker: (m) => audio!.setMarker?.(m as 'outer' | 'middle' | 'inner' | null),
     };
     host ??= new SimUiHost(sim);
@@ -51,7 +62,6 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
     const unlock = () => { void audio?.resume(); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
-    if (pendingUiStart) pendingUiStart = () => { void audio?.resume(); };
     return;
   }
   if (path.endsWith('/Hud.ts')) {
