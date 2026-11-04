@@ -522,9 +522,12 @@ export class SkySystem {
     this.tmpA[0] *= dayK; this.tmpA[1] *= dayK; this.tmpA[2] *= dayK;
     const sky = skylightIrradiance(this.tmpA, this.tmpD, this.skyIrradiance);
     // under a closing deck the sky the ground sees IS the deck: its skylight is π × the deck's radiance (the
-    // cloud planes' underside, CPU twin), so sunlit paint reads like the deck above it instead of brighter
+    // cloud planes' underside, CPU twin), so sunlit paint reads like the deck above it instead of brighter. Only
+    // the cover ABOVE the aircraft counts (as for the exposure): on top of a deck the aircraft is under the clear
+    // sky, not lit by the underside it is above (at golden hour that was dim and warm: paint 198 → 173/151/129)
     const deckOpacity = this.clouds.deckRadianceBelow(this.deckRadiance);
-    const deckW = smoothstep(DECK_SKYLIGHT_COVER[0], DECK_SKYLIGHT_COVER[1], cloudCover) * deckOpacity;
+    const deckCover = Math.min(cloudCover, cloudCoverAbove(w.clouds, this.aircraftPos.y + alt0));
+    const deckW = smoothstep(DECK_SKYLIGHT_COVER[0], DECK_SKYLIGHT_COVER[1], deckCover) * deckOpacity;
     if (deckW > 0) for (let i = 0; i < 3; i++) sky[i] += (Math.PI * this.deckRadiance[i] - sky[i]) * deckW;
     const skyLum = luminance(sky);
     normalizeColor(sky, this.tmpC);
@@ -651,7 +654,7 @@ export class SkySystem {
     // skylight the ground gets)
     const envGrey = 0.9 * (0.2126 * (this.zenith[0] + this.horizon[0]) + 0.7152 * (this.zenith[1] + this.horizon[1]) + 0.0722 * (this.zenith[2] + this.horizon[2])) * 0.5;
     const shellK = smoothstep(0.3, 1, cloudCover);
-    const dk = this.deckRadiance, kd = shellK * deckOpacity;
+    const dk = this.deckRadiance, kd = smoothstep(0.3, 1, deckCover) * deckOpacity;
     this.envOvercast.material.color.setRGB(envGrey + (dk[0] - envGrey) * kd, envGrey + (dk[1] - envGrey) * kd, envGrey + (dk[2] - envGrey) * kd);
     this.envOvercast.material.opacity = 0.9 * shellK;
     this.envOvercast.visible = this.envOvercast.material.opacity > 0.01;

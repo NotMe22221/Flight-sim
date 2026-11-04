@@ -249,7 +249,9 @@ sun and the average matches the dimmed sun; the old fixed floor kept 15 % of the
 Under a closing deck (cover 0.5 → 1) the skylight hands over to π × the deck's underside radiance
 (`CloudLayers.deckRadianceBelow`, the CPU twin of the planes' back face at full density) and the environment's
 overcast shell takes the deck's colour, so a surface under an overcast is lit by the deck it is seen against.
-Only layers whose middle is above the point count — the sun ray goes up — so the aircraft and peaks on top
+The hand-over follows the cover above the aircraft (`cloudCoverAbove`, as the exposure does): on top of the deck
+the aircraft keeps the sky's skylight (the review measured white paint on top of a golden-hour overcast at
+173/151/129 when the dim, warm underside below it lit it; 198/190/184 before and after). Only layers whose middle is above the point count — the sun ray goes up — so the aircraft and peaks on top
 of a deck are in full sun (before the review a deck below them shadowed them as if it were above).
 The built-in materials share one sun light, so `cloudShadowAt` (CPU twin) scales its intensity by the
 shadow over the aircraft: the aircraft, runway and buildings darken with the ground when a shadow passes. `cloudMath.ts` is the CPU twin (identical formula incl. erosion), used for
@@ -339,7 +341,7 @@ strong environment map" regression in a new form).
 
 ## Tests
 
-`npx vitest run src/sky` — 19 files, all Node (no WebGL):
+`npx vitest run src/sky` — 20 files, all Node (no WebGL):
 
 | File | Covers |
 |---|---|
@@ -349,6 +351,7 @@ strong environment map" regression in a new form).
 | `calibration.test.ts` | sun vs sky calibration end to end: direct sun 3–8 × the dome's skylight (20°–76°), clear-noon white paint 225–245 and neutral, shade 120–180 and slightly blue, sky ≥ 2.5 × darker than the paint, golden hour warm and unclipped with bluish shade, dusk/night dark but readable; exposure on top of an overcast = clear air (was ≈ 2 × too open), settles without overshoot or pumping; the dome irradiance is not re-integrated per frame; the environment's lower hemisphere is the lit ground (was default white) |
 | `lookReview.test.ts` | review regressions: a deck below the point casts no shadow (CPU twin, GLSL guard, the aircraft's sun light on top of an overcast), cloud-type parameters are shared constants, `uSkyGroundY` published, `irradianceUp` vs a fine quadrature (noon → sunset), `skylightBalance` parity and caps, built-in skylight = terrain skylight at a 40° sun and at sunset |
 | `lookPass2.test.ts` | the civil-dusk dome (CPU twin through `SkySystem`) at the zenith, 45°/20°/3° 90° from the sun, the anti-sun and sun-ward horizon every 1° from +4° to −12°: monotonic, no step > 2.5× (sun-ward 5×), never below the night sky; deep-blue zenith and a warm sun-ward band at −3.5°; GPU uniforms = the twin's; the day dome exactly Sky.js, golden hour within 6 %; `skyLitMax`; the cloud-shadow floor 0.15 → 0.05 and `cloudSunFactor`; under a noon overcast ≈ 5 % of the sun, skylight = π × the deck, white paint within the deck's brightness; the deck twin mirrors the planes' underside lines; broken / scattered shadows still visible |
+| `lookPass2Review.test.ts` | review of look pass 2: the civil-dusk skylight keeps its calibrated level (≥ 0.3 luminance at −2° / −3.5°; it had fallen to night level, 0.22, when the twilight dome turned the curve's hue deep blue), golden hour (6°) and the night (−25°) unchanged, monotonic every 0.5° from +8° to −16° with no step > 12 %; under a golden-hour overcast the skylight is π × the deck, on top of it the sky's (blue, ≥ 1.3 × brighter), continuous through the deck (20 m steps < 12 %); the smooth maximum exact for dusk-size radiances, no 4th powers in the dome shader (mediump underflow) |
 | `iblScale.test.ts` | three r187 still overrides `envMapIntensity` (the helper's reason); the chunks declare / fill / consume the scaled terms; the scale lands after `lights_fragment_maps` and before use for Standard, Physical, Lambert and Phong; unlit materials untouched, no stacking, values update in place; one cache key per value, earlier patches and keys kept |
 | `robustness.test.ts` | one running `SkySystem` fed zero / 50 m / 10⁹ m / NaN visibility, a ground-fog layer, 80 km altitude, in-cloud and storm, at noon, dusk and midnight: every `SkyLighting` number, shared uniform, built-in fog value and the fog optical depth stays finite (a NaN visibility used to latch NaN into the adapted exposure for good) |
 | `WeatherSystem.test.ts` | presets by reference, transitions (lerp, wrap through north, exact end state), `windNED`/`windAt` sign (FROM 270° 10 kt → +E 5.144 m/s), log profile, gusts, METAR/live application, cloud density + drift + rebase |
@@ -389,6 +392,19 @@ depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app
   draw it at full density 90° from the sun (no per-direction integral, no aerial perspective); the residual
   sun under a full deck is 5 %. Under a low golden-hour or dusk overcast the ground is therefore as dark as
   the deck (the twilight skylight curve no longer applies there).
+- **Dark surfaces in dim light**: with the calibrated albedos (asphalt ≈ 0.04, grass ≈ 0.08) and the exposure
+  capped at the night bound from a ≈ 6° sun down, the runway asphalt and the grass sink into ACES's toe (its
+  input below ≈ 0.003 maps to black): measured at golden hour asphalt ≈ 34, at civil dusk ≈ 2–5 and at night
+  ≈ 1–2 / 255 (grass ≈ 41 / 9 / 7) while white paint stays as calibrated; the old values (22 at dusk,
+  9/12/25 at night) came from the ≈ 3 × too bright albedos. Lifting them needs a brighter night/dusk exposure
+  (the spec's 6–10) or a tone curve with a softer toe, not brighter albedos.
+- **Cloud coverage is not the covered area** (pre-existing, `cloudMath.ts` `coverageMask`): the mask
+  thresholds fbm2 — distributed ≈ N(0.505, 0.145) with 3 octaves — at 1 − c·(1 + softness), so FEW (0.19)
+  draws ≈ 0 % cloud (mean mask 0.003), SCT (0.44) ≈ 33 %, BKN (0.75) a 93 %-solid deck with 0.1 % gaps (the
+  eroded planes) and no sunlit gaps on the ground (the review's CPU probe: no point of a 20 × 20 km area under
+  'broken' gets more than 41 % of the sun; it reads as an overcast and the look pass 2 floor (0.087 at its
+  0.79 cover) darkens all of it). Proposed: put the soft step's middle at the fbm quantile of 1 − c
+  (≈ 0.505 + 0.145 · probit(1 − c), e.g. Tukey's 4.91 · (p^0.14 − (1 − p)^0.14), in `coverageMask` and its GLSL twin).
 
 - Tier A planes are 2-D slabs: weak look at the layer altitude, no cumulus towers, no earth curvature
   (≈ 0.8 km drop at the 100 km plane edge). Inside a cloud the fog is global, so rays leaving the cloud stay

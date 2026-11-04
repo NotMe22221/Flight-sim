@@ -6,6 +6,9 @@
  *   −3.5° sun white paint went 106 → 72 / 255, the runway asphalt 22 → 2 (black) and the grass 54 → 9; the
  *   calibration had accepted dusk as it was. The curve keeps its calibrated luminance through civil dusk now
  *   (bluish, monotonic), golden hour and the night unchanged.
+ * - the skylight under a closing deck became π × the deck's underside for the whole scene (global cover), so on top of
+ *   a golden-hour overcast the aircraft was lit by the dim, warm underside it is above (white paint 198 → 173/151/129);
+ *   like the exposure, the hand-over now follows the cover above the aircraft.
  * - the dome's smooth maximum raised dusk radiances (≈ 1e-3) to the 4th power: ≈ 1e-12, which underflows at
  *   mediump precision (the twilight would vanish on such GPUs); it is max · (1 + (min/max)⁴)^¼ now.
  */
@@ -88,5 +91,36 @@ describe('look pass 2 review: smooth maximum precision', () => {
     expect(skyLitMax(0.3, 0.1)).toBeCloseTo((0.3 ** 4 + 0.1 ** 4) ** 0.25, 12);
     expect(TWILIGHT_GLSL).toContain('min( x, y ) / max( m, vec3( 1e-20 ) )');
     expect(TWILIGHT_GLSL).not.toMatch(/a2 \* a2|b2 \* b2/);
+  });
+});
+
+describe('look pass 2 review: the deck lights what is under it', () => {
+  it('under a golden-hour overcast the skylight is π × the deck; on top of it the aircraft keeps the sky above', () => {
+    const t = timeForElevation(6);
+    const ovc = weatherFromPreset('overcast', 4); // deck 504–1504 m MSL
+    const below = makeSky();
+    below.update(snapshot(t, ovc, 2), new THREE.Vector3(0, 4, 0), 1 / 60);
+    const deck: Vec3 = [0, 0, 0];
+    below.clouds.deckRadianceBelow(deck);
+    const aBelow = ambient(below);
+    expect(luminance(aBelow) / (Math.PI * luminance(deck))).toBeGreaterThan(0.95);
+    expect(luminance(aBelow) / (Math.PI * luminance(deck))).toBeLessThan(1.1);
+    const above = makeSky();
+    above.update(snapshot(t, ovc, 2100), new THREE.Vector3(0, 2103, 0), 1 / 60);
+    const aAbove = ambient(above);
+    // not the deck's warm, dim underside (0.42/0.37/0.34 before the review): the blue sky above
+    expect(aAbove[2]).toBeGreaterThan(aAbove[0]);
+    expect(luminance(aAbove)).toBeGreaterThan(1.3 * luminance(aBelow));
+    // climbing through the deck (inside the cloud, fogged) hands over continuously: no step over 20 m of climb
+    let prev = luminance(aBelow);
+    const s = makeSky();
+    for (let h = 400; h <= 1700; h += 20) {
+      s.update(snapshot(t, ovc, h), new THREE.Vector3(0, h + 2, 0), 1 / 60);
+      const l = luminance(ambient(s));
+      expect(Math.abs(l / prev - 1), `skylight step at ${h} m`).toBeLessThan(0.12);
+      prev = l;
+    }
+    s.dispose();
+    below.dispose(); above.dispose();
   });
 });

@@ -20,6 +20,8 @@ const R2D = 180 / Math.PI;
 const D2R = Math.PI / 180;
 /** ground speed of the contact point above which a castering wheel aligns with its motion, m/s */
 const CASTER_ALIGN_SPEED = 0.3;
+/** a swivelling wheel breaks out only when its tyre is dragged this far past the steering stop, deg */
+const SWIVEL_STOP_MARGIN_DEG = 3;
 const V_EPS = 0.3;
 const ANCHOR_K = 60_000;
 const ANCHOR_C = 9_000;
@@ -235,7 +237,9 @@ export class GearModel {
         const muLong = muRoll + brake * ((g.brakeMu ?? g.muStatic) * surfaceBrake - muRoll);
         fLong = -muLong * Fn * Math.tanh(vLong / V_EPS);
         const slipDeg = Math.atan2(vLat, Math.max(Math.abs(vLong), 1)) * R2D;
-        fLat = -pacejka(slipDeg, g.pacejka.B, g.pacejka.C, g.muStatic * surfaceBrake, g.pacejka.E) * Fn;
+        // a castering wheel swivels instead of carrying side force, also while it is too slow to
+        // have trailed into line (it would otherwise skid like a brake at its last swivel angle)
+        fLat = this.castering[i] ? 0 : -pacejka(slipDeg, g.pacejka.B, g.pacejka.C, g.muStatic * surfaceBrake, g.pacejka.E) * Fn;
         const mag = Math.sqrt(fLong * fLong + fLat * fLat);
         if (mag > fMax) { fLong *= fMax / mag; fLat *= fMax / mag; }
       }
@@ -292,7 +296,13 @@ export class GearModel {
       if (!sw || !g.casters || g.type !== 'wheel') continue;
       if (!out.inContact[i]) { this.castering[i] = 0; continue; }
       if (!this.castering[i]) {
-        if (out.sideForce[i] > sw.breakoutN) { this.castering[i] = 1; this.casterAngle[i] = out.wheelAngle[i]; }
+        // The steering springs carry the side force of ordinary steering (a pedal reversal makes a
+        // large but brief slip angle): the lock only breaks out when the tyre is also being dragged
+        // outside the steering arc, i.e. its contact point moves at more than the steering limit
+        // from the aircraft's axis (a brake pivot, the tail swinging out in a ground loop).
+        const travel = out.wheelAngle[i] + Math.atan2(out.sideSpeed[i], out.rollSpeed[i]);
+        const outside = Math.abs(Math.atan2(Math.sin(travel), Math.cos(travel))) > (g.maxSteerDeg + SWIVEL_STOP_MARGIN_DEG) * D2R;
+        if (out.sideForce[i] > sw.breakoutN && outside) { this.castering[i] = 1; this.casterAngle[i] = out.wheelAngle[i]; }
         continue;
       }
       this.casterAngle[i] = out.wheelAngle[i];

@@ -58,11 +58,14 @@ two 18 US gal wing-root tanks. 14 V electrical system (12 V 25 Ah battery, 40 A 
   ground speed as the nose wheel is); being **behind** the CG it turns opposite to the pedal (right
   pedal → wheel heading left → aircraft turns right). `GearState.steerRad` publishes the wheel's
   actual heading (+ = turned right), including while it castors.
-- *Full swivel*: when the tyre's side force exceeds `swivel.breakoutN` (400 N: brake-assisted
-  pivots, a tail sliding in a ground loop) the wheel unlocks and castors freely, trailing its
-  contact-point velocity with no side force; it relocks once rolling forward within
-  `swivel.relockDeg` (6°) of the steering angle, or when it leaves the ground. The lock state is
-  serialised.
+- *Full swivel*: the steering springs carry the side force of ordinary steering, so pedal
+  reversals and S-turns keep the wheel locked. It unlocks only when the tyre is dragged past the
+  steering stop (its contact point moving more than ±(25 + 3)° off the aircraft's axis: a
+  brake-assisted pivot, the tail swinging out in a ground loop) with a side force above
+  `swivel.breakoutN` (250 N). It then castors freely, trailing its contact-point velocity with no
+  side force (also while too slow to trail into line, so it never skids like a brake); it relocks
+  once rolling forward within `swivel.relockDeg` (6°) of the steering angle, or when it leaves the
+  ground. The lock state is serialised.
 - *Mains*: soft bungee legs (40 kN/m, ζ ≈ 0.2 in compression, more on rebound) — a 300 fpm
   wheel landing bounces ≈ 0.5–0.7 m; heel brakes are torque-limited (`brakeMu` 0.4, differential
   through `brakeLeft/Right`), below the μ ≈ 0.7 that would stand a three-pointed Cub on its nose.
@@ -97,6 +100,8 @@ from the PA-18-150 owner's handbook and TCDS 1A2):
 | Tail comes up under forward stick (−0.4 / −0.6), full power | 30 / 28 KIAS (solo 25 / 22) | 25–35 KIAS |
 | Static stability, trim at 50 / 70 / 90 KIAS (C.G. +20.4 in) | Cm_α −0.97 / −0.52 / −0.34, static margin 22 / 11 / 7 % | converges, Cm_α < 0 |
 | Taxi turn, full pedal at ≈ 10 kt | 13 m radius, tail wheel 21° the other way, no breakout; a brake pivot unlocks it, it relocks within 6 s of rolling straight | — |
+| S-turns at ≈ 6 kt, half then full pedal reversals every 4 s (`cubGroundReview.test.ts`) | stays locked, ± 9–20 °/s either way | no breakout, no ground loop |
+| Breakaway with the wheel left swivelled 45–80° (paved and grass, solo and gross) | rolls at 1.5 kt within 6 s at ≈ 1,300 rpm, relocks once straightened | no skid |
 | 15 kt gust from the right on a tail-up wheel-landing roll-out (wings held level) | no rudder: 66° (solo 73°) off heading — a ground loop; with rudder: < 7° | ground loop possible, rudder prevents it |
 | Full-power take-off roll, feet off the rudder | swerves left > 15° within 8 s, ground-loops once the tail is up | needs right rudder |
 | 300 fpm arrival (three-point / wheel landing) | 2.4 / 2.2 g, 1.0 / 1.4 W per main, bounce 0 / 0.7 m | no failure, < 3 g, < 1 m |
@@ -153,7 +158,9 @@ tail lift, taxi turns and brake pivots (swivel breakout and relock), ground loop
 the 14 V system and engine start, and save/restore while the tail wheel castors. Its pilots are the
 shared ones in `testing.ts` (`SpeedHold`, `levelWings` with a lighter yaw gain, the cascaded
 `AltitudeHold`, and `touchdownArrival`, which sets up a steady 1 g arrival in a given attitude and
-sink rate) plus rudder/brake pilots for the ground.
+sink rate) plus rudder/brake pilots for the ground. `aircraft/cubGroundReview.test.ts` adds S-turns
+that must not unlock the tail wheel and a breakaway with the wheel left swivelled after a pivot (it
+must not skid).
 
 ## Known limitations
 

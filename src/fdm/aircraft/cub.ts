@@ -90,7 +90,7 @@ export const CUB_GEAR: GearSpec[] = [
   { ...wheel('Right main', [G.mainGear[0], G.mainGear[1], G.mainGear[2]], 40_000, 1_500, 3_000, G.mainTyreRadiusM, 'right'), brakeMu: 0.4 },
   // Scott 3200-style tail wheel: steered by the rudder springs through ±25°, unlocks into full swivel
   // when the tyre is dragged sideways (brake-assisted pivots, ground loops), relocks near centre
-  { ...wheel('Tail', [...G.tailWheel] as Vec3, 25_000, 900, 1_400, G.tailTyreRadiusM, 'none'), maxSteerDeg: 25, casters: true, swivel: { breakoutN: 400, relockDeg: 6 } },
+  { ...wheel('Tail', [...G.tailWheel] as Vec3, 25_000, 900, 1_400, G.tailTyreRadiusM, 'none'), maxSteerDeg: 25, casters: true, swivel: { breakoutN: 250, relockDeg: 6 } },
   // lowest point of the 74 in propeller disc
   structure('Propeller', [G.propHub[0], 0, G.propHub[2] + G.propDiameterM / 2]),
   structure('Tail post', [-4.5, 0, -0.02]),
