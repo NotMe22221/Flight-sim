@@ -52,6 +52,15 @@ const IN_CLOUD_SATURATION = 0.15;
 const DECK_SKYLIGHT_COVER: readonly [number, number] = [0.5, 1];
 /** the dome's own skylight fades in over these sun elevations (deg): below, Sky.js's constant floor is not twilight */
 const DOME_SKYLIGHT_FADE_DEG: readonly [number, number] = [-4, 2];
+/**
+ * The twilight skylight curve (`hemisphereIntensity` × the zenith/horizon hue, max channel 1) was calibrated while
+ * the dome below the horizon was Sky.js's neutral floor, i.e. at ≈ its full luminance through civil dusk; the
+ * twilight term's deep-blue dome has ≈ 0.55 of it, which put civil dusk at night level (white paint 106 → 72 / 255,
+ * asphalt black). Over this trapezoid of sun elevations (deg: ramp in, full, ramp out) the curve keeps its
+ * luminance (the hue normalised to luminance 1): golden hour (above) and the night (below) are unchanged, civil
+ * dusk is as calibrated, and the skylight still darkens monotonically (the old samples had a bump at −2°).
+ */
+const TWILIGHT_SKYLIGHT_KEEP_LUM_DEG: readonly [number, number, number, number] = [-14, -8, -6, 4];
 
 export interface SkySystemOptions {
   /** exposure targets (day ≈ 0.5–0.7, night ≈ 1.5) and adaptation time */
@@ -501,7 +510,10 @@ export class SkySystem {
     mixVec3(this.tmpA, this.tmpB, SKYLIGHT_HORIZON_SHARE * lerp(0.4, 1, smoothstep(2, 20, el)), this.tmpC);
     mixVec3(this.tmpC, WHITE, 0.8 * cloudCover, this.tmpC);
     normalizeColor(this.tmpC, this.tmpC);
-    const hi = hemisphereIntensity(el, cloudCover);
+    // through civil dusk the curve keeps the luminance it was calibrated with (TWILIGHT_SKYLIGHT_KEEP_LUM_DEG)
+    const hueLum = luminance(this.tmpC), kl = TWILIGHT_SKYLIGHT_KEEP_LUM_DEG;
+    const keepLum = smoothstep(kl[0], kl[1], el) * (1 - smoothstep(kl[2], kl[3], el));
+    const hi = hemisphereIntensity(el, cloudCover) * (hueLum > 1e-3 ? 1 + (1 / hueLum - 1) * keepLum : 1);
     this.tmpD[0] = this.tmpC[0] * hi; this.tmpD[1] = this.tmpC[1] * hi; this.tmpD[2] = this.tmpC[2] * hi;
     this.updateDomeIrradiance();
     this.envSaturation = SKYLIGHT_SATURATION * (1 - 0.8 * clamp(cloudCover, 0, 1));

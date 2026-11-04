@@ -113,8 +113,9 @@ export function twilightAzimuthWeight(dir: Vec3, sunDir: Vec3): number {
 
 /** Smooth maximum (p = 4) of two non-negative radiances: the twin of GLSL `skyLitMax`. */
 export function skyLitMax(a: number, b: number): number {
-  const a2 = Math.max(a, 0) ** 2, b2 = Math.max(b, 0) ** 2;
-  return Math.sqrt(Math.sqrt(a2 * a2 + b2 * b2));
+  const x = Math.max(a, 0), y = Math.max(b, 0), m = Math.max(x, y);
+  const r = Math.min(x, y) / Math.max(m, 1e-20), r2 = r * r;
+  return m * Math.sqrt(Math.sqrt(1 + r2 * r2));
 }
 
 /**
@@ -130,10 +131,12 @@ vec3 skyTwilight( vec3 dir, vec3 sunDir ) {
   float a = 0.5 + 0.5 * c; a *= a;
   return twilightZenith + twilightBand * ( exp( - max( dir.y, 0.0 ) / ${TWILIGHT_BAND_SCALE_HEIGHT.toFixed(3)} ) * ( 0.1 + 0.9 * a * a ) );
 }
+// (as max · (1 + (min/max)⁴)^¼: the 4th powers of dusk radiances, ≈ 1e-3⁴, underflow at mediump precision)
 vec3 skyLitMax( vec3 a, vec3 b ) {
-  vec3 a2 = max( a, vec3( 0.0 ) ); a2 *= a2;
-  vec3 b2 = max( b, vec3( 0.0 ) ); b2 *= b2;
-  return sqrt( sqrt( a2 * a2 + b2 * b2 ) );
+  vec3 x = max( a, vec3( 0.0 ) ), y = max( b, vec3( 0.0 ) );
+  vec3 m = max( x, y );
+  vec3 r = min( x, y ) / max( m, vec3( 1e-20 ) ); r *= r;
+  return m * sqrt( sqrt( 1.0 + r * r ) );
 }
 `;
 

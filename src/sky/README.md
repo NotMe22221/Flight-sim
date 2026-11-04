@@ -193,7 +193,10 @@ following the aircraft. Skylight (`ambientIrradiance`, up-facing): by day the do
 desaturated to real skylight's hue (`SKYLIGHT_SATURATION` 0.3: Sky.js's irradiance is ≈ 30 000 K+, measured
 clear-sky diffuse light ≈ 10–15 000 K) and ×(1 + 0.3 cc), greyer under cloud, handing over to π × the deck's radiance as cover closes (0.5 → 1); from sunset down the
 twilight curve (zenith/horizon hue × `lerp(0.02, 0.9, smoothstep(−12°, 10°, el)) · (1 + 0.3 cc)`, the
-pre-calibration skylight, which keeps dusk readable where the dome is nearly black); the two hand over by a
+pre-calibration skylight, which keeps dusk readable where the dome is nearly black; through civil dusk at the
+luminance it was calibrated with — the hue normalised to luminance 1 instead of max channel 1 over the
+`TWILIGHT_SKYLIGHT_KEEP_LUM_DEG` trapezoid −14°/−8° … −6°/+4° —, because the twilight term's deep-blue samples
+have ≈ 0.55 of the luminance of Sky.js's neutral floor that the calibration saw there); the two hand over by a
 smooth maximum (`skylightIrradiance`) around a 10° sun. Plus a night-blue ambient floor (≈ 0.12 luminance
 moonless, ≈ 0.24 full moon) and moonlight. Built-in objects get the same skylight from the baked environment
 map (intensity ≈ 1 by day, capped at 1 so reflections never outshine the sky they mirror) and the

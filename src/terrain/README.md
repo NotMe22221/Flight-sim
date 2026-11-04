@@ -172,6 +172,13 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   lowland around an airport averages ≈ sRGB 64/75/40 (linear G ≈ 0.07) and reads as a mid green at noon;
   the earlier, ≈ 2.2 × brighter tones (tuned against a ≈ 4 × too dim sun) rendered as straw beside the
   runway (≈ 182/169/119). `paletteAlbedo.test.ts` checks the lowland composite through SkySystem's noon light.
+  The review of that pass measured the patch beside KSFO 28R at 112/105/63 (khaki, R above G): the dry-grass
+  tone and three of eight field tones were redder than green, and the shore sand (the airfield's DEM is 1–4 m,
+  so the 0.6–1.8 m sand band runs beside the runway) still had the old ≈ 0.55 albedo. Dry grass, scrub and the
+  field tones are olive now (one brown fallow tone kept), sand ≈ 0.35 / wet sand ≈ 0.15:
+  `paletteNearRunway.test.ts` renders the lowland within 500 m of 28R pixel by pixel (≥ 85 % greener than red,
+  was 56 %; the real DEM around 28R: median 114/115/60 → 102/116/55 on the CPU) and the shore band (≈ 200 at
+  noon, was ≈ 217).
 
 ## Files
 
