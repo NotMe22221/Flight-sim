@@ -169,7 +169,7 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   ≈ 1 km), scrub on dry slopes, alpine meadow, rock by slope and altitude, snow above a noisy ≈ 2 550 m line.
   Grass, scrub and field tones (`COL_LUSH`, `COL_GRASS`, `COL_DRY`, `COL_SCRUB`, `FIELD_TONES`) are albedos
   for the sky's calibrated light (`src/sky/README.md` "Calibration": white paint ≈ 238 at a clear noon): a
-  lowland around an airport averages ≈ sRGB 64/75/40 (linear G ≈ 0.07) and reads as a mid green at noon;
+  lowland around an airport averages ≈ sRGB 66/77/42 (linear G ≈ 0.075) and reads as a mid green at noon;
   the earlier, ≈ 2.2 × brighter tones (tuned against a ≈ 4 × too dim sun) rendered as straw beside the
   runway (≈ 182/169/119). `paletteAlbedo.test.ts` checks the lowland composite through SkySystem's noon light.
   The review of that pass measured the patch beside KSFO 28R at 112/105/63 (khaki, R above G): the dry-grass
