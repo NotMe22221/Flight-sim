@@ -251,7 +251,7 @@ Under a closing deck (cover 0.5 → 1) the skylight hands over to π × the deck
 overcast shell takes the deck's colour, so a surface under an overcast is lit by the deck it is seen against.
 The hand-over follows the cover above the aircraft (`cloudCoverAbove`, as the exposure does): on top of the deck
 the aircraft keeps the sky's skylight (the review measured white paint on top of a golden-hour overcast at
-173/151/129 when the dim, warm underside below it lit it; 198/190/184 before and after). Only layers whose middle is above the point count — the sun ray goes up — so the aircraft and peaks on top
+173/151/129 when the dim, warm underside below it lit it; 198/190/184 before the pass, 196/189/184 since). Only layers whose middle is above the point count — the sun ray goes up — so the aircraft and peaks on top
 of a deck are in full sun (before the review a deck below them shadowed them as if it were above).
 The built-in materials share one sun light, so `cloudShadowAt` (CPU twin) scales its intensity by the
 shadow over the aircraft: the aircraft, runway and buildings darken with the ground when a shadow passes. `cloudMath.ts` is the CPU twin (identical formula incl. erosion), used for
@@ -331,7 +331,46 @@ The cockpit panel is unlit (`MeshBasicMaterial`, not tone mapped): its brightnes
 after (mean ≈ 49 at noon, ≈ 37 at night with the panel lights on); the cabin around it is brighter by day
 (glare shield ≈ 49 → 91 at noon), because three r187 ignores `material.envMapIntensity` for materials lit by
 `scene.environment` (it uses `scene.environmentIntensity`, now ≈ 1 by day instead of ≈ 0.25), so the cabin's
-0.35 sky fill is not applied — an `aircraft3d` follow-up.
+0.35 sky fill is not applied — fixed by look pass 2 (`applyIblScale`, below).
+
+### Look pass 2 and its review
+
+Look pass 2 brought the other modules' albedos to the calibrated light (runway asphalt ≈ 0.04 and markings
+`0xc4c4bc` in `world`, the procedural vegetation in `terrain`, the OSM pavement in `scenery`), applied the cabin's
+and the scenery's image-based-light shares (`applyIblScale`), dimmed the unlit panel at night (`aircraft3d`
+`PANEL_NIGHT`), added the twilight term and lowered the residual sun under a deck. Its review re-measured all of
+it with the same harness (before = the build before the pass, pass = after it, review = with the review's fixes:
+the civil-dusk skylight level, the ground palette beside the runway, the deck skylight on top of a deck, the
+dome's smooth maximum at mediump precision):
+
+| | before | look pass 2 | review |
+|---|---|---|---|
+| clear noon: white paint top / shaded side | 238/237/236 / 153/157/160 | same | same |
+| clear noon: runway asphalt / markings | 158/157/157 / 238 | 93/92/94 / 227 | same |
+| clear noon: grass beside 28R, chase view / view along the runway | 181/168/118 / 206/198/147 (straw) | 112/105/63 / 138/132/75 (khaki, R > G) | 108/104/61 (a brown fallow parcel; olive since) / 119/129/69 |
+| golden hour (6°): sun-facing paint / shaded side | 246/238/221 / 97/106/122 | same | same |
+| golden hour: asphalt / markings / grass | 68/59/60 / 185 / 90/75/48 | 34/28/27 / 153 / 41/38/21 | 34/28/27 / 153 / 38/35/19 |
+| civil dusk −2°: white paint top / markings / asphalt | (dome black) | 75/82/113 / 55/61/82 / 3/3/7 | 100/108/145 / 75/82/111 / 5/6/13 |
+| civil dusk −3.5°: white paint top / sun side | 106/104/112 / 79/77/85 | 72/79/108 / 58/63/87 (night level) | 96/105/139 / 76/82/112 |
+| civil dusk −3.5°: markings / asphalt / grass | 111 / 23/22/26 / 54/48/25 | 51/57/77 / 2/3/6 / 9/10/6 | 71/78/105 / 4/5/12 / 12/17/10 |
+| civil dusk −3.5°: sky 90° from the sun at the horizon / 20° | 1/0/0 / 3/3/2 (black) | 69/64/75 / 28/31/49 | same |
+| −6°: white paint top / markings | — | 70/78/109 / 47/53/74 | 87/96/130 / 61/68/93 |
+| night (−25°): white paint / markings / asphalt / grass | 61/71/106 / 65 / 9/12/25 / 27/29/23 | 64/74/110 / 43 / 1/2/6 / 7/9/6 | same |
+| noon overcast: paint top / deck 20°; exposure | 224/223/221 / 198/205/211; 0.82 | 218/218/219 / 207/213/218; 0.97 | same |
+| golden-hour overcast: paint top / deck 45° | 188 / 127 | 133 / 131 | same |
+| dusk overcast: paint top / deck 20° | 120 / 0/0/0 (black deck) | 47 / 49/47/52 | same |
+| on top of the noon overcast: paint top; exposure | 239 (calibration); 0.50 | 238; 0.50 | 238; 0.50 |
+| on top of the golden-hour overcast: paint top; exposure | 198/190/184; 1.43 | 173/151/129; 1.61 (lit by the underside below it) | 196/189/184; 1.43 |
+| OSM apron concrete at the KSFO stand: noon / golden / night | 185 / 93/81/72 / 19/20/25 | 138 / 56/46/38 / 7/8/11 | same |
+| cockpit, noon: panel / glare shield / left cabin | 49 / 87 / 171 | 49 / 69 / 140 | same |
+| cockpit, dusk and night (panel lights): panel mean / 98th percentile | 37 / 135 | 22 / 91 | same (dusk cabin 16 → 23) |
+| G1000, night: panel mean / 98th percentile | 30 / 106 | 23 / 84 | same |
+
+The dome as drawn (the dome alone rendered in the app, 30 directions per sun elevation, every 1° from +6° to
+−12° and at −25°) matches its CPU twin within 1 / 255 everywhere but on the sun disc, so the lighting and the
+exposure see the sky that is on screen; it darkens monotonically at the zenith, 90° from the sun and opposite
+it, with smooth vertical profiles (no bands). Sun-ward, Sky.js's Mie glow still drops 221 → 135 between −1° and
+−2° (continuous, quick). Clear-sky cloud tops (scattered) are unchanged (noon 227/230/232, golden 206/191/168).
 
 The partial calibration found on disk (sun 12 and exposure 0.5 with the old skylight curve, the
 environment's ground hemisphere left at MeshBasicMaterial's default white) measured: noon shade
@@ -394,8 +433,8 @@ depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app
   the deck (the twilight skylight curve no longer applies there).
 - **Dark surfaces in dim light**: with the calibrated albedos (asphalt ≈ 0.04, grass ≈ 0.08) and the exposure
   capped at the night bound from a ≈ 6° sun down, the runway asphalt and the grass sink into ACES's toe (its
-  input below ≈ 0.003 maps to black): measured at golden hour asphalt ≈ 34, at civil dusk ≈ 2–5 and at night
-  ≈ 1–2 / 255 (grass ≈ 41 / 9 / 7) while white paint stays as calibrated; the old values (22 at dusk,
+  input below ≈ 0.003 maps to black): measured at golden hour asphalt ≈ 34, at civil dusk (−3.5°) ≈ 4–5 and at
+  night ≈ 1–2 / 255 (grass ≈ 38 / 17 / 8 in G) while white paint stays as calibrated; the old values (22 at dusk,
   9/12/25 at night) came from the ≈ 3 × too bright albedos. Lifting them needs a brighter night/dusk exposure
   (the spec's 6–10) or a tone curve with a softer toe, not brighter albedos.
 - **Cloud coverage is not the covered area** (pre-existing, `cloudMath.ts` `coverageMask`): the mask

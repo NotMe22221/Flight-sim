@@ -51,8 +51,11 @@ export const COL_LUSH = [44, 66, 30], COL_GRASS = [62, 80, 40], COL_DRY = [84, 8
 const COL_DEEP = [12, 30, 46], COL_SHALLOW = [38, 74, 78], COL_WET_SAND = [112, 104, 84], COL_SAND = [170, 158, 124],
   COL_FOREST = [42, 62, 36], COL_CONIFER = [34, 50, 33],
   COL_ALPINE = [120, 117, 92], COL_ROCK = [124, 117, 108], COL_DARK_ROCK = [90, 86, 82], COL_SNOW = [236, 240, 246];
-/** Field patchwork tones (crops, pasture, stubble, one brown fallow), same calibration as the grass. */
-export const FIELD_TONES = [[54, 76, 32], [70, 86, 42], [82, 86, 50], [44, 64, 28], [80, 70, 50], [60, 80, 36], [88, 92, 56], [56, 68, 40]];
+/**
+ * Field patchwork tones (crops, pasture, stubble, a pale olive-tan fallow), same calibration as the grass: none
+ * redder than green (a brown fallow parcel, 80/70/50, made the ground beside KSFO 28R render 109/104/61).
+ */
+export const FIELD_TONES = [[54, 76, 32], [70, 86, 42], [82, 86, 50], [44, 64, 28], [76, 76, 50], [60, 80, 36], [88, 92, 56], [56, 68, 40]];
 
 /** Integer hash of a lattice cell → 0…1 (deterministic, platform independent). */
 function cellHash(ix: number, iy: number, seed: number): number {
