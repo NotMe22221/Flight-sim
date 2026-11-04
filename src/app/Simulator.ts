@@ -101,6 +101,8 @@ export const DEFAULT_ASSISTS: AssistanceOptions = {
   antiStall: false,
 };
 
+/** Longest wait for the terrain under a spawn before placing the aircraft anyway, ms. */
+const SPAWN_TERRAIN_WAIT_MS = 20_000;
 const SPAWN_ROLL_OFFSET_M = 40;
 
 /** Aircraft family the landing challenges are written for (approach speeds, flaps 2 of 4). */
@@ -557,6 +559,7 @@ export class Simulator {
     };
     this.fdm.clearCrash();
     this.fdm.reset(spawn, this.world.env);
+    this.world.groundShift(this.fdm.state.posNED[0], this.fdm.state.posNED[1]); // reference at the new spot
     this.flightAssists.reset();
     if (!onGround) {
       this.fdm.snapControls(c);
@@ -888,8 +891,10 @@ export class Simulator {
     this.weather.setAirportElevation(airport?.elevationM ?? 0);
     this.weather.setFrame(this.world.frame.info);
     this.nearbyAirports = this.nav.nearestAirports(g, 12, 40);
-    // wait for the ground under the spawn (or give up after a few seconds and use the runway elevation)
-    if (this.terrain) await Promise.race([this.terrain.prefetch(g.lat, g.lon, 2500), new Promise((r) => setTimeout(r, 8000))]);
+    // wait for the ground under the spawn (behind the loading screen; it resolves as soon as the tile
+    // is in). A slow connection gets 20 s before the aircraft is placed on whatever ground exists; a
+    // later reload under it is ridden out by groundShift in physicsStep.
+    if (this.terrain) await Promise.race([this.terrain.prefetch(g.lat, g.lon, 2500), new Promise((r) => setTimeout(r, SPAWN_TERRAIN_WAIT_MS))]);
     if (opts.fuelFraction !== undefined) this.fdm.setFuelFraction(opts.fuelFraction);
     if (opts.payloadKg !== undefined) {
       let rest = opts.payloadKg;
@@ -911,6 +916,9 @@ export class Simulator {
     this.crashReported = false;
     this.stress.reset();
     this.fdm.reset(spawn, this.world.env);
+    // the ground-shift reference is the ground the aircraft was just placed on (not a stale sample from
+    // before the spawn), so a reload in the frame before the first physics step is not missed
+    this.world.groundShift(this.fdm.state.posNED[0], this.fdm.state.posNED[1]);
     if (!spawn.onGround) {
       // trim with the approach flaps already set (not a flap motor that has barely started moving)
       this.fdm.snapControls(c);
