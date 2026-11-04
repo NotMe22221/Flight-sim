@@ -381,7 +381,9 @@ Displays:
 ## Tuning knobs
 
 * Redraw: `G1000.pfdHz` (30), `mfdHz` (15), `skipUnchanged` (true), `maxIdleS` (1 s);
-  `Hud.hz` (30), `SteamPanel.hz` (30). Quanta per value in `g1000/displaySignature.ts`.
+  `Hud.hz` (30), `Hud.maxIdleS` (1 s: a visible HUD repaints at least this often even when its
+  signature is unchanged — Chromium was seen to bring back stale strip content over the cockpit
+  view after a multi-second synchronous task such as an aircraft switch), `SteamPanel.hz` (30). Quanta per value in `g1000/displaySignature.ts`.
 * Resolution: `G1000Options.width/height` (backing store; design space stays 1024×768),
   `SteamPanel` `pixelRatio`, `Hud.uiScale` (on top of `hudScale(viewport)`).
 * Layout and colours: `g1000/palette.ts` (`G`, `PFD`, `MFD`), `HSI`, `INFO`, `STATUS`, `RADIO`,

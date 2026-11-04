@@ -116,6 +116,17 @@ cost of `update()` is ~60 cheap comparisons and only a handful of `setTargetAtTi
 frame. Idle voices (flap motor, stall horn, marker tone) could be created on demand if profiling
 ever shows a need.
 
+## Aircraft
+
+The synth follows the aircraft through `audioProfileFromConfig(config)` (cylinders, rated / idle /
+firing rpm, MAP range, propeller blades and diameter, a reference static thrust, flap transit,
+main-tyre radius for the wheel bumps, the stall-horn α band from the CL table). The simulator calls
+`AudioSystem.setAircraft(config)` when the aircraft changes (the voices are rebuilt with the new
+profile). `AudioProfile.electricFlaps` (default true) gates the flap-motor whine: the Super Cub's
+flaps are on a hand lever (`airframe: 'cub'`, or about 1 s per notch), so they make no motor sound.
+The Super Cub profile: O-320 4-cylinder, 2,700 rpm, 74 in two-blade propeller, 8.00-6 tyres,
+stall horn from 11.5° to 15.5° α (`cubProfile.test.ts`).
+
 ## Known limitations
 
 - `speechSynthesis` output cannot be routed through Web Audio (no radio band-pass on the voice);
@@ -131,7 +142,8 @@ ever shows a need.
   cameras otherwise use a 150 m co-moving estimate without Doppler).
 - No jet (turbofan) voice yet (§A8); jets get the piston synth driven by `rpm`.
 - Stall-horn pitch and C172 idle character are design values, to be checked against a CC0
-  recording with an FFT (§A5.1).
+  recording with an FFT (§A5.1). The Super Cub uses the same engine voice with its own numbers
+  (no separate O-320 / fabric-airframe character, no carburettor-heat or primer sounds).
 
 ## Tests
 

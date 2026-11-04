@@ -172,7 +172,9 @@ modes exist exactly while the AP or FD is on (also when `state.flightDirector` i
   dIAS/dt) and below the floor a push of 0.05 per m/s of deficit (≤ 0.3) is added, with V_floor =
   Vs1 and V_start = 1.3 Vs1, active down to 12 kt. The Cub's elevator is strong enough to zoom it to
   50–75° nose-up with α still held below the stall, until the airspeed was gone (18 kt) and it
-  stalled anyway; with the floor full aft stick settles at about 45 kt (power off) and never stalls.
+  stalled anyway; with the floor, full aft stick settles at 45 kt power off and never stalls (a 1.5 s
+  trend lead still let a full-power pull-up from 90 kt bottom out at 26 kt and 75° nose-up; 3 s
+  holds it to 46 kt and 52°).
 * **LVL emergency**: `emergencyLevel(ap)` is `ap.level()` — the autopilot's own loops do the work.
 
 ## Gain table (defaults in `config.ts`)
@@ -232,7 +234,7 @@ Acceptance on the test plant at 120 Hz (`Autopilot.test.ts`, `pid.test.ts`, `lev
 | Assisted take-off holds the brake-release heading | < 3°, < 2 m (calm, 10 kt crosswind); taxi never steered | < 2.3°, < 2 m (calm, 10 kt crosswind); 159° swing without it |
 | Anti-stall | no stall at full aft stick, factor → 0 | α ≤ 13.6° (stall 16°) |
 | Super Cub FDM (`cubAssists.test.ts`): assisted take-off on the tail wheel | — | heading within 2.8° (calm) / 3.0° (10 kt crosswind), < 4.5 m off the line, lift-off at 9–11 s; ground loop (> 45°) without it |
-| Super Cub: anti-stall with the speed floor, full aft stick | — | no stall power off (65 KCAS) or at full power (90 KCAS); α < 14.5°, IAS never below 35 kt (min 38 / 46 kt), ends above Vs1; stalls without it |
+| Super Cub: anti-stall with the speed floor, full aft stick | — | no stall power off (from 65 KCAS) or at full power (from 90 KCAS): α ≤ 10.6° / 12.0°, IAS ≥ 45.0 / 46.2 kt, pitch ≤ 26° / 52°; stalls without it (α 53°) |
 | Super Cub: auto-rudder against adverse yaw | — | roll-in slip 3.9° → 0.8°, final 0.01° |
 | Review (`review.test.ts`): ALTS under an armed GS | VS −500 below the GS levels at the selected altitude (−12 ft), GS then captures | — |
 | Review: NaN targets / deviations / air data | servos, trim and assists stay finite and recover | — |

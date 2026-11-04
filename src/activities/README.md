@@ -42,7 +42,10 @@ The glidepath uses `runwayFrame.aimAlongM()` (displaced-threshold-aware aim poin
 
 ### Bush trip: Pacific Coast, Half Moon Bay to Santa Barbara (`PACIFIC_COAST`)
 
-Eight legs in the C172 between small and medium airports that exist in public/data. Every leg is
+Eight legs flown in the Piper PA-18-150 Super Cub (`aircraft: 'pa18-150'`; the runways and the
+cruise altitudes were chosen for the 172, which the Cub beats on both) between small and medium
+airports that exist in public/data. The fuel carried from leg to leg is a fraction of the Cub's
+36 gal (the host computes it from the trip's aircraft). Every leg is
 15-45 nm **both direct and flown through its landmarks**; every landmark is a real feature within
 12 nm of the direct course and between the two airports; the suggested cruise is at least 1,000 ft
 above the highest charted terrain near the route and keeps VFR clearance (500 ft below, 1,000 ft
@@ -166,10 +169,18 @@ interface ActivityHost {
   loadRoute(waypoints: Waypoint[]): void;  // departure, landmarks (altConstraintM = cruise), destination
   clearRoute?(): void;
   speak?(text: string): void;              // TTS for instructor lines (already spelled out)
+  useAircraft?(family: string | undefined): void | Promise<void>;  // fly ActivityDef.aircraft
 }
 ```
 
-Order in `ActivityRunner.start(def)`: `setWeatherPreset` (runway choice may depend on the wind) →
+**Aircraft.** An activity names the aircraft it is written for (`ActivityDef.aircraft`, a catalog id
+or family prefix): the lessons `'c172'`, each Pacific Coast leg `'pa18-150'` (`BushTrip.aircraft`:
+a bush trip flies a fixed aircraft, as in MSFS). The runner calls `host.useAircraft(def.aircraft)`
+first, before anything else; the simulator keeps the current aircraft when it belongs to the
+family (a lesson keeps the pilot's steam / G1000 172) and otherwise switches (the Super Cub for the
+trip, the 172S for a lesson started from the Cub). A start aborted meanwhile stops there.
+
+Order in `ActivityRunner.start(def)`: `useAircraft` → `setWeatherPreset` (runway choice may depend on the wind) →
 await the spawn → `setWeatherPreset` again (preset layers are AGL at the field current when it is
 applied) → `setTimePreset` (sunrise-relative presets need the new position) → `loadRoute` →
 `activity:started` → first instruction. A spawn that rejects makes `start()` reject with the runner
@@ -286,7 +297,9 @@ in-memory document). API:
 
 ## Tests
 
-`npx vitest run src/activities`: `objectives.test.ts` (every condition and objective: pass, fail,
+`npx vitest run src/activities`: `activityAircraft.test.ts` (the Pacific Coast trip and every leg
+fly the Super Cub, the lessons the 172; the runner calls `useAircraft` before the spawn and not
+at all for an activity without an aircraft), `objectives.test.ts` (every condition and objective: pass, fail,
 progress, hints, wrap at 360/000, deadlines, scoring dead band), `lessons.test.ts` (runway data vs
 public/data, set-up geometry, digit-free speech; each lesson flown through by a scripted aircraft
 plus failure paths: crash, centreline drift, early rotation, late flaps, long landing, a go-around

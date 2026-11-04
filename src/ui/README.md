@@ -49,6 +49,14 @@ Required: `events`, `nav`, `snapshot()`, `aircraftList()`, `currentAircraft()`, 
 layout + laptop layer merged; Settings › Controls offers it first as the recommended reset),
 `'msfs'` and `'laptop'` (each layer alone), `'gamepad-xbox'`, `'joystick-generic'`.
 
+`aircraftList()` is the catalog (Cessna 172S, 172S G1000, Piper PA-18-150 Super Cub);
+`currentAircraft()` is the aircraft being flown (its catalog entry, so the G1000 variant and the
+Super Cub are told apart); `spawn(choice, aircraftId, …)` flies the chosen aircraft (the host
+rebuilds the flight model, 3D model and panel first). What the UI shows about an aircraft comes
+from its config through `aircraftInfo.ts`: `gearKind` (tail-wheel when a steerable or castering
+wheel sits behind the CG), `panelKind`, `hasAutopilot` (not on the 'cub-steam' panel), `seatCount`,
+`aircraftBlurb`, and `checklistsFor` (the Super Cub's own checklists, `data/cubChecklists.ts`).
+
 `setWeatherPreset(id, { immediate: true })` / `setCustomWeather(w, { immediate: true })` are sent
 when a new flight starts (no blend from the previous flight's weather); without the option the
 host may transition gradually in flight. A host that ignores the option still works.
@@ -120,10 +128,15 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
   re-queried only after a > 25 % pan/zoom and at most every 250 ms; zoomed in, `nav.loadRegion`
   fetches small-airport shards. Flight conditions: 9 presets + Live + Custom, time Now / Dawn /
   Noon / Dusk / Night / custom slider with the sun-elevation hint (`timeOfDay.ts`, `solar.ts`).
+- **Aircraft** (`screens/AircraftSelect.ts`): a card per catalog aircraft with manufacturer,
+  category, landing gear and panel, Vne / Vs0 / Vy, MTOW, power and seats; the side panel adds a
+  one-line blurb, the autopilot (GFC 700 / KAP 140-style / none), empty mass, fuel capacity, engine
+  and licence, and the fuel and payload sliders (payload limited to the aircraft's stations).
 - **Activities** (`screens/Activities.ts` + `screens/activities/*`, tab remembered in
   `flightsim.ui.activitiesTab.v1`): three tabs.
   - *Landing challenges* (`ChallengesTab.ts`, `activities.ts`): category filter (All / Famous / Epic /
-    Strong Wind), cards with best score, briefing (approach, weather, wind, time), Start.
+    Strong Wind), cards with best score, briefing (approach, weather, wind, time, aircraft: the 172,
+    which the simulator switches to from the Super Cub), Start.
     `ChallengeSession` attributes `landing:scored` to the running challenge (kept across
     "Restart", dropped when a different flight spawns); best scores in `flightsim.activities.best.v1`.
   - *Flight training* (`TrainingTab.ts`): a card per lesson (`LESSONS`) with the step count, start,
@@ -131,8 +144,10 @@ flight started outside the UI, e.g. by automation, switches to the flight view).
     the detail card has the briefing (start in the user's units, weather, time, aircraft, duration
     and level when a lesson carries `durationMin` / `difficulty`), the lesson plan (step titles) and
     Start. The first lesson not yet completed is preselected.
-  - *Bush trips* (`BushTripsTab.ts`): a card per trip (`BUSH_TRIPS`) with its legs-completed bar; with
-    a single trip it opens directly. An opened trip lists its legs: from → to with the airport names,
+  - *Bush trips* (`BushTripsTab.ts`): a card per trip (`BUSH_TRIPS`) with its legs-completed bar and
+    its aircraft (a trip flies a fixed aircraft, as in MSFS: the Pacific Coast trip the Super Cub;
+    the name comes from `aircraftList()` by id or family prefix); with a single trip it opens
+    directly. The trip head, the trip card and each leg card name the aircraft. An opened trip lists its legs: from → to with the airport names,
     distance through the landmarks (`legRouteNm`), cruise altitude, highest terrain (`leg.terrain`)
     and landmarks; completed legs ticked with the best score, the next leg highlighted, locked legs
     greyed (`activityProgress.isLegUnlocked`). The leg card shows the briefing, the flight plan and a
@@ -254,7 +269,11 @@ reading time, pause, gaps, repeats, overflow), World Map model (zoom filtering, 
 refetch throttling incl. antimeridian, hit-testing, scale bar, runway line), time-of-day
 mapping, sun hint and the in-flight clock choice, autopilot annunciator (LVL, disconnect flash
 baseline/rebase, alerter), settings version-2 migrations (FOV, anti-stall), plus the pre-existing format, projection, solar, runways, weather presets,
-assist presets and checklist tests. `importSafety.test.ts` imports every module (including all
+assist presets and checklist tests. `cubAircraft.test.ts`: the Super Cub's facts for the picker
+(tail-wheel, steam gauges, no autopilot, 2 seats), its checklists (phases, every auto id exists, no
+autopilot / fuel pump / avionics-bus items), the new carb-heat / second-notch / Cub-climb
+predicates, and the checklist panel swapping to the Cub's sections and back (on the fake DOM).
+`importSafety.test.ts` imports every module (including all
 DOM classes and the CSS-importing barrel) in Node to prove nothing touches the DOM at load.
 
 The activities UI is also driven end to end (`activityFlow.test.ts`): the whole `UiManager` runs
