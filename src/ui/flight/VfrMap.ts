@@ -166,6 +166,9 @@ export class VfrMap {
       }
     }
 
+    // AI traffic: TCAS-style diamonds with the relative altitude (hundreds of ft) and a climb/descent arrow
+    if (s.traffic) this.drawTraffic(ctx, s, toPx, font, W, H);
+
     // aircraft symbol
     const hdg = s.aircraft.headingTrueRad - theta;
     ctx.save(); ctx.translate(cx, cy); ctx.rotate(hdg);
@@ -206,6 +209,26 @@ export class VfrMap {
     // scale text bottom-left
     ctx.fillStyle = 'rgba(233,238,245,0.7)'; ctx.font = font(10); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
     ctx.fillText(`Ring ${formatDistance(this.rangeNm * NM / 2, this.units())} · ${this.trackUp ? 'Track up' : 'North up'}`, 8 * dpr, H - 6 * dpr);
+  }
+
+  private drawTraffic(ctx: CanvasRenderingContext2D, s: SimSnapshot, toPx: (lat: number, lon: number) => { x: number; y: number }, font: (px: number) => string, W: number, H: number): void {
+    const dpr = this.dpr;
+    for (const t of s.traffic ?? []) {
+      const p = toPx(t.lat, t.lon);
+      if (p.x < -10 || p.y < -10 || p.x > W + 10 || p.y > H + 10) continue;
+      const relFt = (t.altMslM - s.aircraft.altitudeMslM) / 0.3048;
+      const o = localOffsetM({ lat: s.aircraft.geo.lat, lon: s.aircraft.geo.lon }, { lat: t.lat, lon: t.lon });
+      const near = Math.hypot(o.east, o.north) < 0.5 * NM && Math.abs(relFt) < 500 && !t.onGround;
+      const col = near ? '#ffb020' : '#34e0ff';
+      const r = 5 * dpr;
+      ctx.fillStyle = col; ctx.strokeStyle = '#0c1a2b'; ctx.lineWidth = 1 * dpr;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y - r); ctx.lineTo(p.x + r, p.y); ctx.lineTo(p.x, p.y + r); ctx.lineTo(p.x - r, p.y); ctx.closePath(); ctx.fill(); ctx.stroke();
+      const rel = Math.round(relFt / 100);
+      const label = `${rel >= 0 ? '+' : '−'}${String(Math.abs(rel)).padStart(2, '0')}${t.verticalSpeedMs > 2.5 ? '↑' : t.verticalSpeedMs < -2.5 ? '↓' : ''}`;
+      ctx.fillStyle = col; ctx.font = font(10); ctx.textAlign = 'center'; ctx.textBaseline = rel >= 0 ? 'bottom' : 'top';
+      ctx.fillText(label, p.x, rel >= 0 ? p.y - r - 1 * dpr : p.y + r + 1 * dpr);
+      if (this.rangeNm <= 10) { ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = 'rgba(233,238,245,0.7)'; ctx.fillText(t.callsign, p.x + r + 3 * dpr, p.y); }
+    }
   }
 
   private onClick(e: MouseEvent): void {

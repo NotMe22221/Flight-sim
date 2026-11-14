@@ -13,7 +13,7 @@ import { atmosphere, casFromTas } from '../fdm/atmosphere';
 import { NavDb, FlightPlanner, fetchLoader, runwayInUse, type FlightPlanEx } from '../nav';
 import { magneticDeclinationDeg } from '../geo/magvar';
 import { sunEvents, sunPosition } from '../geo/solar';
-import { LocalFrame, nedToThree } from '../geo/wgs84';
+import { LocalFrame, greatCircleDistance, nedToThree } from '../geo/wgs84';
 import { World } from '../world/World';
 import type { PavementArea, PavementSource } from '../world/pavement';
 import { LandingGuide } from '../world/LandingGuide';
@@ -27,7 +27,7 @@ import { InputManager } from '../input/InputManager';
 import { FlightAssists, GfcAutopilot, assistsConfigFor, type NavInputs } from '../autopilot';
 import { SteamPanel, type PanelLayout } from '../instruments/SteamPanel';
 import { hasAutopilot, panelSpecFor, steamLayoutFor } from '../instruments/panels';
-import { C172S_G1000, aircraftById, aircraftForActivity, sameAirframe } from './aircraftCatalog';
+import { C172S_G1000, aircraftById, aircraftForActivity, radioCallsign, sameAirframe } from './aircraftCatalog';
 import { TouchdownDetector } from '../activities/TouchdownDetector';
 import { ReplayRecorder } from '../activities/ReplayRecorder';
 import { LANDING_CHALLENGES } from '../activities/landingChallenges';
@@ -42,6 +42,10 @@ import { SlewController, SLEW_THROTTLE_CENTRE } from './slew';
 import { StressMonitor, crashIsRecoverable } from './damage';
 import type { RebaseTransform } from '../world/rebase';
 import { createRenderer, type RendererBundle } from './renderer';
+import { TrafficManager } from '../traffic/TrafficManager';
+import { TrafficAdvisor } from '../traffic/advisor';
+import { C172S as C172S_TRAFFIC } from '../fdm/aircraft/c172';
+import { PA18_150 as CUB_TRAFFIC } from '../fdm/aircraft/cub';
 
 export interface SimulatorOptions {
   container: HTMLElement;
@@ -165,6 +169,8 @@ export class Simulator {
   readonly activities: ActivityRunner;
   /** instructor voice (the audio plugin sets it: text is already spelled out for speech) */
   speakInstructor?: (text: string) => void;
+  /** ATC voice (audio plugin): traffic advisories */
+  speakAtc?: (text: string) => void;
   /** slew mode pose and motion (active while `slew` is true) */
   readonly slewCtl = new SlewController();
   /** effective controls after assists and autopilot, fed to the flight model */
@@ -193,6 +199,15 @@ export class Simulator {
   private droneHold: { pitch: number; roll: number; yaw: number; throttle: number } | null = null;
   private nearbyAirports: Airport[] = [];
   private nearbyTimer = Infinity;
+  /** AI pattern traffic at the current airport (src/traffic) */
+  readonly traffic = new TrafficManager({ c172: C172S_TRAFFIC, cub: CUB_TRAFFIC, maxAircraft: 2 });
+  private trafficTimer = Infinity;
+  private readonly trafficAdvisor = new TrafficAdvisor();
+  private advisoryTimer = 0;
+  /** simulated seconds advanced by the last frame (0 paused, slewing or replaying) */
+  private lastSimDt = 0;
+  /** the runway end of the last runway spawn (AI traffic keeps it in calm wind) */
+  private spawnRunwayIdent: string | null = null;
   private magVar = 0;
   private magTimer = Infinity;
   private raf = 0;
@@ -222,6 +237,7 @@ export class Simulator {
     this.model = new AircraftModel(this.config);
     this.scene.add(this.model.root);
     this.scene.add(this.landingGuide.group);
+    this.scene.add(this.traffic.group);
     const aspect = (opts.container.clientWidth || 1) / (opts.container.clientHeight || 1);
     this.cameras = new CameraController(aspect);
     this.input = new InputManager(this.gfx.renderer.domElement, { flapDetents: this.config.controls.flaps.detentsDeg.length });
@@ -410,11 +426,13 @@ export class Simulator {
     this.composeControls(dt, running ? dt * Math.min(scale, 8) : 0);
     const t1 = performance.now();
     let alpha = 1;
+    this.lastSimDt = 0;
     if (running) {
       const r = this.loop.advance(dt, Math.min(scale, 8), () => copyPose(this.fdm.state, this.prev), (h) => this.physicsStep(h));
       alpha = r.alpha;
       this.time.utcMs += r.simDt * 1000;
       this.time.simTimeS += r.simDt;
+      this.lastSimDt = r.simDt;
       if (scale > 8) this.time.utcMs += dt * (scale - 8) * 1000; // time compression beyond physics speed moves only the clock
     }
     interpolateState(this.prev, this.fdm.state, running ? alpha : 1, this.interp);
@@ -593,6 +611,35 @@ export class Simulator {
     this.time.simTimeS += sdt * this.time.timeScale;
   }
 
+  /**
+   * AI pattern traffic: every 5 s re-pick the airport (the spawn airport, or the nearest one
+   * within 8 km of the aircraft) and the runway into the wind; every frame advance it on simulated
+   * time (frozen while paused, slewing or in replay) and draw it in the current frame.
+   */
+  private updateTraffic(dt: number, s: AircraftState): void {
+    this.trafficTimer += dt;
+    if (this.trafficTimer > 5) {
+      this.trafficTimer = 0;
+      let ap = this.inFlight ? this.currentAirport : null;
+      const near = this.nearbyAirports[0];
+      if (this.inFlight && near && greatCircleDistance(s.geo, near.position) < 8000) ap = near;
+      else if (ap && greatCircleDistance(s.geo, ap.position) > 15000) ap = null;
+      const w = this.weather.state.winds[0];
+      this.traffic.setAirport(ap, w?.directionDeg ?? 0, w?.speedKt ?? 0, ap === this.currentAirport ? this.spawnRunwayIdent : null);
+    }
+    this.traffic.update(this.lastSimDt, dt, s, this.world.frame, this.sky.sun.elevationRad);
+    // traffic advisories on the ATC channel (once a second while flying; not in replay or slew)
+    this.advisoryTimer += dt;
+    if (this.advisoryTimer >= 1 && this.inFlight && !this.replayer.active && !this.slew) {
+      this.advisoryTimer = 0;
+      const tr = this.traffic.targets();
+      if (tr.length) {
+        const calls = this.trafficAdvisor.check(this.time.simTimeS, { lat: s.geo.lat, lon: s.geo.lon, altMslM: s.altitudeMslM, headingDeg: s.headingTrueRad * RAD, onGround: s.onGround }, tr, radioCallsign(this.config).callsign, this.traffic.runway?.side ?? 'left');
+        for (const text of calls) { this.events.emit('atc:message', { from: 'atc', text }); this.speakAtc?.(text); }
+      }
+    }
+  }
+
   private updateVisuals(dt: number, inp: InputSnapshot): void {
     const s = this.interp;
     const cockpit = this.cameras.state.mode === 'cockpit';
@@ -622,6 +669,7 @@ export class Simulator {
     this.world.update(dt, camPos, this.cameras.camera, s.geo, this.v3, this.sky.sun.elevationRad);
     this.plugins.scenery?.update(dt, camPos, this.cameras.camera, this.sky.sun.elevationRad);
     this.landingGuide.update(dt, this.assists.landingPathHints && this.inFlight && !this.replayer.active && !this.slew, s.geo, s.trackRad * RAD, s.onGround, this.nearbyAirports, this.world.frame);
+    this.updateTraffic(dt, s);
     tn = performance.now(); this.mark('world', tn - tm); tm = tn;
 
     // navigation (radios every frame, nearby airports and magnetic variation slowly)
@@ -794,6 +842,7 @@ export class Simulator {
     const hdg = end ? end.headingDeg : 0;
     const pos = World.offset({ lat: thr.lat, lon: thr.lon, alt: end ? thr.alt : airport.elevationM }, hdg, (end?.displacedM ?? 0) + SPAWN_ROLL_OFFSET_M);
     const elev = end ? thr.alt : airport.elevationM;
+    this.spawnRunwayIdent = end?.ident ?? null;
     await this.beginFlight(airport, end, { geo: { lat: pos.lat, lon: pos.lon, alt: elev }, headingRad: hdg * DEG, speedMs: 0, onGround: true, engineRunning: !opts.coldAndDark }, opts);
   }
 
@@ -943,6 +992,8 @@ export class Simulator {
     this.cameras.snapToAircraft();
     this.lastSpawn = { airport, spawn, end };
     this.inFlight = true;
+    this.trafficTimer = Infinity; // traffic for the new airport on the first frame of the flight
+    this.trafficAdvisor.reset();
     this.paused = false;
     this.resetInstruments();
     this.events.emit('flight:reset', { spawn });
@@ -969,6 +1020,8 @@ export class Simulator {
     sn.assists = this.assists;
     sn.terrainReady = this.terrain ? this.terrain.readyFraction(this.cameras.positionThree()) : 1;
     sn.fps = this.fps;
+    const tr = this.traffic.targets();
+    sn.traffic = tr.length ? tr : undefined;
     return sn;
   }
 

@@ -105,6 +105,7 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
       setAircraft: (cfg) => audio!.setAircraft?.(cfg),
     };
     sim.speakInstructor = (t) => audio?.speak?.(t, 'copilot');
+    sim.speakAtc = (t) => audio?.speak?.(t, 'atc');
     host ??= new SimUiHost(sim);
     host.onAudioSettings = (a) => {
       audio?.setMasterVolume?.(a.master);

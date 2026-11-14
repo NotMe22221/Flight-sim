@@ -747,6 +747,19 @@ export interface SimSnapshot {
   assists: AssistanceOptions;
   /** terrain loading progress 0..1 */ terrainReady: number;
   fps: number;
+  /** AI traffic near the aircraft (src/traffic); absent when there is none */
+  traffic?: readonly TrafficInfo[];
+}
+
+/** One AI aircraft as maps, the HUD and ATC see it. */
+export interface TrafficInfo {
+  callsign: string;
+  /** e.g. 'Cessna 172' */ type: string;
+  lat: number; lon: number; altMslM: number;
+  /** true deg */ headingDeg: number;
+  groundSpeedMs: number; verticalSpeedMs: number;
+  onGround: boolean;
+  /** circuit leg ('downwind', 'final', …) */ leg: string;
 }
 
 // ───────────────────────────────── Events ─────────────────────────────────

@@ -61,6 +61,9 @@ buffer; Firefox falls back to a logarithmic depth buffer.
   and the LVL recovery mode) with flight director, verified on the real flight model; MSFS-style
   assists (auto-rudder, assisted take-off, anti-stall protection, landing path gates, auto
   mixture, crash and stress damage).
+- **AI traffic.** Light aircraft fly touch-and-go circuits at the airport you are at, on the runway
+  in use, extending downwind behind each other and going around when you are on the runway; ATC
+  calls them as traffic and the VFR map shows them with relative altitude.
 - **ATC.** Scripted, menu-driven ATC with ATIS, ground, tower and flight following, readbacks,
   traffic pattern work and spoken transmissions.
 - **Activities.** Nine landing challenges scored like MSFS, three instructor-led lessons (basic
@@ -131,6 +134,7 @@ src/autopilot   GFC-700-style autopilot and flight director
 src/input       keyboard, mouse yoke, gamepad, touch, rebindable profiles
 src/audio       procedural engine and environment sound, warnings, speech
 src/atc         scripted, menu-driven ATC
+src/traffic     AI pattern traffic and traffic advisories
 src/ui          MSFS-style menus, world map, settings, in-flight panels
 src/scenery     OpenStreetMap autogen: buildings, airport surfaces, vegetation, night lights
 src/activities  landing challenges and scoring, lessons, bush trips, replay
