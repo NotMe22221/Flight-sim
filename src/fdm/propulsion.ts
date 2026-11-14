@@ -93,6 +93,8 @@ export class PistonPropulsion {
   private readonly ctEnd: number;
   private readonly cpEnd: number;
   private readonly mixEff: Table1D;
+  /** fuel/air ratio where this model's power (fuel flow x efficiency) peaks */
+  private readonly faPeakPower: number;
   private readonly diskArea: number;
 
   constructor(readonly engine: PistonEngineSpec, readonly prop: PropellerSpec) {
@@ -103,6 +105,13 @@ export class PistonPropulsion {
     this.ctEnd = this.ct.at(this.jMax);
     this.cpEnd = this.cp.at(this.jMax);
     this.mixEff = new Table1D(engine.mixtureEfficiency.xs, engine.mixtureEfficiency.ys);
+    let best = 0.083, bestP = -1;
+    const xs = engine.mixtureEfficiency.xs;
+    for (let fa = xs[0]; fa <= xs[xs.length - 1]; fa += 0.0002) {
+      const pw = fa * this.mixEff.at(fa);
+      if (pw > bestP) { bestP = pw; best = fa; }
+    }
+    this.faPeakPower = best;
     this.diskArea = (Math.PI * prop.diameterM * prop.diameterM) / 4;
   }
 
@@ -119,6 +128,16 @@ export class PistonPropulsion {
   /** Mixture-lever position that gives best-power fuel/air (0.083) at this ambient pressure — for an auto-mixture assist. */
   bestPowerMixture(pAmb: number): number {
     const m = (0.083 * STOICH) / (1.3 * Math.pow(101325 / pAmb, 0.8));
+    return m > 1 ? 1 : m;
+  }
+
+  /**
+   * Mixture lever position at this model's peak power (fuel flow x efficiency): the auto-mixture
+   * assist's target. Never leaner than the lever allows; capped at full rich. `bestPowerMixture`
+   * (the POH 'best power' lean point the validation uses) is leaner and costs power in this model.
+   */
+  peakPowerMixture(pAmb: number): number {
+    const m = (this.faPeakPower * STOICH) / (1.3 * Math.pow(101325 / pAmb, 0.8));
     return m > 1 ? 1 : m;
   }
 

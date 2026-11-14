@@ -204,6 +204,8 @@ export class Fdm implements FlightModel {
 
   /** Best-power mixture lever position for the current ambient pressure (auto-mixture assist). */
   bestPowerMixture(): number { return this.prop.bestPowerMixture(this.atm.pressurePa); }
+  /** Auto-mixture assist target: the lever position of this engine model's peak power. */
+  peakPowerMixture(): number { return this.prop.peakPowerMixture(this.atm.pressurePa); }
 
   /** End the flight with a structural failure detected outside the model (stress-damage assist). */
   failStructure(reason: string): void { this.crash(reason); }

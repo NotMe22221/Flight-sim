@@ -446,7 +446,7 @@ export class Simulator {
     if (this.droneHold) Object.assign(this.effective, this.droneHold);
     for (const k in this.overrides) (this.effective as unknown as Record<string, unknown>)[k] = (this.overrides as Record<string, unknown>)[k];
     const s = this.fdm.state;
-    if (this.assists.autoMixture && this.effective.mixture > 0.05 && s.engine.running) this.effective.mixture = Math.min(this.effective.mixture, this.fdm.bestPowerMixture());
+    if (this.assists.autoMixture && this.effective.mixture > 0.05 && s.engine.running) this.effective.mixture = Math.min(this.effective.mixture, this.fdm.peakPowerMixture());
     // engine auto-start sequence (Ctrl+E)
     if (this.autoStartT >= 0) {
       this.autoStartT += dt;
