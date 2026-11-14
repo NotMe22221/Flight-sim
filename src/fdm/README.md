@@ -102,7 +102,7 @@ from the PA-18-150 owner's handbook and TCDS 1A2):
 | Taxi turn, full pedal at ≈ 10 kt | 13 m radius, tail wheel 21° the other way, no breakout; a brake pivot unlocks it, it relocks within 6 s of rolling straight | — |
 | S-turns at ≈ 6 kt, half then full pedal reversals every 4 s (`cubGroundReview.test.ts`) | stays locked, ± 9–20 °/s either way | no breakout, no ground loop |
 | Breakaway with the wheel left swivelled 45–80° (paved and grass, solo and gross) | rolls at 1.5 kt within 6 s at ≈ 1,300 rpm, relocks once straightened | no skid |
-| 15 kt gust from the right on a tail-up wheel-landing roll-out (wings held level) | no rudder: 66° (solo 73°) off heading — a ground loop; with rudder: < 7° | ground loop possible, rudder prevents it |
+| 15 kt gust from the right on a tail-up wheel-landing roll-out (wings held level) | no rudder: 66° (solo 73°) off heading — a ground loop; with rudder: 7.3° (solo 3.8°) | ground loop possible, rudder prevents it |
 | Full-power take-off roll, feet off the rudder | swerves left > 15° within 8 s, ground-loops once the tail is up | needs right rudder |
 | 300 fpm arrival (three-point / wheel landing) | 2.4 / 2.2 g, 1.0 / 1.4 W per main, bounce 0 / 0.7 m | no failure, < 3 g, < 1 m |
 | Glide, idle, 55 KIAS | L/D 7.9 | ≈ 8 |

@@ -350,15 +350,16 @@ dome's smooth maximum at mediump precision):
 | clear noon: grass beside 28R, chase view / view along the runway | 181/168/118 / 206/198/147 (straw) | 112/105/63 / 138/132/75 (khaki, R > G) | 108/104/61 (a brown fallow parcel; olive since) / 119/129/69 |
 | golden hour (6°): sun-facing paint / shaded side | 246/238/221 / 97/106/122 | same | same |
 | golden hour: asphalt / markings / grass | 68/59/60 / 185 / 90/75/48 | 34/28/27 / 153 / 41/38/21 | 34/28/27 / 153 / 38/35/19 |
-| civil dusk −2°: white paint top / markings / asphalt | (dome black) | 75/82/113 / 55/61/82 / 3/3/7 | 100/108/145 / 75/82/111 / 5/6/13 |
+| civil dusk −2°: white paint top / markings / asphalt (sky at the horizon) | 118/113/114 / 127 / 27/25/27 (2/2/1, black) | 75/82/113 / 55/61/82 / 3/3/7 (79/73/88) | 100/108/145 / 75/82/111 / 5/6/13 (same) |
 | civil dusk −3.5°: white paint top / sun side | 106/104/112 / 79/77/85 | 72/79/108 / 58/63/87 (night level) | 96/105/139 / 76/82/112 |
 | civil dusk −3.5°: markings / asphalt / grass | 111 / 23/22/26 / 54/48/25 | 51/57/77 / 2/3/6 / 9/10/6 | 71/78/105 / 4/5/12 / 12/17/10 |
 | civil dusk −3.5°: sky 90° from the sun at the horizon / 20° | 1/0/0 / 3/3/2 (black) | 69/64/75 / 28/31/49 | same |
-| −6°: white paint top / markings | — | 70/78/109 / 47/53/74 | 87/96/130 / 61/68/93 |
+| −6°: white paint top / markings | 78/85/111 / 81/88/110 | 70/78/109 / 47/53/74 | 87/96/130 / 61/68/93 |
 | night (−25°): white paint / markings / asphalt / grass | 61/71/106 / 65 / 9/12/25 / 27/29/23 | 64/74/110 / 43 / 1/2/6 / 7/9/6 | same |
 | noon overcast: paint top / deck 20°; exposure | 224/223/221 / 198/205/211; 0.82 | 218/218/219 / 207/213/218; 0.97 | same |
 | golden-hour overcast: paint top / deck 45° | 188 / 127 | 133 / 131 | same |
 | dusk overcast: paint top / deck 20° | 120 / 0/0/0 (black deck) | 47 / 49/47/52 | same |
+| broken (BKN 0.75, noon): paint top / asphalt / grass; exposure | 216 / 103 / 128/119/82; 0.69 | 209 / 48 / 59/60/43; 0.73 | same (no sunlit gaps in either: see "Known limitations") |
 | on top of the noon overcast: paint top; exposure | 239 (calibration); 0.50 | 238; 0.50 | 238; 0.50 |
 | on top of the golden-hour overcast: paint top; exposure | 198/190/184; 1.43 | 173/151/129; 1.61 (lit by the underside below it) | 196/189/184; 1.43 |
 | OSM apron concrete at the KSFO stand: noon / golden / night | 185 / 93/81/72 / 19/20/25 | 138 / 56/46/38 / 7/8/11 | same |
