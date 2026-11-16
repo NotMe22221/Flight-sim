@@ -32,4 +32,6 @@ runway the stands can actually taxi to (OSM taxiway networks are not always conn
 (tower: "number two, follow the Cessna on left base"); the simulator also hands ATC the OSM taxi
 route for taxi clearances (src/atc README).
 
-Not yet: traffic on the G1000 map.
+The G1000 MFD map and the PFD inset map show the traffic TIS-style: hollow diamonds, filled
+within 6 nm and ±1,200 ft, an amber circle for a traffic advisory (2 nm, ±500 ft), relative
+altitude in hundreds of feet and a climb/descent arrow (src/instruments/g1000/map.ts).

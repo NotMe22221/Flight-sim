@@ -105,10 +105,50 @@ export class MovingMap {
     this.drawRings(ctx, v, rangeNm);
     if (posOk && dcl < 2) this.drawAirports(ctx, v, airports, rangeNm, s.plan, dcl < 1);
     if (posOk && s.plan) this.drawPlan(ctx, v, s.plan, dcl < 3);
+    if (posOk && s.traffic) this.drawTraffic(ctx, v, s);
     this.drawTrackVector(ctx, v, trackTrue, finite(ac.groundSpeedMs) * MS_TO_KT);
     this.drawOwnship(ctx, v, hdgTrue - v.upDeg);
     ctx.restore();
     this.drawOverlays(ctx, v, r, rangeNm, orientation);
+  }
+
+  /**
+   * TIS-style traffic: hollow white diamond for other traffic, filled for proximate traffic
+   * (within 6 nm and ±1,200 ft), an amber circle for a traffic advisory (within 2 nm and ±500 ft,
+   * airborne); relative altitude in hundreds of feet above (+) or below (−) with a climb/descent arrow.
+   */
+  private drawTraffic(ctx: Ctx2D, v: MapView, s: SimSnapshot): void {
+    const vp = this.vp, own = s.aircraft;
+    for (const t of s.traffic ?? []) {
+      if (!Number.isFinite(t.lat) || !Number.isFinite(t.lon)) continue;
+      const q = mapToScreen(v, this.proj.project(t.lat, t.lon, this.p), this.a);
+      if (q.x < vp.x - 10 || q.x > vp.x + vp.w + 10 || q.y < vp.y - 10 || q.y > vp.y + vp.h + 10) continue;
+      const relFt = (t.altMslM - own.altitudeMslM) / 0.3048;
+      const dLat = (t.lat - own.geo.lat) * 60, dLon = (t.lon - own.geo.lon) * 60 * Math.cos(own.geo.lat * DEG);
+      const nm = Math.hypot(dLat, dLon);
+      const ta = !t.onGround && !own.onGround && nm < 2 && Math.abs(relFt) < 500;
+      const proximate = nm < 6 && Math.abs(relFt) < 1200;
+      const r = 7;
+      ctx.lineWidth = 2;
+      if (ta) {
+        ctx.fillStyle = G.amber; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.beginPath(); ctx.moveTo(q.x, q.y - r); ctx.lineTo(q.x + r, q.y); ctx.lineTo(q.x, q.y + r); ctx.lineTo(q.x - r, q.y); ctx.closePath();
+        if (proximate) { ctx.fillStyle = G.white; ctx.fill(); } else { ctx.strokeStyle = G.white; ctx.stroke(); }
+      }
+      if (t.onGround) continue;
+      const rel = Math.round(relFt / 100);
+      const col = ta ? G.amber : G.white;
+      const label = `${rel >= 0 ? '+' : '-'}${String(Math.min(99, Math.abs(rel))).padStart(2, '0')}`;
+      text(ctx, label, q.x, rel >= 0 ? q.y - r - 9 : q.y + r + 9, cond.get(vp.compact ? 11 : 13), col, 'center');
+      if (Math.abs(t.verticalSpeedMs) > 2.5) {
+        const up = t.verticalSpeedMs > 0, x = q.x + r + 5;
+        ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(x, q.y + (up ? 6 : -6)); ctx.lineTo(x, q.y + (up ? -6 : 6));
+        ctx.moveTo(x - 3, q.y + (up ? -3 : 3)); ctx.lineTo(x, q.y + (up ? -6 : 6)); ctx.lineTo(x + 3, q.y + (up ? -3 : 3));
+        ctx.stroke();
+      }
+    }
   }
 
   private drawRings(ctx: Ctx2D, v: MapView, rangeNm: number): void {

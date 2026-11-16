@@ -17,6 +17,13 @@ function navRadio(h: Signature, n: NavRadioState): void {
     .str(n.marker ?? null).bool(n.backCourse === true).bool(n.dmeValid !== false);
 }
 
+/** AI traffic on a map: positions to `q` degrees (about half a map pixel), altitude to 30 m. */
+function traffic(h: Signature, s: SimSnapshot, q: number): void {
+  const t = s.traffic;
+  h.num(t ? t.length : 0);
+  if (t) for (const x of t) h.num(x.lat, q).num(x.lon, q).num(x.altMslM, 30).bool(x.onGround).num(x.verticalSpeedMs > 2.5 ? 1 : x.verticalSpeedMs < -2.5 ? -1 : 0);
+}
+
 function bearing(h: Signature, b: BearingState): void {
   h.str(b.source).bool(b.valid).num(b.bearingDeg, 0.5).num(b.distanceNm, 0.1).str(b.ident);
 }
@@ -50,6 +57,8 @@ export function pfdSignature(h: Signature, s: SimSnapshot, r: InstrumentReadings
   } else h.bool(false);
   h.num(st.com1.activeKHz).num(st.com1.standbyKHz).num(st.com2.activeKHz).num(st.com2.standbyKHz);
   h.num(st.squawk).str(st.xpdrMode).num(st.windOption).str(st.dmeSource).str(st.cdiSource);
+  // the inset map shows traffic (a coarse quantum: the inset is small)
+  if (st.insetOn) traffic(h, s, 0.5 / (60 * 20));
   return h.value;
 }
 
@@ -72,5 +81,6 @@ export function mfdSignature(h: Signature, s: SimSnapshot, r: InstrumentReadings
   h.num(s.nav1.activeKHz).num(s.nav1.standbyKHz).str(s.nav1.ident).bool(s.nav1.valid);
   h.num(s.nav2.activeKHz).num(s.nav2.standbyKHz).str(s.nav2.ident).bool(s.nav2.valid);
   h.num(st.com1.activeKHz).num(st.com1.standbyKHz).num(st.com2.activeKHz).num(st.com2.standbyKHz);
+  traffic(h, s, q);
   return h.value;
 }
