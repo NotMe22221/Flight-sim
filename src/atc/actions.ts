@@ -96,18 +96,23 @@ export function requestClearance(s: AtcSession, ctx: FieldCtx): void {
 
 export function requestTaxi(s: AtcSession, ctx: FieldCtx, intent: DepartureIntent): void {
   const gnd = ctx.info.ground;
-  const rwy = departureRunway(s, ctx);
+  let rwy = departureRunway(s, ctx);
   if (!gnd || !rwy) return;
+  // the taxiways to the hold-short point when the simulator knows them (OSM taxi graph); when the
+  // nearest in-use parallel cannot be reached on them, clear the aircraft to one that can
+  const viaOf = (ident: string): string[] => { try { return s.taxiRoute?.(ctx.info.airport.icao, ident) ?? []; } catch { return []; } };
+  let via = viaOf(rwy.ident);
+  if (!via.length && s.taxiRoute && ctx.inUse) {
+    for (const r of ctx.inUse.all) { if (r === rwy) continue; const v = viaOf(r.ident); if (v.length) { rwy = r; via = v; break; } }
+  }
+  const cleared = rwy;
   s.intent = intent;
   s.pilotSays(gnd, (cs) => pilot.taxiRequest(gnd, cs, s.heardLetter(ctx), intent));
   const remark = atc.weatherRemark(ctx.info.shortName, s.currentLetter(ctx), s.heardLetter(ctx), s.altimeterOf(ctx));
-  // the taxiways to the hold-short point when the simulator knows them (OSM taxi graph)
-  let via: string[] = [];
-  try { via = s.taxiRoute?.(ctx.info.airport.icao, rwy.ident) ?? []; } catch { via = []; }
-  s.atcReplies(gnd, (cs) => atc.taxi(cs, gnd, rwy.ident, remark, via), () => {
-    s.runway = makeRunwayFrame(ctx.info.airport, rwy);
+  s.atcReplies(gnd, (cs) => atc.taxi(cs, gnd, cleared.ident, remark, via), () => {
+    s.runway = makeRunwayFrame(ctx.info.airport, cleared);
     s.setPhase('TAXI_CLEARED');
-    s.expectReadback(gnd, `Read back: taxi to runway ${rwySpoken(rwy.ident).text}${via.length ? ` via ${via.join(', ')}` : ''}, hold short`, (cs) => readback.taxi(cs, rwy.ident, via));
+    s.expectReadback(gnd, `Read back: taxi to runway ${rwySpoken(cleared.ident).text}${via.length ? ` via ${via.join(', ')}` : ''}, hold short`, (cs) => readback.taxi(cs, cleared.ident, via));
   });
 }
 

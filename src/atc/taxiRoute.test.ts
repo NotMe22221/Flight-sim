@@ -65,3 +65,15 @@ describe('ATC: a parked start beside a runway end', () => {
     expect(h.atc.phase).toBe('HOLDING_SHORT');
   });
 });
+
+describe('ATC: cleared runway follows the taxi network', () => {
+  it('clears to the in-use parallel the taxiways reach when the nearest one is unreachable', () => {
+    const nearest = taxiClearance(null).h.atc.runwayIdent!;
+    const other = nearest === '28L' ? '28R' : '28L';
+    const { h, asked } = taxiClearance((_icao, rwy) => (rwy === other ? ['L2', 'A', 'A6'] : null));
+    expect(asked[0]).toBe(`KSFO:${nearest}`); // the nearest is tried first
+    expect(h.atc.runwayIdent).toBe(other);
+    const clr = h.messages.find((m) => m.from === 'atc' && /taxi to runway/.test(m.text))!;
+    expect(clr.text.startsWith(`Cessna 2FS, San Francisco Ground, taxi to runway ${other} via L2, A, A6, hold short of runway ${other}.`)).toBe(true);
+  });
+});
