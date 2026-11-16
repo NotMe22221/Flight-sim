@@ -217,7 +217,10 @@ export class SceneryMaterials {
 
 /** Low-poly tree geometries (crown + trunk with vertex colours), authored 1 m tall; instances scale them. */
 export function makeTreeGeometries(): { conifer: THREE.BufferGeometry; broadleaf: THREE.BufferGeometry } {
-  const colorize = (g: THREE.BufferGeometry, rgb: [number, number, number], shade = 0): THREE.BufferGeometry => {
+  /** Non-indexed copy (geometries such as IcosahedronGeometry already are: no warning, no copy). */
+const flat = (g: THREE.BufferGeometry): THREE.BufferGeometry => (g.index ? g.toNonIndexed() : g);
+
+const colorize = (g: THREE.BufferGeometry, rgb: [number, number, number], shade = 0): THREE.BufferGeometry => {
     const n = g.getAttribute('position').count;
     const c = new Float32Array(n * 3);
     const pos = g.getAttribute('position');
@@ -235,17 +238,17 @@ export function makeTreeGeometries(): { conifer: THREE.BufferGeometry; broadleaf
   const trunk = (h: number, r: number) => {
     const t = new THREE.CylinderGeometry(r * 0.7, r, h, 4, 1, true);
     t.translate(0, h / 2, 0);
-    return colorize(t.toNonIndexed(), lin(0.3, 0.22, 0.15));
+    return colorize(flat(t), lin(0.3, 0.22, 0.15));
   };
   // conifer: two stacked cones
   const c1 = new THREE.ConeGeometry(0.3, 0.62, 6, 1, true); c1.translate(0, 0.12 + 0.31, 0);
   const c2 = new THREE.ConeGeometry(0.22, 0.5, 6, 1, true); c2.translate(0, 0.45 + 0.25, 0);
-  const coniferParts = [trunk(0.16, 0.035), colorize(c1.toNonIndexed(), lin(0.16, 0.27, 0.14), 0.35), colorize(c2.toNonIndexed(), lin(0.18, 0.3, 0.15), 0.25)];
+  const coniferParts = [trunk(0.16, 0.035), colorize(flat(c1), lin(0.16, 0.27, 0.14), 0.35), colorize(flat(c2), lin(0.18, 0.3, 0.15), 0.25)];
   // broadleaf: squashed icosahedron crown on a trunk
   const crown = new THREE.IcosahedronGeometry(0.36, 0);
   crown.scale(1, 0.85, 1);
   crown.translate(0, 0.62, 0);
-  const broadParts = [trunk(0.34, 0.045), colorize(crown.toNonIndexed(), lin(0.28, 0.37, 0.17), 0.3)];
+  const broadParts = [trunk(0.34, 0.045), colorize(flat(crown), lin(0.28, 0.37, 0.17), 0.3)];
   return { conifer: merge(coniferParts), broadleaf: merge(broadParts) };
 }
 
