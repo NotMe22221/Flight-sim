@@ -23,8 +23,10 @@ parks aircraft at stands (2 at small fields, 4 elsewhere, never within 80 m of t
 two of them start up, taxi along the taxi graph (src/world/taxiGraph.ts) to the hold-short point of
 the runway in use at 15 kt (7 kt into turns), stop for the player or another aircraft within ~50 m
 ahead, hold short until the runway and final are clear, line up, take off and depart straight out;
-8 km out they reappear at their stand for a later departure. The circuit is put on the best-ranked
+8 km out they come back as arrivals on a 6.5 km straight-in, land to a full stop, roll to an exit
+about 600 m past touchdown, taxi in to their stand (`TaxiGraph.routeBetween`), park, and later
+depart again. The second departing aircraft starts inbound, so there is an arrival early on. The circuit is put on the best-ranked
 runway the stands can actually taxi to (OSM taxiway networks are not always connected).
 
-Not yet: arrivals that land and taxi in, ATC sequencing calls to the player ("number two"), ATC
+Not yet: ATC sequencing calls to the player ("number two"), ATC
 taxi clearances, traffic on the G1000 map.

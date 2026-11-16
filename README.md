@@ -67,7 +67,8 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **AI traffic.** Light aircraft fly touch-and-go circuits at the airport you are at, on the runway
   in use, extending downwind behind each other and going around when you are on the runway; ATC
   calls them as traffic and the VFR map shows them with relative altitude. With OSM scenery, aircraft
-  sit parked at stands and some taxi out along the real taxiways, hold short, line up and depart.
+  sit parked at stands; some taxi out along the real taxiways, hold short, line up and depart, and
+  come back later as arrivals that land and taxi in to their stand.
 - **ATC.** Scripted, menu-driven ATC with ATIS, ground, tower and flight following, readbacks,
   traffic pattern work and spoken transmissions.
 - **Activities.** Nine landing challenges scored like MSFS, three instructor-led lessons (basic

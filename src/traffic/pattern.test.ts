@@ -122,3 +122,31 @@ describe('PatternAircraft on the ground', () => {
     expect(s.leg).toBe('parked'); expect(s.x).toBe(700); expect(s.y).toBe(-320);
   });
 });
+
+describe('PatternAircraft arrivals', () => {
+  it('flies a straight-in, lands to a full stop, exits, taxis in, parks and later departs again', () => {
+    const a = new PatternAircraft('a', 'N7', 'C172', C172_PATTERN, RWY, { leg: 'downwind', along: 0 });
+    const inPath: [number, number][] = [[900, 0], [900, -80], [700, -200], [600, -300]];
+    const outPath: [number, number][] = [[600, -300], [600, -150], [60, -150], [60, -70]];
+    a.arrive(inPath, 90, outPath, 30);
+    const seen: string[] = [];
+    let minHBeforeLand = Infinity;
+    fly(a, 900, free, 0.1, (ac) => {
+      if (seen[seen.length - 1] !== ac.leg) seen.push(ac.leg);
+      if (ac.leg === 'final') minHBeforeLand = Math.min(minHBeforeLand, ac.h);
+      if (ac.leg === 'landing') { expect(ac.x).toBeGreaterThan(0); expect(Math.abs(ac.y)).toBeLessThan(30); }
+    });
+    expect(seen.slice(0, 4)).toEqual(['final', 'landing', 'taxi', 'parked']);
+    // parked at the stand, then out again: taxi → holding → lineup → takeoff → upwind (a departure)
+    expect(seen).toEqual(expect.arrayContaining(['holding', 'lineup', 'takeoff', 'upwind']));
+    expect(a.departs).toBe(true);
+  });
+
+  it('a distant straight-in does not hold up circuit traffic; a close one does', () => {
+    const a = new PatternAircraft('a', 'N7', 'C172', C172_PATTERN, RWY, { leg: 'downwind', along: 0 });
+    a.arrive([[900, 0], [600, -300]], 0, [], Infinity, 6500);
+    expect(a.inSequence).toBe(false);
+    a.arrive([[900, 0], [600, -300]], 0, [], Infinity, 2500);
+    expect(a.inSequence).toBe(true);
+  });
+});

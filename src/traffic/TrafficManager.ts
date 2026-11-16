@@ -35,7 +35,7 @@ export interface TrafficOptions {
 interface Ai {
   sim: PatternAircraft;
   /** a ground aircraft: its stand (runway coordinates, heading) and taxi path, for re-parking */
-  stand?: { x: number; y: number; trk: number; path: [number, number][] | null };
+  stand?: { x: number; y: number; trk: number; path: [number, number][] | null; lat: number; lon: number };
   model: AircraftModel;
   state: AircraftState;
   inputs: ControlInputs;
@@ -91,6 +91,7 @@ export class TrafficManager {
   private readonly qNB: [number, number, number, number] = [1, 0, 0, 0];
   private rwy: PatternRunway | null = null;
   private groundKey = '';
+  private graph: TaxiGraph | null = null;
   private rwyWidthM = 45;
   private airport: Airport | null = null;
   private wind = { fromDeg: 0, kt: 0, preferred: null as string | null };
@@ -213,6 +214,7 @@ export class TrafficManager {
     this.groundKey = key;
     for (const a of this.ai.filter((x) => x.stand)) this.disposeAi(a);
     this.ai = this.ai.filter((x) => !x.stand);
+    this.graph = graph;
     if (rwy && graph && this.enabled && this.maxAircraft > 1) {
       const end = destination(rwy.lat, rwy.lon, rwy.headingDeg, rwy.lengthM);
       const hs = graph.holdShort({ threshold: { lat: rwy.lat, lon: rwy.lon }, end, widthM: this.rwyWidthM });
@@ -244,14 +246,30 @@ export class TrafficManager {
         if (path) departing++;
         const ai = this.makeAi(`G${i}`, this.airportType === 'small' && rand() < 0.5, rand, rwy, { leg: 'downwind', along: 0 });
         const trk = st.headingDeg - rwy.headingDeg;
-        ai.stand = { x: c.x, y: c.y, trk, path };
+        ai.stand = { x: c.x, y: c.y, trk, path, lat: st.lat, lon: st.lon };
         ai.sim.departs = !!path;
         ai.sim.parkAt(c.x, c.y, trk, path, path ? 15 + (departing - 1) * 90 + rand() * 20 : Infinity);
+        // the second departure starts inbound instead: an arrival early in the session
+        if (path && departing === 2) this.sendInbound(ai, 4500);
         this.ai.push(ai);
       });
     }
     this.targetsOut.length = 0;
     for (const a of this.ai) this.targetsOut.push(a.target);
+  }
+
+  /** Put a ground aircraft on a straight-in final that ends at its stand (false without a taxi-in route). */
+  private sendInbound(a: Ai, distM: number): boolean {
+    const rwy = this.rwy, g = this.graph, st = a.stand;
+    if (!rwy || !g || !st || !st.path) return false;
+    const exitX = Math.min(rwy.lengthM * 0.6, a.sim.circuit.touchdownX + 600);
+    const ex = destination(rwy.lat, rwy.lon, rwy.headingDeg, exitX);
+    const r = g.routeBetween(ex.lat, ex.lon, st.lat, st.lon);
+    if (!r) return false;
+    const inPath = r.geo.map((p) => { const q = toRunwayCoords(rwy, p.lat, p.lon); return [q.x, q.y] as [number, number]; });
+    inPath[0] = [exitX, 0];
+    a.sim.arrive(inPath, st.trk, st.path, 120 + ((this.reparks++ * 97) % 180), distM);
+    return true;
   }
 
   /**
@@ -283,7 +301,10 @@ export class TrafficManager {
     while (rest > 1e-6) { const h = Math.min(rest, 0.1); for (const a of this.ai) a.sim.update(h, ctx); rest -= h; }
 
     for (const a of this.ai) {
-      if (a.stand && a.sim.departed) { a.sim.parkAt(a.stand.x, a.stand.y, a.stand.trk, a.stand.path, 120 + ((this.reparks++ * 97) % 180)); }
+      if (a.stand && a.sim.departed) {
+        // gone: come back later as an arrival that lands and taxis in to the same stand
+        if (!this.sendInbound(a, 6500)) a.sim.parkAt(a.stand.x, a.stand.y, a.stand.trk, a.stand.path, 120 + ((this.reparks++ * 97) % 180));
+      }
       const t = a.sim.target(a.target);
       const p = frame.geodeticToThree(t.lat, t.lon, t.altMslM + this.cgHeight(a));
       this.pos.set(p[0], p[1], p[2]);

@@ -167,6 +167,26 @@ export class TaxiGraph {
     return { points, geo: points.map(([e, n]) => this.toGeo(e, n)), lengthM: g[goal] + start.d, via };
   }
 
+  /** The graph node nearest to a geodetic point (with at least one edge). */
+  nearestNode(lat: number, lon: number): TaxiNode | null {
+    const [e, n] = this.toLocal(lat, lon);
+    let best: TaxiNode | null = null, bd = Infinity;
+    for (const nd of this.nodes) { if (!nd.edges.length) continue; const d = Math.hypot(nd.e - e, nd.n - n); if (d < bd) { bd = d; best = nd; } }
+    return best;
+  }
+
+  /** Route between two geodetic points: join the taxiways near the start, leave them near the end. */
+  routeBetween(fromLat: number, fromLon: number, toLat: number, toLon: number): TaxiRoute | null {
+    const end = this.nearestNode(toLat, toLon);
+    const r = end ? this.route(fromLat, fromLon, end) : null;
+    if (!r) return null;
+    const [te, tn] = this.toLocal(toLat, toLon);
+    const last = r.points[r.points.length - 1];
+    r.points.push([te, tn]); r.geo.push({ lat: toLat, lon: toLon });
+    r.lengthM += Math.hypot(te - last[0], tn - last[1]);
+    return r;
+  }
+
   private dist(a: number, b: number): number { return Math.hypot(this.nodes[a].e - this.nodes[b].e, this.nodes[a].n - this.nodes[b].n); }
   private newNode(e: number, n: number): number {
     const id = this.nodes.length;

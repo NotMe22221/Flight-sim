@@ -112,6 +112,9 @@ export class PatternAircraft {
   parkedS = Infinity;
   /** a departure: climbs straight out on upwind and leaves instead of turning crosswind */
   departs = false;
+  /** an arrival: lands to a full stop, exits at `inPath[0]` and taxis in along it to the stand */
+  private arrival: { inPath: [number, number][]; standTrk: number; outPath: [number, number][]; outWaitS: number } | null = null;
+  private taxiIn = false;
   readonly geo = { lat: 0, lon: 0, alt: 0 };
   private readonly c: CircuitGeometry;
 
@@ -139,6 +142,20 @@ export class PatternAircraft {
     this.path = path && path.length >= 2 ? path : [];
     this.parkedS = this.path.length ? waitS : Infinity;
     this.leg = 'parked'; this.legTime = 0;
+  }
+
+  /**
+   * Arrive on a long straight-in final (`distM` from the threshold on a 3° path), land to a full stop,
+   * taxi in along `inPath` (runway exit → stand), park facing `standTrk`, and after `outWaitS` taxi
+   * out along `outPath` for another departure.
+   */
+  arrive(inPath: [number, number][], standTrk: number, outPath: [number, number][], outWaitS: number, distM = 6500): void {
+    this.arrival = { inPath, standTrk, outPath, outWaitS };
+    this.departs = false; this.taxiIn = false;
+    this.leg = 'final'; this.legTime = 0; this.onGround = false; this.extending = false;
+    this.x = -distM; this.y = 0; this.trk = 0; this.rollDeg = 0; this.vs = 0;
+    this.h = Math.tan(3 * D2R) * (this.c.touchdownX - this.x);
+    this.v = this.perf.approachKt * KT;
   }
 
   /** Put the aircraft on a leg, `along` 0..1 through it, at that leg's height and speed. */
@@ -181,7 +198,18 @@ export class PatternAircraft {
         const [px, py] = this.path[this.pathIdx];
         const d = Math.hypot(px - this.x, py - this.y);
         if (d < 6) {
-          if (++this.pathIdx >= this.path.length) { this.v = 0; this.setLeg('holding'); return; }
+          if (++this.pathIdx >= this.path.length) {
+            this.v = 0;
+            if (this.taxiIn && this.arrival) {
+              // at the stand: park, then later taxi out again for a departure
+              const a = this.arrival;
+              this.arrival = null; this.taxiIn = false;
+              this.parkAt(this.x, this.y, a.standTrk, a.outPath, a.outWaitS);
+              this.departs = !!a.outPath.length;
+              return;
+            }
+            this.setLeg('holding'); return;
+          }
         }
         const [nx, ny] = this.path[Math.min(this.pathIdx, this.path.length - 1)];
         tx = nx; ty = ny;
@@ -245,6 +273,16 @@ export class PatternAircraft {
         break;
       }
       case 'landing': {
+        if (this.arrival) {
+          // full stop: slow to taxi speed, roll to the exit, then taxi in to the stand
+          tx = this.x + 300; ty = 0; targetV = 5;
+          const exitX = this.arrival.inPath.length ? this.arrival.inPath[0][0] : this.x;
+          if (this.v < 7 && this.x >= exitX - 20) {
+            this.path = this.arrival.inPath; this.pathIdx = 0; this.taxiIn = true;
+            this.setLeg('taxi');
+          }
+          break;
+        }
         // roll out, then touch-and-go: full power again once slowed
         tx = this.x + 300; ty = 0; targetV = p.touchdownKt * KT * 0.55;
         if (this.legTime > 6 || this.x > L * 0.6) this.setLeg('takeoff');
@@ -324,7 +362,7 @@ export class PatternAircraft {
   /** On the runway (rolling or stopped on it), for the occupancy rule. */
   get onRunway(): boolean { return this.onGround && this.x > -50 && this.x < this.rwy.lengthM + 50 && Math.abs(this.y) < 40; }
   /** On base or final: ahead in the landing sequence of anyone still on downwind. */
-  get inSequence(): boolean { return this.leg === 'base' || this.leg === 'final' || this.leg === 'landing'; }
+  get inSequence(): boolean { return this.leg === 'base' || (this.leg === 'final' && this.x > -3500) || this.leg === 'landing'; }
 }
 
 export const newTarget = (): TrafficTarget => ({ id: '', callsign: '', type: '', lat: 0, lon: 0, altMslM: 0, headingDeg: 0, pitchDeg: 0, rollDeg: 0, groundSpeedMs: 0, verticalSpeedMs: 0, onGround: false, leg: 'downwind', flapDeg: 0, gearCompressionM: 0 });
