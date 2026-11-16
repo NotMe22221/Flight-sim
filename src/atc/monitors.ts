@@ -282,7 +282,8 @@ function monitorPattern(s: AtcSession, dt: number): void {
   if (s.landingClearance === 'none') {
     if (s.flags.armed && s.facility === twr && !s.radio.busy && isEstablishedOnFinal(s.rel, s.tuning.landingClearanceRangeM)) {
       const kind = s.landingIntent === 'touch-and-go' ? 'touch-and-go' : 'land';
-      s.atcCalls(twr, (cs) => atc.landing(cs, s.windOf(ctx), rw.ident, kind));
+      const seq = s.sequenceFor(ctx.info.airport.icao, rw.ident);
+      s.atcCalls(twr, (cs) => atc.landing(cs, s.windOf(ctx), rw.ident, kind, seq));
       landingClearanceText(s, ctx);
     }
     return;

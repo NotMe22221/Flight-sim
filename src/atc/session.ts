@@ -14,6 +14,7 @@ import { makeCallsign, type Callsign } from './callsign';
 import { fieldInfo, runwaysInUse, type Facility, type FieldInfo, type RunwaysInUse } from './field';
 import { makeRelativeState, type PatternEntry, type PatternLeg, type RunwayFrame, type TrafficSide } from './geometry';
 import { wind, type Spoken } from './phraseology';
+import { sequencePhrase } from './messages';
 import { REPLY_DELAY_MAX_S, REPLY_DELAY_MIN_S, RadioQueue, type RadioSink } from './radio';
 import { observeSurface } from './surfaceObs';
 import type { AtcPhase, AtcTuning, DepartureIntent, LandingClearance, LandingIntent } from './types';
@@ -72,6 +73,10 @@ export class AtcSession {
 
   /** taxiway names to a runway's hold-short point (AtcControllerOptions.taxiRoute) */
   taxiRoute: ((icao: string, runwayIdent: string) => string[] | null) | null = null;
+  /** the aircraft ahead in the landing sequence (AtcControllerOptions.trafficAhead) */
+  trafficAhead: ((icao: string, runwayIdent: string) => { type: string; leg: string } | null) | null = null;
+  /** the sequencing phrase for a landing clearance or a pattern report, or empty */
+  sequenceFor(icao: string, rwy: string): Spoken { let a: { type: string; leg: string } | null = null; try { a = this.trafficAhead?.(icao, rwy) ?? null; } catch { a = null; } return sequencePhrase(a, this.side); }
 
   phase: AtcPhase = 'PARKED';
   /** airport of the current operation (departure, then destination) */

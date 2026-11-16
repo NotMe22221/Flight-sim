@@ -46,6 +46,11 @@ export interface AtcControllerOptions {
    * hold-short point of `runwayIdent` at `icao`, or null when unknown (the clearance then has no 'via').
    */
   taxiRoute?: (icao: string, runwayIdent: string) => string[] | null;
+  /**
+   * Optional AI traffic hook: the aircraft ahead of the player in the landing sequence to `runwayIdent`
+   * (its type word, e.g. 'Cessna', and circuit leg), or null. Tower then says "number two, follow …".
+   */
+  trafficAhead?: (icao: string, runwayIdent: string) => { type: string; leg: string } | null;
   /** initial UTC epoch ms of the world clock (default 2026-01-01T12:00Z); advanced with dt */
   utcMs?: number;
   /** seed for reply delays and squawk codes (default: derived from the callsign) */

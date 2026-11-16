@@ -61,6 +61,7 @@ export class AtcController {
       { ...DEFAULT_ATC_TUNING, ...tuning }, opts.utcMs, opts.seed);
     this.emitOptions = opts.emitOptions;
     this.s.taxiRoute = opts.taxiRoute ?? null;
+    this.s.trafficAhead = opts.trafficAhead ?? null;
   }
 
   /** Current flight phase. */

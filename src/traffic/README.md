@@ -28,5 +28,8 @@ about 600 m past touchdown, taxi in to their stand (`TaxiGraph.routeBetween`), p
 depart again. The second departing aircraft starts inbound, so there is an arrival early on. The circuit is put on the best-ranked
 runway the stands can actually taxi to (OSM taxiway networks are not always connected).
 
-Not yet: ATC sequencing calls to the player ("number two"), ATC
-taxi clearances, traffic on the G1000 map.
+`TrafficManager.aheadOf` gives ATC the aircraft ahead of the player in the landing sequence
+(tower: "number two, follow the Cessna on left base"); the simulator also hands ATC the OSM taxi
+route for taxi clearances (src/atc README).
+
+Not yet: traffic on the G1000 map.

@@ -11,6 +11,12 @@ import {
 import type { DepartureIntent, LandingClearance, LandingIntent } from './types';
 
 const EMPTY = spoken('');
+/** "number two, follow the Cessna on left base, " for the aircraft ahead in the landing sequence; empty when none. */
+export function sequencePhrase(ahead: { type: string; leg: string } | null, side: string): Spoken {
+  if (!ahead) return EMPTY;
+  const where = ahead.leg === 'base' ? `on ${side} base` : ahead.leg === 'downwind' ? `on ${side} downwind` : 'on short final';
+  return spoken(`number two, follow the ${ahead.type} ${where}, `);
+}
 /** ", via L2, A, A6" with the taxiway names spelled for speech ("Lima two, Alpha, Alpha six"); empty without a route. */
 const viaTaxiways = (via: readonly string[]): Spoken =>
   via.length ? spoken(` via ${via.join(', ')}`, ` via ${via.map((t) => spellOut(t)).join(', ')}`) : EMPTY;
@@ -113,9 +119,9 @@ export const atc = {
       : say`${cs}, radar service terminated, squawk VFR, ${advisory ? 'change to advisory frequency approved' : 'frequency change approved'}.`,
   patternEntry: (cs: Spoken, f: Facility, entry: PatternEntry, side: TrafficSide, rwy: string, extra: Spoken): Spoken =>
     say`${cs}, ${f.name}, ${entryPhrase(entry, side, rwy)}, report ${entryReport(entry)}. ${extra}`,
-  roger: (cs: Spoken, next: Spoken | null): Spoken => say`${cs}, roger${next ? say`, report ${next}` : EMPTY}.`,
-  landing: (cs: Spoken, wind: Spoken, rwy: string, kind: Exclude<LandingClearance, 'none'>): Spoken =>
-    say`${cs}, wind ${wind}, runway ${runway(rwy)}, ${kind === 'land' ? 'cleared to land' : 'cleared touch and go'}.`,
+  roger: (cs: Spoken, next: Spoken | null, seq: Spoken = EMPTY): Spoken => say`${cs}, roger${seq.text ? say`, ${seq.text.replace(/, $/, '')}` : EMPTY}${next ? say`, report ${next}` : EMPTY}.`,
+  landing: (cs: Spoken, wind: Spoken, rwy: string, kind: Exclude<LandingClearance, 'none'>, seq: Spoken = EMPTY): Spoken =>
+    say`${cs}, ${seq}wind ${wind}, runway ${runway(rwy)}, ${kind === 'land' ? 'cleared to land' : 'cleared touch and go'}.`,
   goAround: (cs: Spoken, altFt: number, side: TrafficSide, rwy: string): Spoken =>
     say`${cs}, go around, fly runway heading, climb and maintain ${altitude(altFt)}, make ${side} traffic runway ${runway(rwy)}.`,
   goAroundAck: (cs: Spoken, side: TrafficSide, rwy: string): Spoken => say`${cs}, roger, make ${side} traffic runway ${runway(rwy)}, report downwind.`,

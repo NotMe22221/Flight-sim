@@ -258,6 +258,30 @@ export class TrafficManager {
     for (const a of this.ai) this.targetsOut.push(a.target);
   }
 
+  /**
+   * The AI aircraft immediately ahead of a player position in the landing sequence of the circuit
+   * runway, as ATC words it ({ type: 'Cessna' | 'Piper Cub', leg }), or null. On final the player
+   * follows an aircraft closer to the threshold on final or rolling out; in the circuit (downwind,
+   * base) the last aircraft already on base or final.
+   */
+  aheadOf(lat: number, lon: number): { type: string; leg: string } | null {
+    const rwy = this.rwy;
+    if (!rwy) return null;
+    const pc = toRunwayCoords(rwy, lat, lon);
+    const onFinal = pc.x > -4000 && pc.x < 200 && Math.abs(pc.y) < 450;
+    let best: PatternAircraft | null = null;
+    for (const a of this.ai) {
+      const s = a.sim;
+      if (!s.inSequence || (s.onGround && s.leg !== 'landing')) continue;
+      if (onFinal && !(s.x > pc.x && (s.leg === 'final' || s.leg === 'landing'))) continue;
+      // the immediate one ahead: the furthest from the threshold (smallest x; base counts as before final)
+      const key = (q: PatternAircraft) => (q.leg === 'base' ? -1e6 : q.x);
+      if (!best || key(s) < key(best)) best = s;
+    }
+    if (!best) return null;
+    return { type: best.type.startsWith('Cessna') ? 'Cessna' : best.type.includes('Cub') ? 'Piper Cub' : best.type, leg: best.leg === 'landing' ? 'final' : best.leg };
+  }
+
   /** Put a ground aircraft on a straight-in final that ends at its stand (false without a taxi-in route). */
   private sendInbound(a: Ai, distM: number): boolean {
     const rwy = this.rwy, g = this.graph, st = a.stand;

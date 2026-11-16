@@ -209,8 +209,10 @@ the reciprocal), `FINAL_LIMITS` (±20° track, lateral max(75 m, 6°), height be
   six"), read back the same way. Without them the clearance has no "via". No runway-crossing
   clearances; holding short is detected geometrically (and only after the aircraft has taxied
   50 m, so a parked start beside a runway end is still PARKED).
-* No traffic: no sequencing ("number two"), no traffic advisories, no runway-occupied
-  go-arounds. Single runway in use for departures and arrivals (no KSFO-style 1L/1R departures).
+* AI traffic (src/traffic) feeds two hooks: traffic advisories go out on the ATC channel from the
+  simulator, and `AtcControllerOptions.trafficAhead` lets the tower sequence the player: "number two,
+  follow the Cessna on left base" in the landing clearance and in the acknowledgement of a
+  downwind or base report. No runway-occupied go-around instructions to the player. Single runway in use for departures and arrivals (no KSFO-style 1L/1R departures).
 * Facility names come from the municipality ("San Francisco Departure", not "NorCal
   Departure"); TRACON/Center names and frequencies are not in the data. Some OurAirports
   frequencies are odd (KSFO ATIS 113.7 is the VOR voice channel) and are used as published.

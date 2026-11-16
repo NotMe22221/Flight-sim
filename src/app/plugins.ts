@@ -190,6 +190,7 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
       emit: (m: { from: 'atc' | 'pilot'; text: string; frequencyMHz?: number }) => sim.events.emit('atc:message', m),
       emitOptions: (options: string[]) => sim.events.emit('atc:options', { options }),
       taxiRoute: (icao: string, runwayIdent: string) => sim.atcTaxiVia(icao, runwayIdent),
+      trafficAhead: (icao: string, runwayIdent: string) => sim.atcTrafficAhead(icao, runwayIdent),
     });
     let atc = make(sim.config);
     let callsign = radioCallsign(sim.config).callsign;

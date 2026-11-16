@@ -46,11 +46,13 @@ export function reportPosition(s: AtcSession, ctx: FieldCtx): void {
   s.pilotSays(twr, (cs) => pilot.positionReport(twr, cs, leg, s.side, frame.ident));
   if (leg === 'final' && s.landingClearance === 'none') {
     const kind = s.landingIntent === 'touch-and-go' ? 'touch-and-go' : 'land';
-    s.atcReplies(twr, (cs) => atc.landing(cs, s.windOf(ctx), frame.ident, kind), () => landingClearanceText(s, ctx));
+    const seq = s.sequenceFor(ctx.info.airport.icao, frame.ident);
+    s.atcReplies(twr, (cs) => atc.landing(cs, s.windOf(ctx), frame.ident, kind, seq), () => landingClearanceText(s, ctx));
     return;
   }
   const next = leg === 'downwind' ? spoken('base') : leg === 'base' ? spoken('final') : null;
-  s.atcReplies(twr, (cs) => atc.roger(cs, s.landingClearance === 'none' ? next : null));
+  const seq = leg === 'downwind' || leg === 'base' ? s.sequenceFor(ctx.info.airport.icao, frame.ident) : spoken('');
+  s.atcReplies(twr, (cs) => atc.roger(cs, s.landingClearance === 'none' ? next : null, seq));
 }
 
 export function requestOption(s: AtcSession, ctx: FieldCtx, intent: LandingIntent): void {

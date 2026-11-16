@@ -688,6 +688,19 @@ export class Simulator {
     return route.via;
   }
 
+  /**
+   * ATC sequencing (AtcControllerOptions.trafficAhead): the AI aircraft ahead of the player in the
+   * landing sequence to `runwayIdent`, when that is the runway the AI traffic circuit uses.
+   */
+  atcTrafficAhead(icao: string, runwayIdent: string): { type: string; leg: string } | null {
+    const r = this.traffic.runway, ap = this.currentAirport;
+    if (!r || !ap || ap.icao !== icao) return null;
+    const end = rankRunways(ap, 0, 0).find((x) => x.ident === runwayIdent);
+    if (!end || greatCircleDistance({ lat: r.lat, lon: r.lon, alt: 0 }, end.threshold) > 300) return null;
+    const g = this.fdm.state.geo;
+    return this.traffic.aheadOf(g.lat, g.lon);
+  }
+
   /** The OSM taxiway graph of an airport (rebuilt when the airport or the scenery's pavement changes). */
   private ensureTaxiGraph(ap: Airport): TaxiGraph | null {
     const sc = this.plugins.scenery;
