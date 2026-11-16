@@ -121,3 +121,19 @@ the same reload collapses the gear or drops the aircraft.
   shift after `project_vertex`, log-depth safe), so tyres sink about 1 cm into a runway instead of
   12 cm. Seen from a tower or drone camera 400 m+ away the slab is back at 0.12 m (invisible there).
 * One plane per airport: see the terrain README (Known limitations, Pavement flattening).
+
+## Taxi routing and the taxi ribbon
+
+`taxiGraph.ts` builds a graph from the scenery's taxiway centre lines (`PavementArea` kind
+`taxiline`, with the OSM taxiway name in `ref`): vertices closer than 2.5 m merge (tile borders,
+shared junction nodes), a line end within 6 m of another taxiway's segment is joined to it
+(T junctions without a shared node). `holdShort(runway)` is the node 15-150 m beside a runway end's
+centre line closest to its threshold; `route(lat, lon, node)` is an A* route that starts at the
+aircraft, crosses the apron straight to the nearest centre line (up to 600 m) and lists the taxiway
+names in order. `TaxiRibbon.ts` draws the route as blue chevrons draped on the ground (rebuilt only
+when the route or the floating-origin frame changes).
+
+The Simulator runs it for the taxi-ribbon assist: on the ground below 30 kt at an airport with OSM
+taxiways it re-routes every 2 s to the best-ranked runway end (most headwind, the player's runway in
+calm wind; `rankRunways` in src/traffic) that the taxiways actually reach, announces "Taxi to runway
+28L via L2, A, A6" once, and says "Hold short" at the end of the route.

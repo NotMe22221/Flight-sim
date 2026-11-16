@@ -119,7 +119,7 @@ const nowMs = (): number => (typeof performance !== 'undefined' ? performance.no
  * each clipped to the tile square like everything else (pieces of one apron in neighbouring tiles
  * meet on the shared border). Keys are stable: `<tile>/<kind letter><index>`.
  */
-export function pavementAreas(f: TileFeatures, lines: readonly { line: number[]; width: number }[], tileKey: string): PavementArea[] {
+export function pavementAreas(f: TileFeatures, lines: readonly { line: number[]; width: number; ref?: string }[], tileKey: string): PavementArea[] {
   const p = f.projector;
   const g = { lat: 0, lon: 0, alt: 0 };
   const toLL = (pts: readonly number[]): number[] => {
@@ -133,7 +133,7 @@ export function pavementAreas(f: TileFeatures, lines: readonly { line: number[];
   polys(f.aprons, 'apron', 'a');
   polys(f.taxiwayPolys, 'taxiway', 't');
   polys(f.helipads, 'helipad', 'h');
-  lines.forEach((t, i) => { if (t.line.length >= 4) out.push({ key: `${tileKey}/l${i}`, kind: 'taxiline', rings: [], line: toLL(t.line), widthM: t.width }); });
+  lines.forEach((t, i) => { if (t.line.length >= 4) out.push({ key: `${tileKey}/l${i}`, kind: 'taxiline', rings: [], line: toLL(t.line), widthM: t.width, ...(t.ref ? { ref: t.ref } : {}) }); });
   return out;
 }
 

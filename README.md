@@ -61,6 +61,9 @@ buffer; Firefox falls back to a logarithmic depth buffer.
   and the LVL recovery mode) with flight director, verified on the real flight model; MSFS-style
   assists (auto-rudder, assisted take-off, anti-stall protection, landing path gates, auto
   mixture, crash and stress damage).
+- **Taxi ribbon.** On the ground, the taxi-ribbon assist routes you along the real OSM taxiways to
+  the hold-short point of the runway in use ("Taxi to runway 28L via L2, A, A6") and draws blue
+  chevrons on the ground.
 - **AI traffic.** Light aircraft fly touch-and-go circuits at the airport you are at, on the runway
   in use, extending downwind behind each other and going around when you are on the runway; ATC
   calls them as traffic and the VFR map shows them with relative altitude.

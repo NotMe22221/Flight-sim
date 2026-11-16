@@ -38,10 +38,12 @@ describe('traffic geometry', () => {
   });
 
   it('chooses the runway most into the wind, keeps the player runway in calm air, skips short and water runways', () => {
-    const a = ap('small', [rwy('28', 280), rwy('10', 100), rwy('01', 10, 300)]);
+    const a = ap('small', [rwy('28', 280), rwy('01', 10, 300)]);
     expect(chooseRunway(a, 270, 10)?.ident).toBe('28');
-    expect(chooseRunway(a, 90, 10)?.ident).toBe('10');
-    expect(chooseRunway(a, 270, 1, '10')?.ident).toBe('10');
+    // the database lists one end per runway: the reciprocal (10) is a candidate too, with swapped ends
+    const ten = chooseRunway(a, 90, 10)!;
+    expect(ten.ident).toBe('10'); expect(ten.headingDeg).toBe(100); expect(ten.threshold).toEqual(rwy('28', 280).end);
+    expect(chooseRunway(a, 270, 1, '10')?.ident).toBe('10'); // calm: the player's runway, reciprocal included
     expect(chooseRunway(ap('small', [rwy('01', 10, 300)]), 0, 10)).toBeNull();
     expect(chooseRunway(ap('small', [{ ...rwy('18', 180), surface: 'water' }]), 180, 5)).toBeNull();
   });

@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { EventBus } from '../core/events';
 import { clamp, wrap360, wrapTwoPi } from '../core/math';
-import { defaultControlInputs, type AircraftConfig, type AircraftState, type Airport, type AssistanceOptions, type ControlInputs, type InputSnapshot, type SimAction, type SimSnapshot, type SpawnState, type TimeState, type WeatherPresetId } from '../core/types';
+import { defaultControlInputs, type AircraftConfig, type AircraftState, type Airport, type Runway, type AssistanceOptions, type ControlInputs, type InputSnapshot, type SimAction, type SimSnapshot, type SpawnState, type TimeState, type WeatherPresetId } from '../core/types';
 import { DEG, FPM, FT, INHG, KT, RAD } from '../core/units';
 import { Fdm } from '../fdm/fdm';
 import { C172S } from '../fdm/aircraft/c172';
@@ -42,7 +42,9 @@ import { SlewController, SLEW_THROTTLE_CENTRE } from './slew';
 import { StressMonitor, crashIsRecoverable } from './damage';
 import type { RebaseTransform } from '../world/rebase';
 import { createRenderer, type RendererBundle } from './renderer';
-import { TrafficManager } from '../traffic/TrafficManager';
+import { TrafficManager, rankRunways } from '../traffic/TrafficManager';
+import { TaxiGraph, type TaxiRoute } from '../world/taxiGraph';
+import { TaxiRibbon } from '../world/TaxiRibbon';
 import { TrafficAdvisor } from '../traffic/advisor';
 import { C172S as C172S_TRAFFIC } from '../fdm/aircraft/c172';
 import { PA18_150 as CUB_TRAFFIC } from '../fdm/aircraft/cub';
@@ -203,6 +205,14 @@ export class Simulator {
   readonly traffic = new TrafficManager({ c172: C172S_TRAFFIC, cub: CUB_TRAFFIC, maxAircraft: 2 });
   private trafficTimer = Infinity;
   private readonly trafficAdvisor = new TrafficAdvisor();
+  /** taxi-ribbon assist: graph of the current airport's OSM taxiways and the ribbon on the ground */
+  readonly taxiRibbon = new TaxiRibbon();
+  private taxiGraph: TaxiGraph | null = null;
+  private taxiGraphKey = '';
+  private taxiTimer = Infinity;
+  private taxiAnnounced = '';
+  /** the last taxi route (automation, UI): runway, taxiway names and length */
+  taxiRoute: { runway: string; via: string[]; lengthM: number } | null = null;
   private advisoryTimer = 0;
   /** simulated seconds advanced by the last frame (0 paused, slewing or replaying) */
   private lastSimDt = 0;
@@ -238,6 +248,7 @@ export class Simulator {
     this.scene.add(this.model.root);
     this.scene.add(this.landingGuide.group);
     this.scene.add(this.traffic.group);
+    this.scene.add(this.taxiRibbon.group);
     const aspect = (opts.container.clientWidth || 1) / (opts.container.clientHeight || 1);
     this.cameras = new CameraController(aspect);
     this.input = new InputManager(this.gfx.renderer.domElement, { flapDetents: this.config.controls.flaps.detentsDeg.length });
@@ -640,6 +651,55 @@ export class Simulator {
     }
   }
 
+  /**
+   * Taxi-ribbon assist: while on the ground and slow at an airport with OSM taxiways, route along
+   * the taxiways to the hold-short point of the runway in use (the one most into the wind, as the
+   * AI traffic uses) every 2 s and draw the ribbon; hide it at the hold-short point and in the air.
+   */
+  private updateTaxiRibbon(dt: number, s: AircraftState): void {
+    const ap = this.currentAirport;
+    const sc = this.plugins.scenery;
+    const want = this.assists.taxiRibbon && this.inFlight && s.onGround && s.groundSpeedMs < 30 * KT && !this.replayer.active && !this.slew && !!ap && !!sc?.pavementAreas;
+    if (!want) { if (this.taxiRibbon.visible) this.taxiRibbon.setRoute(null); this.taxiRibbon.setVisible(false); this.taxiTimer = Infinity; return; }
+    this.taxiTimer += dt;
+    if (this.taxiTimer > 2) {
+      this.taxiTimer = 0;
+      const key = `${ap!.icao}:${sc!.pavementRevision?.() ?? 0}`;
+      if (key !== this.taxiGraphKey) {
+        this.taxiGraphKey = key;
+        const lines = (sc!.pavementAreas!() as readonly { kind: string; line: number[]; ref?: string }[])
+          .filter((a) => a.kind === 'taxiline' && a.line.length >= 4 && greatCircleDistance(ap!.position, { lat: a.line[1], lon: a.line[0], alt: 0 }) < 4000);
+        this.taxiGraph = lines.length ? new TaxiGraph(ap!.position.lat, ap!.position.lon, lines) : null;
+      }
+      const w = this.weather.state.winds[0];
+      // the runway in use, or the next best one the taxiways from here actually reach
+      let rwy: Runway | null = null, route: TaxiRoute | null = null;
+      if (this.taxiGraph) {
+        for (const r of rankRunways(ap!, w?.directionDeg ?? 0, w?.speedKt ?? 0, this.spawnRunwayIdent)) {
+          const hs = this.taxiGraph.holdShort({ threshold: r.threshold, end: r.end, widthM: r.widthM });
+          const rt = hs ? this.taxiGraph.route(s.geo.lat, s.geo.lon, hs) : null;
+          if (rt) { rwy = r; route = rt; break; }
+        }
+      }
+      if (route && rwy && route.lengthM > 20) {
+        this.taxiRibbon.setRoute(route.geo);
+        this.taxiRoute = { runway: rwy.ident, via: route.via, lengthM: route.lengthM };
+        const ann = `${ap!.icao}:${rwy.ident}`;
+        if (this.taxiAnnounced !== ann) {
+          this.taxiAnnounced = ann;
+          this.events.emit('ui:toast', { text: `Taxi to runway ${rwy.ident}${route.via.length ? ` via ${route.via.join(', ')}` : ''}: follow the blue ribbon.`, kind: 'info', durationMs: 7000 });
+        }
+      } else {
+        // at the hold-short point (or no taxiway route here): no ribbon
+        if (route && rwy && this.taxiRoute) this.events.emit('ui:toast', { text: `Hold short of runway ${rwy.ident}.`, kind: 'info', durationMs: 5000 });
+        this.taxiRibbon.setRoute(null);
+        this.taxiRoute = null;
+      }
+    }
+    this.taxiRibbon.setVisible(true);
+    this.taxiRibbon.update(this.world.frame, (n, e) => this.world.groundHeight(n, e));
+  }
+
   private updateVisuals(dt: number, inp: InputSnapshot): void {
     const s = this.interp;
     const cockpit = this.cameras.state.mode === 'cockpit';
@@ -670,6 +730,7 @@ export class Simulator {
     this.plugins.scenery?.update(dt, camPos, this.cameras.camera, this.sky.sun.elevationRad);
     this.landingGuide.update(dt, this.assists.landingPathHints && this.inFlight && !this.replayer.active && !this.slew, s.geo, s.trackRad * RAD, s.onGround, this.nearbyAirports, this.world.frame);
     this.updateTraffic(dt, s);
+    this.updateTaxiRibbon(dt, s);
     tn = performance.now(); this.mark('world', tn - tm); tm = tn;
 
     // navigation (radios every frame, nearby airports and magnetic variation slowly)

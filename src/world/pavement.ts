@@ -27,6 +27,8 @@ export interface PavementArea {
   line: number[];
   /** pavement width of a centre line (m) */
   widthM: number;
+  /** taxiway name ('A', 'B3') of a centre line, when OSM has one */
+  ref?: string;
 }
 
 /** What the scenery offers (SceneryLike.pavementAreas / pavementRevision). */

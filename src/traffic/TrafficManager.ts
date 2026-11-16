@@ -12,6 +12,7 @@ import type { AircraftConfig, AircraftState, Airport, ControlInputs, Runway } fr
 import { defaultControlInputs } from '../core/types';
 import { makeAircraftState } from '../core/fakeState';
 import { AircraftModel } from '../aircraft3d/AircraftModel';
+import { reciprocalIdent } from '../nav/airportsData';
 import { bodyQuatToThree } from '../aircraft3d/frames';
 import { C172_PATTERN, CUB_PATTERN, PatternAircraft, type PatternContext, type PatternLeg, type PatternRunway, type TrafficTarget, newTarget, rng } from './pattern';
 
@@ -53,15 +54,20 @@ export function toRunwayCoords(r: PatternRunway, lat: number, lon: number): { x:
  * wind keeps `preferred` (the player's runway) when given. Water and short runways are skipped.
  */
 export function chooseRunway(ap: Airport, windFromDeg: number, windKt: number, preferred?: string | null): Runway | null {
-  const ok = ap.runways.filter((r) => r.lengthM >= 500 && r.surface !== 'water' && Number.isFinite(r.headingDeg));
-  if (!ok.length) return null;
-  if (windKt < 3 && preferred) { const p = ok.find((r) => r.ident === preferred); if (p) return p; }
-  let best = ok[0], bestHw = -Infinity;
-  for (const r of ok) {
-    const hw = Math.cos((windFromDeg - r.headingDeg) * D2R) * Math.max(windKt, 0.1) + r.lengthM * 1e-6;
-    if (hw > bestHw) { bestHw = hw; best = r; }
-  }
-  return best;
+  return rankRunways(ap, windFromDeg, windKt, preferred)[0] ?? null;
+}
+
+/**
+ * Every usable runway end (both directions of each runway), best first: the player's runway in calm
+ * wind, then the most headwind (longer first on ties). Water and short runways are skipped.
+ */
+export function rankRunways(ap: Airport, windFromDeg: number, windKt: number, preferred?: string | null): Runway[] {
+  // the database lists each runway once (its primary end): both directions are candidates
+  const ok = ap.runways
+    .filter((r) => r.lengthM >= 500 && r.surface !== 'water' && Number.isFinite(r.headingDeg))
+    .flatMap((r) => [r, { ...r, ident: reciprocalIdent(r.ident), threshold: r.end, end: r.threshold, headingDeg: (r.headingDeg + 180) % 360, displacedThresholdM: 0, ils: undefined }]);
+  const score = (r: Runway) => (windKt < 3 && preferred && r.ident === preferred ? 1e6 : 0) + Math.cos((windFromDeg - r.headingDeg) * D2R) * Math.max(windKt, 0.1) + r.lengthM * 1e-6;
+  return ok.sort((x, y) => score(y) - score(x));
 }
 
 /** How many AI aircraft an airport gets. */
