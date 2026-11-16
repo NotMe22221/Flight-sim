@@ -13,6 +13,7 @@ import { defaultControlInputs } from '../core/types';
 import { makeAircraftState } from '../core/fakeState';
 import { AircraftModel } from '../aircraft3d/AircraftModel';
 import { reciprocalIdent } from '../nav/airportsData';
+import type { TaxiGraph } from '../world/taxiGraph';
 import { bodyQuatToThree } from '../aircraft3d/frames';
 import { C172_PATTERN, CUB_PATTERN, PatternAircraft, type PatternContext, type PatternLeg, type PatternRunway, type TrafficTarget, newTarget, rng } from './pattern';
 
@@ -33,6 +34,8 @@ export interface TrafficOptions {
 
 interface Ai {
   sim: PatternAircraft;
+  /** a ground aircraft: its stand (runway coordinates, heading) and taxi path, for re-parking */
+  stand?: { x: number; y: number; trk: number; path: [number, number][] | null };
   model: AircraftModel;
   state: AircraftState;
   inputs: ControlInputs;
@@ -87,6 +90,16 @@ export class TrafficManager {
   private readonly q = new THREE.Quaternion();
   private readonly qNB: [number, number, number, number] = [1, 0, 0, 0];
   private rwy: PatternRunway | null = null;
+  private groundKey = '';
+  private rwyWidthM = 45;
+  private airport: Airport | null = null;
+  private wind = { fromDeg: 0, kt: 0, preferred: null as string | null };
+  /** the best-ranked runway end the stands' taxi routes reach (ground traffic), by ident */
+  private reachable: string | null = null;
+  private reachableFor = '';
+  private airportType: Airport['type'] = 'small';
+  private seed = 1;
+  private reparks = 0;
 
   constructor(private readonly opts: TrafficOptions) {
     this.group.name = 'traffic';
@@ -106,8 +119,10 @@ export class TrafficManager {
 
   /** Graphics quality: 0 removes traffic, otherwise caps the aircraft count. */
   setMaxAircraft(n: number): void {
-    this.maxAircraft = Math.max(0, Math.floor(n));
-    if (this.ai.length > this.maxAircraft) { for (const a of this.ai.splice(this.maxAircraft)) this.disposeAi(a); this.targetsOut.length = this.ai.length; }
+    const m = Math.max(0, Math.floor(n));
+    if (m === this.maxAircraft) return;
+    this.maxAircraft = m;
+    this.clear(); this.airportKey = ''; // rebuilt with the new cap on the next setAirport / setGround
   }
 
   /**
@@ -115,8 +130,12 @@ export class TrafficManager {
    * changes. `preferred` is the player's runway ident (kept in calm wind).
    */
   setAirport(ap: Airport | null, windFromDeg: number, windKt: number, preferred?: string | null): void {
-    if (!this.enabled || !ap) { this.clear(); this.airportKey = ''; return; }
-    const r = chooseRunway(ap, windFromDeg, windKt, preferred);
+    if (!this.enabled || !ap) { this.clear(); this.airportKey = ''; this.airport = null; return; }
+    if (this.airport?.icao !== ap.icao) { this.reachable = null; this.reachableFor = ''; }
+    this.airport = ap; this.wind = { fromDeg: windFromDeg, kt: windKt, preferred: preferred ?? null };
+    // a runway the ground traffic can reach (setGround) overrides the plain into-wind choice
+    const ranked = rankRunways(ap, windFromDeg, windKt, preferred);
+    const r = (this.reachable && ranked.find((x) => x.ident === this.reachable)) || ranked[0] || null;
     const n = Math.min(trafficCount(ap), this.maxAircraft);
     const key = `${ap.icao}:${r?.ident ?? ''}:${n}`;
     if (key === this.airportKey) return;
@@ -131,26 +150,105 @@ export class TrafficManager {
       side: /R$/.test(r.ident) ? 'right' : 'left',
     };
     this.rwy = rwy;
+    this.rwyWidthM = Number.isFinite(r.widthM) && r.widthM > 0 ? r.widthM : 45;
+    this.airportType = ap.type;
     let seed = 0;
     for (const ch of ap.icao) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    this.seed = seed || 1;
     const rand = rng(seed);
     // spread around the circuit, never on the runway at the start (the player may be there)
     const starts: { leg: PatternLeg; along: number }[] = [{ leg: 'downwind', along: 0.35 }, { leg: 'crosswind', along: 0.2 }, { leg: 'upwind', along: 0.6 }];
     for (let i = 0; i < n; i++) {
       const cub = ap.type === 'small' && rand() < 0.5;
-      const cfg = cub ? this.opts.cub : this.opts.c172;
-      const reg = `N${100 + Math.floor(rand() * 899)}${String.fromCharCode(65 + Math.floor(rand() * 26))}${String.fromCharCode(65 + Math.floor(rand() * 26))}`;
-      const sim = new PatternAircraft(`${ap.icao}-${i}`, reg, cub ? 'Super Cub' : 'Cessna 172', cub ? CUB_PATTERN : C172_PATTERN, rwy, starts[i % starts.length]);
-      const model = new AircraftModel(cfg, { registration: reg, shadows: false });
-      // no spot lights on AI aircraft: each one would change every material's light count (shader
-      // recompiles, per-pixel cost); the nav, beacon and strobe halos stay
-      model.lights.landingLight.removeFromParent(); model.lights.taxiLight.removeFromParent();
-      model.lights.landingLight.target.removeFromParent(); model.lights.taxiLight.target.removeFromParent();
-      model.setVisibility(true, false);
-      this.group.add(model.root);
-      const inputs = defaultControlInputs();
-      inputs.lights = { nav: true, beacon: true, strobe: true, landing: true, taxi: false, panel: 0 };
-      this.ai.push({ sim, model, state: makeAircraftState(), inputs, target: newTarget(), prop: 0 });
+      this.ai.push(this.makeAi(`${ap.icao}-${i}`, cub, rand, rwy, starts[i % starts.length]));
+    }
+    this.targetsOut.length = 0;
+    for (const a of this.ai) this.targetsOut.push(a.target);
+  }
+
+  private makeAi(id: string, cub: boolean, rand: () => number, rwy: PatternRunway, start: { leg: PatternLeg; along: number }): Ai {
+    const cfg = cub ? this.opts.cub : this.opts.c172;
+    const reg = `N${100 + Math.floor(rand() * 899)}${String.fromCharCode(65 + Math.floor(rand() * 26))}${String.fromCharCode(65 + Math.floor(rand() * 26))}`;
+    const sim = new PatternAircraft(id, reg, cub ? 'Super Cub' : 'Cessna 172', cub ? CUB_PATTERN : C172_PATTERN, rwy, start);
+    const model = new AircraftModel(cfg, { registration: reg, shadows: false });
+    // no spot lights on AI aircraft: each one would change every material's light count (shader
+    // recompiles, per-pixel cost); the nav, beacon and strobe halos stay
+    model.lights.landingLight.removeFromParent(); model.lights.taxiLight.removeFromParent();
+    model.lights.landingLight.target.removeFromParent(); model.lights.taxiLight.target.removeFromParent();
+    model.setVisibility(true, false);
+    this.group.add(model.root);
+    const inputs = defaultControlInputs();
+    inputs.lights = { nav: true, beacon: true, strobe: true, landing: true, taxi: false, panel: 0 };
+    return { sim, model, state: makeAircraftState(), inputs, target: newTarget(), prop: 0 };
+  }
+
+  /**
+   * Ground traffic from the airport's OSM stands and taxiways: aircraft parked at stands, one or two
+   * of which start up, taxi to the hold-short point of the runway in use, wait for the runway, take
+   * off and depart (then, well clear, reappear at their stand for a later departure). Stands within
+   * 80 m of `avoid` (the player) stay free. Rebuilt only when the inputs change.
+   */
+  setGround(graph: TaxiGraph | null, stands: readonly { lat: number; lon: number; headingDeg: number }[], avoid: { lat: number; lon: number } | null): void {
+    // the circuit must be on a runway the stands can taxi to: the best-ranked one with a route
+    const ap = this.airport;
+    const rkey = ap && graph && stands.length ? `${ap.icao}:${graph.nodes.length}:${stands.length}:${this.wind.fromDeg}:${this.wind.kt}` : '';
+    if (rkey !== this.reachableFor) {
+      this.reachableFor = rkey;
+      let best: string | null = null;
+      if (ap && graph && stands.length) {
+        const probes = Array.from({ length: Math.min(12, stands.length) }, (_, i) => stands[Math.floor((i * stands.length) / Math.min(12, stands.length))]);
+        for (const r of rankRunways(ap, this.wind.fromDeg, this.wind.kt, this.wind.preferred)) {
+          const hs = graph.holdShort({ threshold: r.threshold, end: r.end, widthM: r.widthM });
+          if (hs && probes.some((pr) => graph.route(pr.lat, pr.lon, hs))) { best = r.ident; break; }
+        }
+      }
+      if (best !== this.reachable) {
+        this.reachable = best;
+        if (ap) { this.airportKey = ''; this.setAirport(ap, this.wind.fromDeg, this.wind.kt, this.wind.preferred); }
+      }
+    }
+    const rwy = this.rwy;
+    const key = rwy && graph ? `${this.airportKey}:${graph.nodes.length}:${stands.length}` : '';
+    if (key === this.groundKey) return;
+    this.groundKey = key;
+    for (const a of this.ai.filter((x) => x.stand)) this.disposeAi(a);
+    this.ai = this.ai.filter((x) => !x.stand);
+    if (rwy && graph && this.enabled && this.maxAircraft > 1) {
+      const end = destination(rwy.lat, rwy.lon, rwy.headingDeg, rwy.lengthM);
+      const hs = graph.holdShort({ threshold: { lat: rwy.lat, lon: rwy.lon }, end, widthM: this.rwyWidthM });
+      const rand = rng(this.seed ^ 0x9e3779b9);
+      const free = stands.filter((st) => !avoid || greatCircleish(st.lat, st.lon, avoid.lat, avoid.lon) > 80);
+      const nParked = Math.min(free.length, this.airportType === 'small' ? 2 : 4);
+      const nDepart = this.airportType === 'small' ? 1 : 2;
+      // departures from stands whose taxi route reaches the runway's hold-short point, the rest static
+      const routeOf = (st: { lat: number; lon: number }) => {
+        const r = hs ? graph.route(st.lat, st.lon, hs) : null;
+        return r ? r.geo.map((g) => { const q = toRunwayCoords(rwy, g.lat, g.lon); return [q.x, q.y] as [number, number]; }) : null;
+      };
+      const chosen: { st: { lat: number; lon: number; headingDeg: number }; path: [number, number][] | null }[] = [];
+      for (let k = 0; k < free.length && chosen.length < nDepart; k++) {
+        const st = free[Math.floor((k * 7919) % free.length)];
+        if (chosen.some((c) => c.st === st)) continue;
+        const path = routeOf(st);
+        if (path) chosen.push({ st, path });
+        if (k > 40) break;
+      }
+      for (let i = 0; chosen.length < nParked + chosen.filter((c) => c.path).length && i < free.length; i++) {
+        const st = free[Math.floor((i * free.length) / nParked) % free.length];
+        if (!chosen.some((c) => c.st === st)) chosen.push({ st, path: null });
+        if (i > nParked * 3) break;
+      }
+      let departing = 0;
+      chosen.forEach(({ st, path }, i) => {
+        const c = toRunwayCoords(rwy, st.lat, st.lon);
+        if (path) departing++;
+        const ai = this.makeAi(`G${i}`, this.airportType === 'small' && rand() < 0.5, rand, rwy, { leg: 'downwind', along: 0 });
+        const trk = st.headingDeg - rwy.headingDeg;
+        ai.stand = { x: c.x, y: c.y, trk, path };
+        ai.sim.departs = !!path;
+        ai.sim.parkAt(c.x, c.y, trk, path, path ? 15 + (departing - 1) * 90 + rand() * 20 : Infinity);
+        this.ai.push(ai);
+      });
     }
     this.targetsOut.length = 0;
     for (const a of this.ai) this.targetsOut.push(a.target);
@@ -171,12 +269,21 @@ export class TrafficManager {
     const ctx: PatternContext = {
       runwayOccupied: (self) => playerOnRunway || this.ai.some((o) => o.sim !== self && o.sim.onRunway),
       sequenceBusy: (self) => playerOnFinal || this.ai.some((o) => o.sim !== self && o.sim.inSequence && o.sim.leg !== 'landing'),
+      // stop on the ground for the player or another aircraft within 50 m ahead (±40° of the track)
+      blockedAhead: (self) => {
+        const ahead = (x: number, y: number, r: number) => {
+          const dx = x - self.x, dy = y - self.y, d = Math.hypot(dx, dy);
+          return d > 1 && d < r && Math.abs(wrap180(Math.atan2(dy, dx) / D2R - self.trk)) < 40;
+        };
+        return (player.onGround && ahead(pc.x, pc.y, 60)) || this.ai.some((o) => o.sim !== self && o.sim.onGround && ahead(o.sim.x, o.sim.y, 45));
+      },
     };
     // fixed sub-steps: the follower is stable at 0.1 s; time compression runs more of them
     let rest = Math.min(simDt, 2);
     while (rest > 1e-6) { const h = Math.min(rest, 0.1); for (const a of this.ai) a.sim.update(h, ctx); rest -= h; }
 
     for (const a of this.ai) {
+      if (a.stand && a.sim.departed) { a.sim.parkAt(a.stand.x, a.stand.y, a.stand.trk, a.stand.path, 120 + ((this.reparks++ * 97) % 180)); }
       const t = a.sim.target(a.target);
       const p = frame.geodeticToThree(t.lat, t.lon, t.altMslM + this.cgHeight(a));
       this.pos.set(p[0], p[1], p[2]);
@@ -208,6 +315,7 @@ export class TrafficManager {
   }
 
   private clear(): void {
+    this.groundKey = '';
     for (const a of this.ai) this.disposeAi(a);
     this.ai = [];
     this.targetsOut.length = 0;
@@ -229,4 +337,16 @@ export function eulerToQNB(phi: number, theta: number, psi: number, out: [number
   const z = cr * cp * sy - sr * sp * cy;
   out[0] = w; out[1] = -x; out[2] = -y; out[3] = -z;
   return out;
+}
+
+const wrap180 = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
+/** Ground distance (m) between two nearby points. */
+function greatCircleish(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const ky = 6378137 * D2R, kx = ky * Math.cos(lat1 * D2R);
+  return Math.hypot((lon2 - lon1) * kx, (lat2 - lat1) * ky);
+}
+/** The point `dist` metres from (lat, lon) along a true heading (flat earth, fine for a runway). */
+function destination(lat: number, lon: number, hdgDeg: number, dist: number): { lat: number; lon: number } {
+  const ky = 6378137 * D2R, kx = ky * Math.cos(lat * D2R), h = hdgDeg * D2R;
+  return { lat: lat + (Math.cos(h) * dist) / ky, lon: lon + (Math.sin(h) * dist) / kx };
 }

@@ -83,3 +83,42 @@ describe('PatternAircraft', () => {
     expect(run()).toEqual(run());
   });
 });
+
+describe('PatternAircraft on the ground', () => {
+  // stand 300 m beside the runway, taxi path out to a hold-short point 70 m left of the centre line near the threshold
+  const path: [number, number][] = [[600, -300], [600, -150], [200, -150], [60, -150], [60, -70]];
+
+  it('taxis from a stand to the hold-short point, holds while the runway is busy, lines up and takes off', () => {
+    const a = new PatternAircraft('d', 'N9', 'C172', C172_PATTERN, RWY, { leg: 'downwind', along: 0 });
+    a.parkAt(600, -300, 90, path, 5);
+    let busy = true;
+    const ctx: PatternContext = { runwayOccupied: () => busy, sequenceBusy: () => false };
+    const seen: string[] = [];
+    let maxTaxiKt = 0;
+    fly(a, 300, ctx, 0.1, (ac) => {
+      if (seen[seen.length - 1] !== ac.leg) seen.push(ac.leg);
+      if (ac.leg === 'taxi') { maxTaxiKt = Math.max(maxTaxiKt, ac.v / 0.514444); expect(ac.onGround).toBe(true); expect(ac.y).toBeLessThan(-40); }
+    });
+    expect(seen.slice(0, 3)).toEqual(['parked', 'taxi', 'holding']);
+    expect(a.leg).toBe('holding'); // still holding: the runway is busy
+    expect(Math.hypot(a.x - 60, a.y + 70)).toBeLessThan(10);
+    expect(maxTaxiKt).toBeLessThan(20);
+    busy = false;
+    fly(a, 120, ctx, 0.1, (ac) => { if (seen[seen.length - 1] !== ac.leg) seen.push(ac.leg); });
+    expect(seen).toEqual(expect.arrayContaining(['lineup', 'takeoff', 'upwind']));
+    expect(a.onGround).toBe(false);
+  });
+
+  it('stops while blocked ahead, a static parked aircraft never moves', () => {
+    const a = new PatternAircraft('d', 'N9', 'C172', C172_PATTERN, RWY, { leg: 'downwind', along: 0 });
+    a.parkAt(600, -300, 90, path, 0);
+    const ctx: PatternContext = { runwayOccupied: () => false, sequenceBusy: () => false, blockedAhead: () => true };
+    fly(a, 60, ctx);
+    expect(a.leg).toBe('taxi');
+    expect(Math.hypot(a.x - 600, a.y + 300)).toBeLessThan(3);
+    const s = new PatternAircraft('s', 'N8', 'C172', C172_PATTERN, RWY, { leg: 'downwind', along: 0 });
+    s.parkAt(700, -320, 0, null);
+    fly(s, 600);
+    expect(s.leg).toBe('parked'); expect(s.x).toBe(700); expect(s.y).toBe(-320);
+  });
+});

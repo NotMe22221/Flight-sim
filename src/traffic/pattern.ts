@@ -36,7 +36,9 @@ export interface PatternPerformance {
 export const C172_PATTERN: PatternPerformance = { rotateKt: 55, climbKt: 74, patternKt: 90, approachKt: 65, touchdownKt: 55, climbFpm: 700, descentFpm: 600, groundPitchDeg: 0 };
 export const CUB_PATTERN: PatternPerformance = { rotateKt: 40, climbKt: 61, patternKt: 75, approachKt: 55, touchdownKt: 42, climbFpm: 900, descentFpm: 550, groundPitchDeg: 11 };
 
-export type PatternLeg = 'takeoff' | 'upwind' | 'crosswind' | 'downwind' | 'base' | 'final' | 'landing' | 'goaround';
+export type PatternLeg = 'parked' | 'taxi' | 'holding' | 'lineup' | 'takeoff' | 'upwind' | 'crosswind' | 'downwind' | 'base' | 'final' | 'landing' | 'goaround';
+
+const GROUND_LEGS = new Set<PatternLeg>(['parked', 'taxi', 'holding', 'lineup', 'takeoff', 'landing']);
 
 /** What the aircraft needs to know about the rest of the airport each step. */
 export interface PatternContext {
@@ -44,6 +46,8 @@ export interface PatternContext {
   runwayOccupied(self: PatternAircraft): boolean;
   /** another aircraft is ahead in the landing sequence (on base or final, or the player on final) */
   sequenceBusy(self: PatternAircraft): boolean;
+  /** something is in the way on the ground (the player or another aircraft just ahead): stop */
+  blockedAhead?(self: PatternAircraft): boolean;
 }
 
 /** Circuit geometry in runway coordinates (m). Pattern altitude 1,000 ft above the field. */
@@ -101,6 +105,13 @@ export class PatternAircraft {
   legTime = 0;
   /** extended downwind because of traffic / an occupied runway */
   extending = false;
+  /** taxi path in runway coordinates (stand → hold-short point), the index of the next point */
+  private path: [number, number][] = [];
+  private pathIdx = 0;
+  /** seconds left parked before starting to taxi; Infinity = stays parked (static) */
+  parkedS = Infinity;
+  /** a departure: climbs straight out on upwind and leaves instead of turning crosswind */
+  departs = false;
   readonly geo = { lat: 0, lon: 0, alt: 0 };
   private readonly c: CircuitGeometry;
 
@@ -117,6 +128,18 @@ export class PatternAircraft {
   }
 
   get circuit(): CircuitGeometry { return this.c; }
+
+  /**
+   * Park the aircraft at a stand (runway coordinates, heading relative to the runway direction). With
+   * a taxi path (stand → hold-short point) it starts taxiing after `waitS`; without one it stays.
+   */
+  parkAt(x: number, y: number, trkDeg: number, path: [number, number][] | null, waitS = Infinity): void {
+    this.x = x; this.y = y; this.h = 0; this.trk = wrap180(trkDeg); this.v = 0; this.vs = 0; this.rollDeg = 0;
+    this.onGround = true; this.extending = false;
+    this.path = path && path.length >= 2 ? path : [];
+    this.parkedS = this.path.length ? waitS : Infinity;
+    this.leg = 'parked'; this.legTime = 0;
+  }
 
   /** Put the aircraft on a leg, `along` 0..1 through it, at that leg's height and speed. */
   place(leg: PatternLeg, along: number): void {
@@ -148,14 +171,50 @@ export class PatternAircraft {
     let targetTrk = this.trk, targetH = this.h, targetV = this.v;
     let tx = this.x, ty = this.y; // steering point
     switch (this.leg) {
+      case 'parked': {
+        this.v = 0;
+        if (this.legTime >= this.parkedS && this.path.length >= 2) { this.pathIdx = 1; this.setLeg('taxi'); }
+        return;
+      }
+      case 'taxi': {
+        // follow the taxi path at taxi speed, slower into turns; stop for traffic ahead
+        const [px, py] = this.path[this.pathIdx];
+        const d = Math.hypot(px - this.x, py - this.y);
+        if (d < 6) {
+          if (++this.pathIdx >= this.path.length) { this.v = 0; this.setLeg('holding'); return; }
+        }
+        const [nx, ny] = this.path[Math.min(this.pathIdx, this.path.length - 1)];
+        tx = nx; ty = ny;
+        const turn = Math.abs(wrap180(Math.atan2(ny - this.y, nx - this.x) / D2R - this.trk));
+        targetV = (turn > 30 ? 3.5 : 7.5);
+        if (ctx.blockedAhead?.(this)) targetV = 0;
+        break;
+      }
+      case 'holding': {
+        // hold short until the runway is clear and nobody is on base or final
+        this.v = 0;
+        if (this.legTime > 8 && !ctx.runwayOccupied(this) && !ctx.sequenceBusy(this)) {
+          this.path = [[this.x, this.y], [Math.max(this.x, 0) + 60, 0], [Math.max(this.x, 0) + 120, 0]];
+          this.pathIdx = 1;
+          this.setLeg('lineup');
+        }
+        return;
+      }
+      case 'lineup': {
+        const [px, py] = this.path[this.pathIdx];
+        if (Math.hypot(px - this.x, py - this.y) < 8 && ++this.pathIdx >= this.path.length) { this.setLeg('takeoff'); break; }
+        const [nx, ny] = this.path[Math.min(this.pathIdx, this.path.length - 1)];
+        tx = nx; ty = ny; targetV = 5;
+        break;
+      }
       case 'takeoff': {
         targetV = p.climbKt * KT * 1.05; tx = this.x + 300; ty = 0;
         if (this.v >= p.rotateKt * KT) { this.onGround = false; this.setLeg('upwind'); }
         break;
       }
       case 'upwind': case 'goaround': {
-        tx = this.x + 500; ty = 0; targetV = p.climbKt * KT; targetH = c.patternH;
-        if (this.x >= c.upwindTurnX) this.setLeg('crosswind');
+        tx = this.x + 500; ty = 0; targetV = p.climbKt * KT; targetH = this.departs ? 3000 * FT : c.patternH;
+        if (this.x >= c.upwindTurnX && !(this.departs && this.leg === 'upwind')) this.setLeg('crosswind');
         break;
       }
       case 'crosswind': {
@@ -192,18 +251,19 @@ export class PatternAircraft {
         break;
       }
     }
+    if (GROUND_LEGS.has(this.leg) && this.leg !== 'takeoff') this.onGround = true;
     // ── lateral: steer toward (tx, ty) with a standard-rate-ish turn limit ──
     const want = Math.atan2(ty - this.y, tx - this.x) / D2R;
     targetTrk = want;
     const err = wrap180(targetTrk - this.trk);
-    const maxRate = this.onGround ? 3 : 6; // deg/s (6 °/s ≈ 25° bank at 80 kt)
+    const maxRate = this.leg === 'taxi' || this.leg === 'lineup' ? 25 : this.onGround ? 3 : 6; // deg/s (6 °/s ≈ 25° bank at 80 kt)
     const rate = clamp(err * 0.8, -maxRate, maxRate);
     this.trk = wrap180(this.trk + rate * dt);
     const omega = rate * D2R;
     const targetRoll = this.onGround ? 0 : clamp(Math.atan2(this.v * omega, G) / D2R, -30, 30);
     this.rollDeg += clamp(targetRoll - this.rollDeg, -15 * dt, 15 * dt);
     // ── speed ──
-    const accel = this.leg === 'takeoff' ? 2.2 : this.leg === 'landing' ? -2.0 : 1.0;
+    const accel = this.leg === 'takeoff' ? 2.2 : this.leg === 'landing' ? -2.0 : this.leg === 'taxi' || this.leg === 'lineup' ? 1.5 : 1.0;
     const dv = targetV - this.v;
     this.v += clamp(dv, -Math.abs(accel) * dt, Math.abs(accel) * dt);
     // ── vertical ──
@@ -257,6 +317,9 @@ export class PatternAircraft {
     out.gearCompressionM = this.onGround ? 0.05 : 0;
     return out;
   }
+
+  /** A departure that has left the airport (the manager re-parks it for a later departure). */
+  get departed(): boolean { return this.departs && this.leg === 'upwind' && this.x > this.rwy.lengthM + 8000; }
 
   /** On the runway (rolling or stopped on it), for the occupancy rule. */
   get onRunway(): boolean { return this.onGround && this.x > -50 && this.x < this.rwy.lengthM + 50 && Math.abs(this.y) < 40; }

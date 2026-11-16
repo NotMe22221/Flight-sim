@@ -211,6 +211,8 @@ export class Simulator {
   private taxiGraphKey = '';
   private taxiTimer = Infinity;
   private taxiAnnounced = '';
+  private trafficStands: readonly { lat: number; lon: number; headingDeg: number }[] = [];
+  private trafficStandsFor = '';
   /** the last taxi route (automation, UI): runway, taxiway names and length */
   taxiRoute: { runway: string; via: string[]; lengthM: number } | null = null;
   private advisoryTimer = 0;
@@ -637,6 +639,15 @@ export class Simulator {
       else if (ap && greatCircleDistance(s.geo, ap.position) > 15000) ap = null;
       const w = this.weather.state.winds[0];
       this.traffic.setAirport(ap, w?.directionDeg ?? 0, w?.speedKt ?? 0, ap === this.currentAirport ? this.spawnRunwayIdent : null);
+      // ground traffic needs the OSM stands and taxiways (scenery plugin); stands are queried once per airport
+      const query = this.plugins.scenery?.parkingSpots;
+      if (ap && query && this.trafficStandsFor !== ap.icao) {
+        this.trafficStandsFor = ap.icao;
+        this.trafficStands = [];
+        const icao = ap.icao;
+        query.call(this.plugins.scenery, ap.position.lat, ap.position.lon, 3000).then((sp) => { if (this.trafficStandsFor === icao) this.trafficStands = sp; }).catch(() => {});
+      }
+      this.traffic.setGround(ap && this.trafficStands.length ? this.ensureTaxiGraph(ap) : null, this.trafficStands, s.geo);
     }
     this.traffic.update(this.lastSimDt, dt, s, this.world.frame, this.sky.sun.elevationRad);
     // traffic advisories on the ATC channel (once a second while flying; not in replay or slew)
@@ -656,6 +667,20 @@ export class Simulator {
    * the taxiways to the hold-short point of the runway in use (the one most into the wind, as the
    * AI traffic uses) every 2 s and draw the ribbon; hide it at the hold-short point and in the air.
    */
+  /** The OSM taxiway graph of an airport (rebuilt when the airport or the scenery's pavement changes). */
+  private ensureTaxiGraph(ap: Airport): TaxiGraph | null {
+    const sc = this.plugins.scenery;
+    if (!sc?.pavementAreas) { this.taxiGraph = null; return null; }
+    const key = `${ap.icao}:${sc.pavementRevision?.() ?? 0}`;
+    if (key !== this.taxiGraphKey) {
+      this.taxiGraphKey = key;
+      const lines = (sc.pavementAreas() as readonly { kind: string; line: number[]; ref?: string }[])
+        .filter((a) => a.kind === 'taxiline' && a.line.length >= 4 && greatCircleDistance(ap.position, { lat: a.line[1], lon: a.line[0], alt: 0 }) < 4000);
+      this.taxiGraph = lines.length ? new TaxiGraph(ap.position.lat, ap.position.lon, lines) : null;
+    }
+    return this.taxiGraph;
+  }
+
   private updateTaxiRibbon(dt: number, s: AircraftState): void {
     const ap = this.currentAirport;
     const sc = this.plugins.scenery;
@@ -664,13 +689,7 @@ export class Simulator {
     this.taxiTimer += dt;
     if (this.taxiTimer > 2) {
       this.taxiTimer = 0;
-      const key = `${ap!.icao}:${sc!.pavementRevision?.() ?? 0}`;
-      if (key !== this.taxiGraphKey) {
-        this.taxiGraphKey = key;
-        const lines = (sc!.pavementAreas!() as readonly { kind: string; line: number[]; ref?: string }[])
-          .filter((a) => a.kind === 'taxiline' && a.line.length >= 4 && greatCircleDistance(ap!.position, { lat: a.line[1], lon: a.line[0], alt: 0 }) < 4000);
-        this.taxiGraph = lines.length ? new TaxiGraph(ap!.position.lat, ap!.position.lon, lines) : null;
-      }
+      this.ensureTaxiGraph(ap!);
       const w = this.weather.state.winds[0];
       // the runway in use, or the next best one the taxiways from here actually reach
       let rwy: Runway | null = null, route: TaxiRoute | null = null;
