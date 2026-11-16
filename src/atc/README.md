@@ -204,8 +204,11 @@ the reciprocal), `FINAL_LIMITS` (±20° track, lateral max(75 m, 6°), height be
 
 ## Known limitations / proposed contract changes
 
-* No taxiway data: taxi clearances are "taxi to runway X, hold short of runway X"; no taxi
-  route or crossing clearances; holding short is detected geometrically.
+* Taxi routes come from the simulator when it has OSM taxiways (`AtcControllerOptions.taxiRoute`):
+  "taxi to runway 28L via L2, A, A6, hold short of runway 28L" (speech: "via Lima two, Alpha, Alpha
+  six"), read back the same way. Without them the clearance has no "via". No runway-crossing
+  clearances; holding short is detected geometrically (and only after the aircraft has taxied
+  50 m, so a parked start beside a runway end is still PARKED).
 * No traffic: no sequencing ("number two"), no traffic advisories, no runway-occupied
   go-arounds. Single runway in use for departures and arrivals (no KSFO-style 1L/1R departures).
 * Facility names come from the municipality ("San Francisco Departure", not "NorCal

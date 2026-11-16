@@ -41,6 +41,11 @@ export interface AtcControllerOptions {
   emit: (msg: RadioMessage) => void;
   /** options menu hook — wire to the `atc:options` event; called only when the list changes */
   emitOptions: (options: string[]) => void;
+  /**
+   * Optional taxi route provider: the taxiway names ('L2', 'A', 'A6') from the aircraft to the
+   * hold-short point of `runwayIdent` at `icao`, or null when unknown (the clearance then has no 'via').
+   */
+  taxiRoute?: (icao: string, runwayIdent: string) => string[] | null;
   /** initial UTC epoch ms of the world clock (default 2026-01-01T12:00Z); advanced with dt */
   utcMs?: number;
   /** seed for reply delays and squawk codes (default: derived from the callsign) */

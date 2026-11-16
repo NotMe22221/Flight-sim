@@ -70,6 +70,9 @@ export class AtcSession {
   ac: AircraftState | null = null;
   weather: WeatherState | null = null;
 
+  /** taxiway names to a runway's hold-short point (AtcControllerOptions.taxiRoute) */
+  taxiRoute: ((icao: string, runwayIdent: string) => string[] | null) | null = null;
+
   phase: AtcPhase = 'PARKED';
   /** airport of the current operation (departure, then destination) */
   field: FieldCtx | null = null;
@@ -103,6 +106,8 @@ export class AtcSession {
   readonly flags: PhaseFlags = { timeS: 0, callIssued: false, minHeightM: Infinity, climbS: 0, touchedDown: false, outsideS: 0, armed: true, joined: false };
   /** kinematic timers (not reset on phase change) */
   stoppedS = 0;
+  /** metres taxied on the ground since the start or the last park (a parked start is not at a hold-short point) */
+  taxiedM = 0;
   airborneS = 0;
   groundS = 0;
   /** the options list must be rebuilt */
@@ -267,7 +272,7 @@ export class AtcSession {
     this.landingClearance = 'none'; this.entry = null; this.clearanceReceived = false; this.squawk = 1200;
     this.flightFollowing = null; this.pendingReadback = null; this.inboundSuppressed = null;
     this.inboundCancelM = this.tuning.inboundCancelRangeM;
-    this.stoppedS = 0; this.airborneS = 0; this.groundS = 0;
+    this.stoppedS = 0; this.airborneS = 0; this.groundS = 0; this.taxiedM = 0;
     this.phase = 'PARKED';
     const f = this.flags;
     f.timeS = 0; f.callIssued = false; f.minHeightM = Infinity; f.climbS = 0; f.touchedDown = false; f.outsideS = 0; f.armed = true; f.joined = false;

@@ -6,11 +6,14 @@ import { say } from './compose';
 import type { Facility } from './field';
 import type { PatternEntry, PatternLeg, TrafficSide } from './geometry';
 import {
-  altimeter, altitude, atisLetter, compassWord, frequency, miles, runway, spoken, squawk, type Spoken,
+  altimeter, altitude, atisLetter, compassWord, frequency, miles, runway, spellOut, spoken, squawk, type Spoken,
 } from './phraseology';
 import type { DepartureIntent, LandingClearance, LandingIntent } from './types';
 
 const EMPTY = spoken('');
+/** ", via L2, A, A6" with the taxiway names spelled for speech ("Lima two, Alpha, Alpha six"); empty without a route. */
+const viaTaxiways = (via: readonly string[]): Spoken =>
+  via.length ? spoken(` via ${via.join(', ')}`, ` via ${via.map((t) => spellOut(t)).join(', ')}`) : EMPTY;
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 const withInfo = (letter: string | null): Spoken => (letter ? say`, with information ${atisLetter(letter)}` : EMPTY);
 const intentWords = (i: LandingIntent): string => (i === 'full-stop' ? 'full stop' : 'touch and go');
@@ -92,8 +95,8 @@ export const ctaf = {
 // ───────────────────────────── Controller ─────────────────────────────
 
 export const atc = {
-  taxi: (cs: Spoken, f: Facility, rwy: string, extra: Spoken): Spoken =>
-    say`${cs}, ${f.name}, taxi to runway ${runway(rwy)}, hold short of runway ${runway(rwy)}. ${extra}`,
+  taxi: (cs: Spoken, f: Facility, rwy: string, extra: Spoken, via: readonly string[] = []): Spoken =>
+    say`${cs}, ${f.name}, taxi to runway ${runway(rwy)}${viaTaxiways(via)}, hold short of runway ${runway(rwy)}. ${extra}`,
   clearance: (cs: Spoken, f: Facility, maxAltFt: number, dep: Facility | undefined, code: number): Spoken =>
     say`${cs}, ${f.name}, maintain VFR at or below ${altitude(maxAltFt)}${dep ? say`, departure frequency ${frequency(dep.mhz)}` : EMPTY}, squawk ${squawk(code)}.`,
   takeoff: (cs: Spoken, f: Facility, wind: Spoken, rwy: string, closedSide: TrafficSide | null): Spoken =>
@@ -132,7 +135,7 @@ export const atc = {
 // ───────────────────────────── Pilot readbacks ─────────────────────────────
 
 export const readback = {
-  taxi: (cs: Spoken, rwy: string): Spoken => say`Taxi to runway ${runway(rwy)}, hold short of runway ${runway(rwy)}, ${cs}.`,
+  taxi: (cs: Spoken, rwy: string, via: readonly string[] = []): Spoken => say`Taxi to runway ${runway(rwy)}${viaTaxiways(via)}, hold short of runway ${runway(rwy)}, ${cs}.`,
   clearance: (cs: Spoken, maxAltFt: number, dep: Facility | undefined, code: number): Spoken =>
     say`Maintain VFR at or below ${altitude(maxAltFt)}${dep ? say`, departure frequency ${frequency(dep.mhz)}` : EMPTY}, squawk ${squawk(code)}, ${cs}.`,
   takeoff: (cs: Spoken, rwy: string, closedSide: TrafficSide | null = null): Spoken =>

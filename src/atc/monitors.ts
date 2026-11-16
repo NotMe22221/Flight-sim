@@ -24,6 +24,8 @@ const LIFTOFF_S = 1.0;
 const TOUCHDOWN_S = 0.3;
 /** Stopped this long near a runway end → holding short, s. */
 const HOLD_SHORT_STOP_S = 2;
+/** a stop counts as holding short from PARKED only after this much taxiing (m) */
+const MIN_TAXI_TO_HOLD_M = 50;
 /** Stopped with the engine off this long → parked, s. */
 const PARK_ENGINE_OFF_S = 3;
 /** Stopped (engine running) this long after landing → parked, s. */
@@ -55,6 +57,7 @@ export function updateKinematics(s: AtcSession, dt: number, airborne: { value: b
   if (!ac) return null;
   s.flags.timeS += dt;
   s.stoppedS = ac.onGround && ac.groundSpeedMs < s.tuning.stoppedSpeedMs ? s.stoppedS + dt : 0;
+  if (ac.onGround) s.taxiedM += ac.groundSpeedMs * dt;
   if (ac.onGround) { s.groundS += dt; s.airborneS = 0; } else { s.airborneS += dt; s.groundS = 0; }
   if (!airborne.value && s.airborneS >= LIFTOFF_S) { airborne.value = true; return 'liftoff'; }
   if (airborne.value && s.groundS >= TOUCHDOWN_S) { airborne.value = false; return 'touchdown'; }
@@ -183,6 +186,8 @@ export function lineUpRunwayAt(s: AtcSession): RunwayFrame | null {
  */
 function checkHoldShort(s: AtcSession, dt: number): void {
   if (s.stoppedS < HOLD_SHORT_STOP_S || s.stoppedS - dt >= HOLD_SHORT_STOP_S) return;
+  // parked (cold and dark at a stand, or just started up) is not holding short until we have taxied
+  if (s.phase === 'PARKED' && s.taxiedM < MIN_TAXI_TO_HOLD_M) return;
   const best = holdShortRunwayAt(s);
   if (!best) return;
   if (best.ident !== s.runway?.ident) { s.runway = best; s.menuDirty = true; }
@@ -318,6 +323,7 @@ function monitorTaxiIn(s: AtcSession): void {
 /** Arrived at parking: ready for the next departure from this field. */
 function parkHere(s: AtcSession): void {
   s.abbreviated = false; // the next call (a new flight) is an initial contact: full callsign
+  s.taxiedM = 0;
   s.intent = 'departure';
   s.landingIntent = 'full-stop';
   s.landingClearance = 'none';

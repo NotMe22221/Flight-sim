@@ -101,10 +101,13 @@ export function requestTaxi(s: AtcSession, ctx: FieldCtx, intent: DepartureInten
   s.intent = intent;
   s.pilotSays(gnd, (cs) => pilot.taxiRequest(gnd, cs, s.heardLetter(ctx), intent));
   const remark = atc.weatherRemark(ctx.info.shortName, s.currentLetter(ctx), s.heardLetter(ctx), s.altimeterOf(ctx));
-  s.atcReplies(gnd, (cs) => atc.taxi(cs, gnd, rwy.ident, remark), () => {
+  // the taxiways to the hold-short point when the simulator knows them (OSM taxi graph)
+  let via: string[] = [];
+  try { via = s.taxiRoute?.(ctx.info.airport.icao, rwy.ident) ?? []; } catch { via = []; }
+  s.atcReplies(gnd, (cs) => atc.taxi(cs, gnd, rwy.ident, remark, via), () => {
     s.runway = makeRunwayFrame(ctx.info.airport, rwy);
     s.setPhase('TAXI_CLEARED');
-    s.expectReadback(gnd, `Read back: taxi to runway ${rwySpoken(rwy.ident).text}, hold short`, (cs) => readback.taxi(cs, rwy.ident));
+    s.expectReadback(gnd, `Read back: taxi to runway ${rwySpoken(rwy.ident).text}${via.length ? ` via ${via.join(', ')}` : ''}, hold short`, (cs) => readback.taxi(cs, rwy.ident, via));
   });
 }
 

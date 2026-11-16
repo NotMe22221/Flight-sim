@@ -211,6 +211,8 @@ export class Simulator {
   private taxiGraphKey = '';
   private taxiTimer = Infinity;
   private taxiAnnounced = '';
+  /** the runway ATC cleared the player to taxi to (the ribbon follows it) */
+  private clearedRunway: { icao: string; ident: string } | null = null;
   private trafficStands: readonly { lat: number; lon: number; headingDeg: number }[] = [];
   private trafficStandsFor = '';
   /** the last taxi route (automation, UI): runway, taxiway names and length */
@@ -667,6 +669,25 @@ export class Simulator {
    * the taxiways to the hold-short point of the runway in use (the one most into the wind, as the
    * AI traffic uses) every 2 s and draw the ribbon; hide it at the hold-short point and in the air.
    */
+  /**
+   * ATC taxi clearances (AtcControllerOptions.taxiRoute): the taxiway names from the aircraft to the
+   * hold-short point of `runwayIdent` at `icao`, or null without an OSM taxi route. The taxi ribbon
+   * then leads to that runway.
+   */
+  atcTaxiVia(icao: string, runwayIdent: string): string[] | null {
+    const ap = this.currentAirport?.icao === icao ? this.currentAirport : this.nav.getAirport(icao);
+    if (!ap) return null;
+    const g = this.ensureTaxiGraph(ap);
+    const r = g ? rankRunways(ap, 0, 0).find((x) => x.ident === runwayIdent) : undefined;
+    const hs = g && r ? g.holdShort({ threshold: r.threshold, end: r.end, widthM: r.widthM }) : null;
+    const st = this.fdm.state;
+    const route = hs ? g!.route(st.geo.lat, st.geo.lon, hs) : null;
+    if (!route) return null;
+    this.clearedRunway = { icao, ident: runwayIdent };
+    this.taxiTimer = Infinity; // re-route the ribbon to the cleared runway now
+    return route.via;
+  }
+
   /** The OSM taxiway graph of an airport (rebuilt when the airport or the scenery's pavement changes). */
   private ensureTaxiGraph(ap: Airport): TaxiGraph | null {
     const sc = this.plugins.scenery;
@@ -694,7 +715,11 @@ export class Simulator {
       // the runway in use, or the next best one the taxiways from here actually reach
       let rwy: Runway | null = null, route: TaxiRoute | null = null;
       if (this.taxiGraph) {
-        for (const r of rankRunways(ap!, w?.directionDeg ?? 0, w?.speedKt ?? 0, this.spawnRunwayIdent)) {
+        const ranked = rankRunways(ap!, w?.directionDeg ?? 0, w?.speedKt ?? 0, this.spawnRunwayIdent);
+        // the runway ATC cleared us to comes first
+        const cl = this.clearedRunway?.icao === ap!.icao ? this.clearedRunway.ident : null;
+        if (cl) ranked.sort((a, b) => Number(b.ident === cl) - Number(a.ident === cl));
+        for (const r of ranked) {
           const hs = this.taxiGraph.holdShort({ threshold: r.threshold, end: r.end, widthM: r.widthM });
           const rt = hs ? this.taxiGraph.route(s.geo.lat, s.geo.lon, hs) : null;
           if (rt) { rwy = r; route = rt; break; }
@@ -1074,6 +1099,7 @@ export class Simulator {
     this.inFlight = true;
     this.trafficTimer = Infinity; // traffic for the new airport on the first frame of the flight
     this.trafficAdvisor.reset();
+    this.clearedRunway = null;
     this.paused = false;
     this.resetInstruments();
     this.events.emit('flight:reset', { spawn });

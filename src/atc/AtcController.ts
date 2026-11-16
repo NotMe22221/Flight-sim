@@ -60,6 +60,7 @@ export class AtcController {
     this.s = new AtcSession(opts.callsign, opts.aircraftType, opts.nav, { emit: opts.emit, speak: opts.speak },
       { ...DEFAULT_ATC_TUNING, ...tuning }, opts.utcMs, opts.seed);
     this.emitOptions = opts.emitOptions;
+    this.s.taxiRoute = opts.taxiRoute ?? null;
   }
 
   /** Current flight phase. */
