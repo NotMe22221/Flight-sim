@@ -43,7 +43,7 @@ export interface RunwayEndChoice {
   ilsMHz?: number;
 }
 export interface SpawnChoice { airport: Airport; runwayEnd: RunwayEndChoice | null /* null = parking, cold & dark */; coldAndDark: boolean }
-export interface GraphicsSettings { quality: 'low' | 'medium' | 'high' | 'ultra'; renderScale: number; shadows: boolean; clouds: boolean; terrainDetail: number; imagery: 'satellite' | 'procedural'; fov: number }
+export interface GraphicsSettings { quality: 'low' | 'medium' | 'high' | 'ultra'; renderScale: number; shadows: boolean; clouds: boolean; terrainDetail: number; imagery: 'satellite' | 'procedural'; fov: number; /** lower the resolution while the frame rate is below ~40 fps (default on) */ autoResolution?: boolean }
 export interface AudioSettings { master: number; engine: number; environment: number; cockpit: number; ui: number; atc: number }
 export interface UnitsSettings { altitude: 'ft' | 'm'; speed: 'kt' | 'kmh' | 'mph'; pressure: 'inHg' | 'hPa'; distance: 'nm' | 'km'; temperature: 'C' | 'F' }
 export interface BindingInfo { action: SimAction; label: string /* e.g. 'Ctrl+E' */; device: 'keyboard' | 'gamepad' | 'mouse' | 'none'; group: string }

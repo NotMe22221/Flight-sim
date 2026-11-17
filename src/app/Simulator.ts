@@ -43,6 +43,7 @@ import { SlewController, SLEW_THROTTLE_CENTRE } from './slew';
 import { StressMonitor, crashIsRecoverable } from './damage';
 import type { RebaseTransform } from '../world/rebase';
 import { createRenderer, type RendererBundle } from './renderer';
+import { DynamicResolution } from './dynamicResolution';
 import { TrafficManager, rankRunways } from '../traffic/TrafficManager';
 import { TaxiGraph, type TaxiRoute } from '../world/taxiGraph';
 import { TaxiRibbon } from '../world/TaxiRibbon';
@@ -154,6 +155,8 @@ export class Simulator {
   readonly terrain: TerrainSystem | null;
   readonly scene = new THREE.Scene();
   readonly gfx: RendererBundle;
+  /** lowers the render resolution while the frame rate is below target (Settings › Graphics › Dynamic resolution) */
+  readonly dynRes = new DynamicResolution();
   readonly sky: SkySystem;
   /** the 3D airframe and cockpit of the current aircraft (rebuilt, the old one disposed, when the airframe changes) */
   model: AircraftModel;
@@ -435,11 +438,14 @@ export class Simulator {
 
   /** One display frame: input → physics (fixed steps) → world/sky/camera → instruments → render. */
   frame(nowMs: number): void {
-    const dt = clamp((nowMs - this.lastMs) / 1000, 0, 0.25);
+    const rawDt = (nowMs - this.lastMs) / 1000;
+    const dt = clamp(rawDt, 0, 0.25);
     this.lastMs = nowMs;
     this.frameCount++;
     this.fpsAcc += dt; this.fpsFrames++;
     if (this.fpsAcc >= 0.5) { this.fps = this.fpsFrames / this.fpsAcc; this.fpsAcc = 0; this.fpsFrames = 0; }
+    // a full-screen menu renders the world only every 16th frame: no frame-rate signal then
+    if (!this.plugins.ui?.coversView?.() && this.dynRes.update(rawDt)) this.gfx.setDynamicScale(this.dynRes.scale);
 
     const t0 = performance.now();
     const inp = this.input.poll(dt);

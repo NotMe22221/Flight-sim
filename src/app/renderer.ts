@@ -46,6 +46,8 @@ export interface RendererBundle {
   /** max anisotropy the GPU supports */
   maxAnisotropy: number;
   setQuality(q: keyof typeof QUALITY, renderScale?: number): void;
+  /** dynamic-resolution multiplier (0.5…1) on top of the render scale */
+  setDynamicScale(f: number): void;
   resize(width: number, height: number): void;
   dispose(): void;
 }
@@ -76,10 +78,11 @@ export function createRenderer(container: HTMLElement, quality: keyof typeof QUA
   container.appendChild(renderer.domElement);
 
   let renderScale = 1;
+  let dynamicScale = 1;
   let current = profile;
   const applyPixelRatio = () => {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    renderer.setPixelRatio(Math.min(dpr, current.pixelRatioCap) * renderScale);
+    renderer.setPixelRatio(Math.min(dpr, current.pixelRatioCap) * renderScale * dynamicScale);
   };
   applyPixelRatio();
 
@@ -91,6 +94,13 @@ export function createRenderer(container: HTMLElement, quality: keyof typeof QUA
       current = QUALITY[q];
       if (scale !== undefined) renderScale = Math.min(Math.max(scale, 0.5), 2);
       renderer.shadowMap.enabled = current.shadows;
+      applyPixelRatio();
+      renderer.setSize(container.clientWidth || 1, container.clientHeight || 1, false);
+    },
+    setDynamicScale(f) {
+      const v = Number.isFinite(f) ? Math.min(Math.max(f, 0.5), 1) : 1;
+      if (v === dynamicScale) return;
+      dynamicScale = v;
       applyPixelRatio();
       renderer.setSize(container.clientWidth || 1, container.clientHeight || 1, false);
     },

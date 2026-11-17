@@ -41,7 +41,7 @@ export const GRAPHICS_QUALITY_PRESETS: Record<GraphicsSettings['quality'], Omit<
 export const DEFAULT_FOV = 70;
 /** The default before settings version 2: a stored 75 is migrated to DEFAULT_FOV on load. */
 const LEGACY_DEFAULT_FOV = 75;
-export const defaultGraphics = (): GraphicsSettings => ({ quality: 'medium', ...GRAPHICS_QUALITY_PRESETS.medium, imagery: 'satellite', fov: DEFAULT_FOV });
+export const defaultGraphics = (): GraphicsSettings => ({ quality: 'medium', ...GRAPHICS_QUALITY_PRESETS.medium, imagery: 'satellite', fov: DEFAULT_FOV, autoResolution: true });
 export const defaultAudio = (): AudioSettings => ({ master: 0.8, engine: 0.8, environment: 0.7, cockpit: 0.8, ui: 0.6, atc: 0.9 });
 export const defaultUnitsSettings = (): UnitsSettings => ({ altitude: 'ft', speed: 'kt', pressure: 'inHg', distance: 'nm', temperature: 'C' });
 export const defaultInterface = (): InterfaceSettings => ({ scale: 1, subtitles: true, infoStrip: true });
@@ -110,6 +110,7 @@ export function sanitizeSettings(raw: unknown): PersistedSettings {
       terrainDetail: num(g.terrainDetail, d.graphics.terrainDetail, 0.25, 4),
       imagery: oneOf(g.imagery, ['satellite', 'procedural'] as const, d.graphics.imagery),
       fov: legacy && fov === LEGACY_DEFAULT_FOV ? DEFAULT_FOV : fov,
+      autoResolution: bool(g.autoResolution, true),
     },
     audio: { master: vol('master'), engine: vol('engine'), environment: vol('environment'), cockpit: vol('cockpit'), ui: vol('ui'), atc: vol('atc') },
     units: {

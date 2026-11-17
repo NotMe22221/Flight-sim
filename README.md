@@ -74,6 +74,9 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **Activities.** Nine landing challenges scored like MSFS, three instructor-led lessons (basic
   flight, take-off, landing), an eight-leg Pacific Coast bush trip in the Super Cub with saved progress, a
   five-minute replay, slew mode and screenshots (`F12`).
+- **Dynamic resolution.** On by default (Settings › Graphics): when the frame rate stays under about
+  40 fps the render resolution steps down (to half at most) and climbs back when there is headroom,
+  without bouncing straight back to a resolution that was too slow.
 - **Ground snow.** Snow lies on the terrain (and frosts roofs and tree crowns) above a snow line
   set by the surface temperature, and everywhere while it is snowing; steep rock and forest canopies
   stay darker, drifts break up the edge. Weather › Ground snow: Auto, Bare or Snow-covered.

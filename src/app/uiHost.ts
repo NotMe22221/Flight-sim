@@ -122,6 +122,9 @@ export class SimUiHost implements UiHost {
 
   setGraphics(g: GraphicsSettings): void {
     this.sim.gfx.setQuality(g.quality, g.renderScale);
+    this.sim.dynRes.enabled = g.autoResolution !== false;
+    this.sim.dynRes.reset();
+    if (this.sim.dynRes.update(1 / 60)) this.sim.gfx.setDynamicScale(this.sim.dynRes.scale);
     this.sim.cameras.setFov(g.fov);
     this.sim.terrain?.setImagery(g.imagery);
     this.sim.sky.clouds.group.visible = g.clouds;
