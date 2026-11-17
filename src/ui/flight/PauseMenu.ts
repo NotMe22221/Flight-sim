@@ -6,6 +6,8 @@ import { arrowNavigation, button, h, isCoarsePointer, trapFocus } from '../dom';
 
 export interface PauseMenuActions {
   resume: () => void; restart: () => void; worldMap: () => void; settings: () => void; mainMenu: () => void;
+  /** "Save flight" (shown when given) */
+  save?: () => void;
   /** activity running: reset the current step's objectives */
   restartStep?: () => void;
   /** activity running: end it, keep flying */
@@ -41,6 +43,7 @@ export class PauseMenu {
         this.restartStepBtn,
         this.restartBtn,
         this.abortBtn,
+        ...(a.save ? [button('Save flight', a.save, { icon: 'save', cls: 'menu-btn', title: 'Keep this flight (position, state, weather, time, plan) to resume later from the main menu' })] : []),
         button('World map', a.worldMap, { icon: 'globe', cls: 'menu-btn' }),
         button('Settings', a.settings, { icon: 'settings', cls: 'menu-btn' }),
         button('Main menu', a.mainMenu, { icon: 'home', cls: 'menu-btn' })),

@@ -119,6 +119,10 @@ export class FlightUi {
       worldMap: () => { this.closePause(false); d.ctx.navigate('worldmap'); },
       settings: () => { this.closePause(false); d.ctx.navigate('settings'); },
       mainMenu: () => { this.closePause(false); d.ctx.navigate('main'); },
+      save: d.host.saveFlight ? () => {
+        const ok = d.host.saveFlight!();
+        d.ctx.toast(ok ? 'Flight saved: resume it from the main menu' : 'Nothing to save (no flight running, or crashed)', ok ? 'success' : 'warn');
+      } : undefined,
     });
     this.help = new HelpOverlay(d.modalLayer);
     this.report = new LandingReport(d.modalLayer);

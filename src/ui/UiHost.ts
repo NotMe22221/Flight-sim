@@ -116,6 +116,13 @@ export interface UiHost {
   /** Weather › Ground: lying snow 'auto' (from temperature and snowfall), 'none' or 'full' (optional). */
   setGroundSnow?(mode: 'auto' | 'none' | 'full'): void;
   groundSnow?(): 'auto' | 'none' | 'full';
+  /**
+   * Save / resume flight (optional): `saveFlight` stores the running flight (false: nothing to save, e.g.
+   * crashed); `savedFlightInfo` describes the stored one (null: none); `resumeSavedFlight` flies it.
+   */
+  saveFlight?(): boolean;
+  savedFlightInfo?(): { label: string; savedAtMs: number } | null;
+  resumeSavedFlight?(): Promise<void>;
   /** Failures panel: fail or repair a system (optional). */
   setFailure?(id: import('../core/types').FailureId, failed: boolean): void;
   /** Random failures on/off and its state (optional). */

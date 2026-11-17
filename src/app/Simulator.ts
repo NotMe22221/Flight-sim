@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { EventBus } from '../core/events';
 import { clamp, mulberry32, wrap360, wrapTwoPi } from '../core/math';
-import { FAILURE_IDS, defaultControlInputs, type FailureId, type AircraftConfig, type AircraftState, type Airport, type Runway, type AssistanceOptions, type ControlInputs, type InputSnapshot, type SimAction, type SimSnapshot, type SpawnState, type TimeState, type WeatherPresetId } from '../core/types';
+import { FAILURE_IDS, defaultControlInputs, type FailureId, type AircraftConfig, type AircraftState, type Airport, type Runway, type AssistanceOptions, type ControlInputs, type InputSnapshot, type SimAction, type SimSnapshot, type SpawnState, type TimeState, type WeatherPresetId, type WeatherState, type Waypoint } from '../core/types';
 import { DEG, FPM, FT, INHG, KT, RAD } from '../core/units';
 import { Fdm } from '../fdm/fdm';
 import { C172S } from '../fdm/aircraft/c172';
@@ -93,6 +93,27 @@ export interface G1000PanelLike {
   wheel(u: number, v: number, deltaY: number, opts?: { deltaMode?: number; outer?: boolean }): boolean;
   hover(u: number, v: number): { title: string; hint: string } | null;
   readonly g1000: { readonly wantsKeyboard: boolean; keyboard(key: string): boolean };
+}
+
+/** A saved flight ("Save flight" in the pause menu; resumed from the main menu). JSON-safe. */
+export interface SavedFlight {
+  v: 1;
+  savedAtMs: number;
+  aircraftId: string;
+  airportIcao: string | null;
+  geo: { lat: number; lon: number; alt: number };
+  headingRad: number;
+  onGround: boolean;
+  /** the render/physics frame the flight-model state is expressed in */
+  frame: { lat0: number; lon0: number; alt0: number };
+  /** Fdm.serialize() */
+  fdm: string;
+  controls: ControlInputs;
+  weather: WeatherState;
+  utcMs: number;
+  plan: Waypoint[];
+  activeLeg: number;
+  failures: FailureId[];
 }
 
 /** Optional subsystems attached after construction (UI, glass cockpit, HUD, audio, ATC, scenery). */
@@ -1099,8 +1120,46 @@ export class Simulator {
     await this.beginFlight(l.airport, l.end, l.spawn, {});
   }
 
+  /**
+   * The flight as it is now, for "Save flight": aircraft, exact flight-model state (in its frame),
+   * controls, weather, world time and flight plan. Null when no flight is running or it crashed.
+   */
+  saveFlight(): SavedFlight | null {
+    if (!this.inFlight || this.fdm.state.crashed || this.replayer.active) return null;
+    const st = this.fdm.state;
+    return {
+      v: 1, savedAtMs: Date.now(), aircraftId: this.config.id,
+      airportIcao: this.currentAirport?.icao ?? null,
+      geo: { ...st.geo }, headingRad: st.headingTrueRad, onGround: st.onGround,
+      frame: { ...this.world.frame.info }, fdm: this.fdm.serialize(),
+      controls: structuredClone(this.input.controls), weather: structuredClone(this.weather.state), utcMs: this.time.utcMs,
+      plan: this.planner.waypoints.map((w) => structuredClone(w)), activeLeg: this.planner.activeLeg,
+      failures: Object.keys(this.failures) as FailureId[],
+    };
+  }
+
+  /** Resume a saved flight (see `saveFlight`). False when its aircraft is unknown. */
+  async restoreFlight(save: SavedFlight): Promise<boolean> {
+    if (save.v !== 1 || !aircraftById(save.aircraftId)) return false;
+    this.selectAircraft(save.aircraftId);
+    await this.nav.load();
+    await this.nav.loadRegion(save.geo, 30);
+    const airport = (save.airportIcao && this.nav.getAirport(save.airportIcao)) || (this.nav.nearestAirports(save.geo, 1, 40)[0] ?? null);
+    this.time.utcMs = save.utcMs;
+    this.sky.resetAdaptation();
+    this.weather.setState(save.weather, 0);
+    this.events.emit('weather:changed', { state: this.weather.state });
+    const spawn: SpawnState = { geo: { ...save.geo }, headingRad: save.headingRad, speedMs: 0, onGround: true, engineRunning: true };
+    await this.beginFlight(airport, null, spawn, { restore: save });
+    // beginFlight re-anchored the weather layers to the airport elevation: the saved state is already anchored
+    this.weather.setState(save.weather, 0);
+    if (save.plan.length) { this.planner.setWaypoints(save.plan); if (save.activeLeg > 0 && save.activeLeg < save.plan.length) this.planner.activateLeg(save.activeLeg); }
+    for (const f of save.failures) if ((FAILURE_IDS as readonly string[]).includes(f)) this.setFailure(f, true);
+    return true;
+  }
+
   /** Common spawn path: new origin, terrain prefetch, airport geometry, flight-model reset, systems reset. */
-  private async beginFlight(airport: Airport | null, end: RunwayEndRef | null, spawn: SpawnState, opts: { fuelFraction?: number; payloadKg?: number; flapsIndex?: number }): Promise<void> {
+  private async beginFlight(airport: Airport | null, end: RunwayEndRef | null, spawn: SpawnState, opts: { fuelFraction?: number; payloadKg?: number; flapsIndex?: number; restore?: SavedFlight }): Promise<void> {
     this.inFlight = false;
     this.slew = false;
     this.slewCtl.exit();
@@ -1108,7 +1167,9 @@ export class Simulator {
     const g = spawn.geo;
     if (airport) await this.nav.loadRegion(airport.position, 40);
     this.currentAirport = airport;
-    this.world.setOrigin(g.lat, g.lon, spawn.onGround ? g.alt : airport?.elevationM ?? 0);
+    // a restored flight's state is in its saved frame: the same origin
+    const o = opts.restore?.frame;
+    this.world.setOrigin(o ? o.lat0 : g.lat, o ? o.lon0 : g.lon, spawn.onGround ? g.alt : airport?.elevationM ?? 0);
     this.plugins.scenery?.setFrame(this.world.frame);
     if (airport) { this.world.airports.ensureAirport(airport); this.world.syncRunways(); }
     // aprons / taxiways known near the spawn (a parking spawn loaded their scenery tiles) are
@@ -1154,6 +1215,13 @@ export class Simulator {
       if (tr) { c.throttle = tr.throttle; c.pitchTrim = tr.pitchTrim; }
     }
     this.fdm.setAltimeter(this.weather.state.qnhPa);
+    if (opts.restore) {
+      // the exact saved state (attitude, rates, fuel, engine temperatures, flaps, trim, battery) over the placeholder spawn
+      this.fdm.deserialize(opts.restore.fdm);
+      Object.assign(c, structuredClone(opts.restore.controls));
+      this.fdm.snapControls(c);
+      this.world.groundShift(this.fdm.state.posNED[0], this.fdm.state.posNED[1]);
+    }
     copyPose(this.fdm.state, this.prev);
     this.loop.reset();
     // power-on state (FD/YD off, modes and trim cleared) without a disconnect tone

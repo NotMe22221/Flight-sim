@@ -6,6 +6,7 @@ import type { IconName } from '../icons';
 export class MainMenu extends Screen {
   private summary: Record<string, HTMLElement> = {};
   private resumeBtn: HTMLButtonElement;
+  private savedBtn: HTMLButtonElement;
   private flyBtn: HTMLButtonElement;
 
   constructor(private readonly ctx: ScreenContext) {
@@ -18,10 +19,11 @@ export class MainMenu extends Screen {
     this.resumeBtn = button('Resume flight', () => (ctx.resumeFlight ? ctx.resumeFlight() : ctx.navigate('flight')), { icon: 'play', cls: 'menu-btn primary' });
     this.resumeBtn.style.display = 'none';
     this.flyBtn = button('Fly now', () => ctx.fly(), { icon: 'plane', cls: 'menu-btn primary' });
+    this.savedBtn = button('Resume saved flight', () => ctx.resumeSaved?.(), { icon: 'play', cls: 'menu-btn' });
     const left = h('div', { class: 'main-left' },
       h('h1', { class: 'brand' }, 'Flight Sim', h('small', { text: 'Browser edition' })),
       h('nav', { class: 'menu-list', aria: { label: 'Main menu' } },
-        this.resumeBtn, this.flyBtn,
+        this.resumeBtn, this.flyBtn, this.savedBtn,
         button('World map', () => ctx.navigate('worldmap'), { icon: 'globe', cls: 'menu-btn' }),
         button('Activities', () => ctx.navigate('activities'), { icon: 'trophy', cls: 'menu-btn', title: 'Landing challenges, flight training and bush trips' }),
         button('Aircraft', () => ctx.navigate('aircraft'), { icon: 'plane', cls: 'menu-btn' }),
@@ -45,6 +47,9 @@ export class MainMenu extends Screen {
   protected override onShow(): void {
     this.refresh();
     this.resumeBtn.style.display = this.ctx.inFlight() ? '' : 'none';
+    const saved = this.ctx.resumeSaved ? this.ctx.host.savedFlightInfo?.() ?? null : null;
+    this.savedBtn.style.display = saved ? '' : 'none';
+    if (saved) this.savedBtn.title = `${saved.label} · saved ${new Date(saved.savedAtMs).toLocaleString()}`;
     this.flyBtn.querySelector('.btn-label')!.textContent = this.ctx.inFlight() ? 'New flight' : 'Fly now';
     (this.ctx.inFlight() ? this.resumeBtn : this.flyBtn).focus();
   }

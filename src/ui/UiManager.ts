@@ -86,6 +86,10 @@ export class UiManager {
       toast: (text, kind, durationMs) => this.toasts.push({ text, kind, ...(durationMs ? { durationMs } : {}) }),
       resetLayout: () => { this.layout.reset(); this.flight.panels.resetPositions(); },
       startChallenge: (id) => { void this.launcher.startChallenge(id); },
+      resumeSaved: () => {
+        const r = host.resumeSavedFlight;
+        if (r) void this.launcher.startActivity(() => r.call(host), 'Could not resume the saved flight');
+      },
       startLesson: (id) => {
         const start = host.startLesson;
         if (start) void this.launcher.startActivity(() => start.call(host, id), 'Could not start the lesson');

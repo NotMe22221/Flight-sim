@@ -3,10 +3,11 @@
  * internals; everything goes through these methods.
  */
 import type { AircraftConfig, AssistanceOptions, FailureId, CameraMode, SimAction, SimSnapshot, Waypoint, WeatherPresetId, WeatherState } from '../core/types';
-import { AIRCRAFT, aircraftForActivity } from './aircraftCatalog';
+import { AIRCRAFT, aircraftById, aircraftForActivity } from './aircraftCatalog';
 import { fetchOpenMeteo, OPEN_METEO_ATTRIBUTION, weatherFromPreset } from '../sky';
 import type { AudioSettings, BindingInfo, GraphicsSettings, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
 import type { Simulator } from './Simulator';
+import { SAVED_FLIGHT_KEY, readSavedFlight, savedFlightLabel } from './savedFlight';
 import { magneticDeclinationDeg } from '../geo/magvar';
 import { bushLegActivity, lessonById, tripById, type ActivityRunner, type ProgressStore } from '../activities';
 
@@ -69,6 +70,22 @@ export class SimUiHost implements UiHost {
   }
   // ── failures panel
   setFailure(id: FailureId, failed: boolean): void { this.sim.setFailure(id, failed); }
+
+  /** One saved-flight slot in localStorage (a few kB of JSON). */
+  saveFlight(): boolean {
+    const save = this.sim.saveFlight();
+    if (!save) return false;
+    try { localStorage.setItem(SAVED_FLIGHT_KEY, JSON.stringify(save)); return true; } catch { return false; }
+  }
+  savedFlightInfo(): { label: string; savedAtMs: number } | null {
+    const s = readSavedFlight();
+    return s ? { label: savedFlightLabel(s, aircraftById(s.aircraftId)?.name ?? s.aircraftId), savedAtMs: s.savedAtMs } : null;
+  }
+  async resumeSavedFlight(): Promise<void> {
+    const s = readSavedFlight();
+    if (!s) throw new Error('No saved flight');
+    if (!(await this.sim.restoreFlight(s))) throw new Error('The saved flight could not be read');
+  }
   setGroundSnow(mode: 'auto' | 'none' | 'full'): void { this.sim.setGroundSnow(mode); }
   groundSnow(): 'auto' | 'none' | 'full' { return this.sim.groundSnowMode; }
   setRandomFailures(on: boolean): void { this.sim.randomFailures = on; }
@@ -164,3 +181,4 @@ export class SimUiHost implements UiHost {
   /** Weather preset preview used by the World Map before a flight exists. */
   static presetPreview(id: WeatherPresetId, elevationM: number): WeatherState { return weatherFromPreset(id, elevationM); }
 }
+

@@ -21,6 +21,8 @@ export interface ScreenContext {
   toast(text: string, kind?: 'info' | 'warn' | 'error' | 'success', durationMs?: number): void;
   /** Forgets persisted floating-panel positions. */
   resetLayout?(): void;
+  /** Main menu "Resume saved flight": loading screen, host.resumeSavedFlight(), then the flight view. */
+  resumeSaved?(): void;
   /** Activities: show the loading screen and start a landing challenge (host.startChallenge). */
   startChallenge?(id: string): void;
   /** Activities › Flight training: loading screen, host.startLesson(id), then the flight view. */
