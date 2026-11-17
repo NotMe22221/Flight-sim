@@ -843,6 +843,13 @@ export class TerrainSystem {
     u.uAmbient.value.copy(ambient);
   }
 
+  /** Seasonal vegetation 0…1 (src/sky/season.ts). */
+  setSeason(autumn: number, dormant: number): void {
+    const c = (x: number) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
+    this.shared.uAutumn.value = c(autumn);
+    this.shared.uDormant.value = c(dormant);
+  }
+
   /** Lying snow: snow line (m MSL) and amount 0…1 (src/sky/groundSnow.ts). */
   setSnow(lineM: number, amount: number): void {
     const u = this.shared;

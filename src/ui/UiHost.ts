@@ -116,6 +116,9 @@ export interface UiHost {
   /** Weather › Ground: lying snow 'auto' (from temperature and snowfall), 'none' or 'full' (optional). */
   setGroundSnow?(mode: 'auto' | 'none' | 'full'): void;
   groundSnow?(): 'auto' | 'none' | 'full';
+  /** Weather › Season: vegetation colours 'auto' (from the date and latitude) or forced (optional). */
+  setSeason?(mode: 'auto' | 'summer' | 'autumn' | 'winter'): void;
+  season?(): 'auto' | 'summer' | 'autumn' | 'winter';
   /**
    * Save / resume flight (optional): `saveFlight` stores the running flight (false: nothing to save, e.g.
    * crashed); `savedFlightInfo` describes the stored one (null: none); `resumeSavedFlight` flies it.

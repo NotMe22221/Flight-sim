@@ -88,6 +88,8 @@ export class SimUiHost implements UiHost {
   }
   setGroundSnow(mode: 'auto' | 'none' | 'full'): void { this.sim.setGroundSnow(mode); }
   groundSnow(): 'auto' | 'none' | 'full' { return this.sim.groundSnowMode; }
+  setSeason(mode: 'auto' | 'summer' | 'autumn' | 'winter'): void { this.sim.setSeason(mode); }
+  season(): 'auto' | 'summer' | 'autumn' | 'winter' { return this.sim.seasonMode; }
   setRandomFailures(on: boolean): void { this.sim.randomFailures = on; }
   randomFailures(): boolean { return this.sim.randomFailures; }
 

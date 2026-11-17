@@ -7,6 +7,7 @@
  */
 import * as THREE from 'three';
 import { applyIblScale } from '../sky/iblScale';
+import { SEASON_GLSL } from '../sky/season';
 import { makeFacadeImages, makePavementImage, makePlainImage, makePoolImage, makeRoofImage, makeSpriteImage, toTexture } from './textures';
 
 /**
@@ -63,6 +64,8 @@ export interface MaterialPatch {
   ambientSat?: { value: number };
   /** lying snow 0…1 (shared uniform) and how much of it this material takes (roofs most, tree crowns less) */
   snow?: { uniform: { value: number }; share: number };
+  /** seasonal vegetation (x autumn, y dormant), for tree crowns */
+  season?: { value: THREE.Vector2 };
 }
 
 /**
@@ -102,6 +105,16 @@ export function patchMaterial(m: THREE.Material, p: MaterialPatch, key: string):
         .replace('void main() {', 'uniform float sceneryAmbientSat;\nvoid main() {')
         .replace('#include <lights_fragment_begin>', '#include <lights_fragment_begin>\n\tirradiance = mix( vec3( dot( irradiance, vec3( 0.2126, 0.7152, 0.0722 ) ) ), irradiance, sceneryAmbientSat );');
     }
+    if (p.season && shader.fragmentShader.includes('#include <color_fragment>')) {
+      shader.uniforms.scenerySeason = p.season;
+      // per-tree variation: a hash of the instance's position (fixed to the tree, not the view)
+      shader.vertexShader = shader.vertexShader
+        .replace('void main() {', 'varying float vSeasonSeed;\nvoid main() {')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n#ifdef USE_INSTANCING\n\tvSeasonSeed = fract( sin( dot( instanceMatrix[ 3 ].xz, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 );\n#else\n\tvSeasonSeed = 0.5;\n#endif');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('void main() {', `uniform vec2 scenerySeason;\nvarying float vSeasonSeed;\n${SEASON_GLSL}\nvoid main() {`)
+        .replace('#include <color_fragment>', '#include <color_fragment>\n\tdiffuseColor.rgb = seasonalVegetation( diffuseColor.rgb, vSeasonSeed, scenerySeason.x, scenerySeason.y );');
+    }
     if (p.snow && shader.fragmentShader.includes('#include <color_fragment>')) {
       shader.uniforms.scenerySnow = p.snow.uniform;
       shader.fragmentShader = shader.fragmentShader
@@ -130,6 +143,7 @@ export class SceneryMaterials {
   /** saturation kept in the sky ambient light (shared uniform) */
   readonly ambientSat = { value: AMBIENT_SATURATION };
   readonly snow = { value: 0 };
+  readonly season = { value: new THREE.Vector2(0, 0) };
   /** near-camera drop of airport surfaces (shared uniform, m) */
   readonly nearDrop = { value: NEAR_DROP_M };
   private night = -1;
@@ -166,7 +180,7 @@ export class SceneryMaterials {
     patchMaterial(this.surfaces, { depthBias: this.depthBias, nearDrop: this.nearDrop, ambientSat: this.ambientSat }, 'scenery-surfaces-2');
     patchMaterial(this.markings, { depthBias: this.depthBias, nearDrop: this.nearDrop, ambientSat: this.ambientSat }, 'scenery-markings-2');
     this.trees = new THREE.MeshLambertMaterial({ name: 'scenery-trees', vertexColors: true });
-    patchMaterial(this.trees, { ambientSat: this.ambientSat, snow: { uniform: this.snow, share: 0.45 } }, 'scenery-trees-2');
+    patchMaterial(this.trees, { ambientSat: this.ambientSat, snow: { uniform: this.snow, share: 0.45 }, season: this.season }, 'scenery-trees-3');
     // after patchMaterial (it assigns the hooks applyIblScale chains onto)
     applyIblScale(this.walls, ENV_DIFFUSE, ENV_SPECULAR_GLASS);
     for (const m of [this.plain, this.roofs, this.surfaces, this.markings, this.trees]) applyIblScale(m, ENV_DIFFUSE, ENV_SPECULAR);
@@ -207,6 +221,9 @@ export class SceneryMaterials {
 
   /** Lying snow at the scenery's altitude, 0 (bare) … 1: whitens roofs and frosts tree crowns. */
   setSnow(amount: number): void { this.snow.value = Number.isFinite(amount) ? Math.max(0, Math.min(1, amount)) : 0; }
+
+  /** Seasonal vegetation 0…1: autumn tree colours, winter-dormant crowns. */
+  setSeason(autumn: number, dormant: number): void { this.season.value.set(Number.isFinite(autumn) ? autumn : 0, Number.isFinite(dormant) ? dormant : 0); }
 
   /** Night factor 0 (day) … 1 (night): lit windows, light points and floodlight pools. */
   setNight(f: number): void {

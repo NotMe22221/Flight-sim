@@ -90,6 +90,12 @@ export class WeatherPanel {
           host.groundSnow?.() ?? 'auto', (v) => host.setGroundSnow?.(v), 'stretch').el,
         h('div', { class: 'muted', style: 'font-size:.82em', text: 'Auto: snow lies where the temperature keeps it frozen, and wherever it is snowing.' })]
       : [];
+    if (host.setSeason) {
+      ground.push(h('div', { class: 'section-label' }, icon('sun'), ' Season'),
+        segmented<'auto' | 'summer' | 'autumn' | 'winter'>([{ value: 'auto', label: 'Auto' }, { value: 'summer', label: 'Summer' }, { value: 'autumn', label: 'Autumn' }, { value: 'winter', label: 'Winter' }],
+          host.season?.() ?? 'auto', (v) => host.setSeason?.(v), 'stretch').el,
+        h('div', { class: 'muted', style: 'font-size:.82em', text: 'Auto follows the date and latitude: autumn colours in October, brown winter grass from November to March (reversed south of the equator).' }));
+    }
     const presetsCard = h('div', { class: 'panel wx-card' }, h('div', { class: 'section-label' }, icon('cloudSun'), ' Weather'), grid, this.status.el, this.currentWx.el, ...ground);
     const timeCard = h('div', { class: 'panel wx-card' }, h('div', { class: 'section-label' }, icon('clock'), ' Time of day'), this.timeSeg.el, this.timeSlider,
       h('div', { class: 'section-label' }, icon('fast'), ' Time acceleration'), this.scaleSeg.el);

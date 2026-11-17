@@ -204,6 +204,7 @@ export class SceneryManager implements SceneryLike {
   }
 
   setSnow(amount: number): void { this.materials.setSnow(amount); }
+  setSeason(autumn: number, dormant: number): void { this.materials.setSeason(autumn, dormant); }
 
   setVisible(on: boolean): void {
     this.visible = on;

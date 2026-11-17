@@ -23,6 +23,7 @@
 import { Color, DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, SRGBColorSpace, ShaderMaterial, Texture, UnsignedByteType, Vector2, Vector3 } from 'three';
 import { SKY_UNIFORMS, SKY_UNIFORMS_GLSL, type SkySharedUniforms } from '../sky/skyUniforms';
 import { HAZE_LOBE_GLSL } from '../sky/types';
+import { SEASON_GLSL } from '../sky/season';
 
 /** Period (m) of the procedural detail noise; `uDetailOffset` is kept modulo this across rebases. */
 export const DETAIL_PERIOD_M = 8192;
@@ -61,6 +62,9 @@ export interface TerrainSharedUniforms extends SkySharedUniforms {
   uSnowAmount: { value: number };
   /** altitude MSL (m) of the render frame's origin: altitude ≈ this + y + (x² + z²) / 2R */
   uFrameAltM: { value: number };
+  /** seasonal vegetation 0…1 (src/sky/season.ts): autumn colours, winter-dormant grass and forest */
+  uAutumn: { value: number };
+  uDormant: { value: number };
 }
 
 /** Shared uniforms; the sky's uniform objects (default the process-wide `SKY_UNIFORMS`) are referenced, not copied. */
@@ -83,6 +87,8 @@ export function createTerrainSharedUniforms(sky: SkySharedUniforms = SKY_UNIFORM
     uSnowLineM: { value: 9000 },
     uSnowAmount: { value: 0 },
     uFrameAltM: { value: 0 },
+    uAutumn: { value: 0 },
+    uDormant: { value: 0 },
   };
 }
 
@@ -211,6 +217,9 @@ ${SKY_UNIFORMS_GLSL}
 ${FOG_GLSL}
 ${DETAIL_GLSL}
 ${SNOW_GLSL}
+${SEASON_GLSL}
+uniform float uAutumn;
+uniform float uDormant;
 void main() {
   #include <logdepthbuf_fragment>
   vec3 toFrag = vWorldPos - cameraPosition;
@@ -220,6 +229,13 @@ void main() {
   if (uProcedural > 0.5) albedo = proceduralDetail(albedo, vWorldPos, dist);
   vec3 n = normalize(vNormalW);
   vec3 up = normalize(vWorldPos - uEarthCenter);
+  if (uAutumn + uDormant > 0.0) {
+    vec2 sp = vWorldPos.xz + uDetailOffset;
+    float stand = detailNoise(sp / 128.0 + 23.0, ${DETAIL_PERIOD_M / 128}.0);
+    float tree = detailNoise(sp / 32.0 + 41.0, ${DETAIL_PERIOD_M / 32}.0);
+    float patchN = 0.7 * stand + 0.3 * mix(0.5, tree, 1.0 - smoothstep(1500.0, 8000.0, dist));
+    albedo = seasonalVegetation(albedo, patchN, uAutumn, uDormant);
+  }
   vec4 snowed = applySnow(albedo, vWorldPos, n, up, dist);
   albedo = snowed.rgb;
   float direct = mix(max(dot(up, uSunDir), 0.0), max(dot(n, uSunDir), 0.0), mix(uSlopeContrast, 0.9, snowed.a));

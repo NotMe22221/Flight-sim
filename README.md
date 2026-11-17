@@ -83,6 +83,9 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **Ground snow.** Snow lies on the terrain (and frosts roofs and tree crowns) above a snow line
   set by the surface temperature, and everywhere while it is snowing; steep rock and forest canopies
   stay darker, drifts break up the edge. Weather › Ground snow: Auto, Bare or Snow-covered.
+- **Seasons.** Vegetation follows the date and latitude: autumn colours in the forests in October,
+  straw-brown grass and grey-brown woods from November to March (reversed south of the equator; the
+  tropics stay green). Weather › Season: Auto, Summer, Autumn or Winter.
 - **Failures.** A failures panel (toolbar) fails the engine, vacuum pump (attitude and heading
   gyros spin down), pitot tube (the airspeed indicator acts as an altimeter), static port (altimeter
   and VSI freeze), alternator, electrical system or avionics bus; random failures are optional.

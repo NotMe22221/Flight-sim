@@ -22,6 +22,7 @@ import { makeActivityHost } from './activityHost';
 import { TerrainSystem } from '../terrain/TerrainSystem';
 import { SkySystem, WeatherSystem } from '../sky';
 import { GroundSnowState, groundSnowFor, snowAt, type GroundSnowMode } from '../sky/groundSnow';
+import { seasonFor } from '../sky/season';
 import { AircraftModel, bodyQuatToThree } from '../aircraft3d';
 import { CameraController } from '../camera';
 import { InputManager } from '../input/InputManager';
@@ -74,6 +75,8 @@ export interface SceneryLike {
   setVisible?(on: boolean): void;
   /** lying snow at the scenery's altitude, 0…1 */
   setSnow?(amount: number): void;
+  /** seasonal vegetation 0…1 */
+  setSeason?(autumn: number, dormant: number): void;
   /** stands / gates / apron positions near a point, best first (for parking spawns) */
   parkingSpots?(lat: number, lon: number, radiusM: number): Promise<{ lat: number; lon: number; headingDeg: number; name: string; kind?: 'gate' | 'stand' }[]>;
   attribution?(): string[];
@@ -94,6 +97,11 @@ export interface G1000PanelLike {
   hover(u: number, v: number): { title: string; hint: string } | null;
   readonly g1000: { readonly wantsKeyboard: boolean; keyboard(key: string): boolean };
 }
+
+export type SeasonMode = 'auto' | 'summer' | 'autumn' | 'winter';
+const SEASON_PRESETS: Record<Exclude<SeasonMode, 'auto'>, { autumn: number; dormant: number }> = {
+  summer: { autumn: 0, dormant: 0 }, autumn: { autumn: 1, dormant: 0 }, winter: { autumn: 0, dormant: 1 },
+};
 
 /** A saved flight ("Save flight" in the pause menu; resumed from the main menu). JSON-safe. */
 export interface SavedFlight {
@@ -558,6 +566,10 @@ export class Simulator {
   /** jump straight to the target cover (a new flight, a changed setting) instead of easing */
   private snapSnow = true;
   setGroundSnow(mode: GroundSnowMode): void { this.groundSnowMode = mode; this.snapSnow = true; }
+  /** Vegetation season: 'auto' from the date and latitude, or forced. */
+  seasonMode: SeasonMode = 'auto';
+  private snapSeason = true;
+  setSeason(mode: SeasonMode): void { this.seasonMode = mode; this.snapSeason = true; }
 
   /** Failures in effect (failures panel, random failures); cleared by a new flight. */
   readonly failures: Partial<Record<FailureId, boolean>> = {};
@@ -862,6 +874,13 @@ export class Simulator {
     this.snapSnow = false;
     this.terrain?.setSnow(snow.lineM, snow.amount);
     this.plugins.scenery?.setSnow?.(snowAt(snow, s.altitudeMslM - s.altitudeAglM));
+    if ((this.frameCount & 63) === 0 || this.snapSeason) {
+      // the date and latitude change slowly: every 64 frames is plenty
+      this.snapSeason = false;
+      const sea = this.seasonMode === 'auto' ? seasonFor(this.time.utcMs, s.geo.lat) : SEASON_PRESETS[this.seasonMode];
+      this.terrain?.setSeason(sea.autumn, sea.dormant);
+      this.plugins.scenery?.setSeason?.(sea.autumn, sea.dormant);
+    }
     let tn = performance.now(); this.mark('sky', tn - tm); tm = tn;
     this.world.update(dt, camPos, this.cameras.camera, s.geo, this.v3, this.sky.sun.elevationRad);
     this.plugins.scenery?.update(dt, camPos, this.cameras.camera, this.sky.sun.elevationRad);
