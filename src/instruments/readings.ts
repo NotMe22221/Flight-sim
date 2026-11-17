@@ -208,6 +208,7 @@ export class InstrumentModel {
 
   /** Snap every filter to the current truth (spawn / flight reset). Gyros start spun-up if the engine runs. */
   reset(s: SimSnapshot): void {
+    this.frozenStaticPa = null; this.frozenTotalPa = null;
     const ac = s.aircraft, running = ac.engine.running;
     const oatC = sane(ac.atmosphere.temperatureK, 1) ? ac.atmosphere.temperatureK - 273.15 : 15;
     const magDeg = wrap360(ac.headingMagRad * RAD);
@@ -267,13 +268,26 @@ export class InstrumentModel {
     const running = ac.engine.running;
     const rollRad = ac.euler[0], pitchRad = ac.euler[1];
 
-    // ── pitot-static
-    const iasRaw = sane(ac.aero.ias, -1) ? ac.aero.ias * MS_TO_KT : sane(ac.aero.cas, -1) ? ac.aero.cas * MS_TO_KT : ac.aero.tas * MS_TO_KT;
+    // ── pitot-static (a blocked static port freezes the static pressure; a blocked pitot with its
+    // drain freezes the total pressure: the airspeed indicator then reads the difference)
+    const fail = s.failures;
+    const psTrue = this.staticPa(s);
+    if (fail?.static) { if (this.frozenStaticPa === null) this.frozenStaticPa = psTrue; } else this.frozenStaticPa = null;
+    const psUsed = this.frozenStaticPa ?? psTrue;
+    let iasRaw = sane(ac.aero.ias, -1) ? ac.aero.ias * MS_TO_KT : sane(ac.aero.cas, -1) ? ac.aero.cas * MS_TO_KT : ac.aero.tas * MS_TO_KT;
+    if (fail?.pitot || fail?.static) {
+      // impact pressure the healthy system would see, then the total the blocked system holds
+      const qc = 0.5 * 1.225 * (iasRaw / MS_TO_KT) ** 2;
+      const totalTrue = psTrue + qc;
+      if (fail?.pitot) { if (this.frozenTotalPa === null) this.frozenTotalPa = totalTrue; } else this.frozenTotalPa = null;
+      const qcInd = (this.frozenTotalPa ?? totalTrue) - psUsed;
+      iasRaw = qcInd > 0 ? Math.sqrt((2 * qcInd) / 1.225) * MS_TO_KT : 0;
+    } else this.frozenTotalPa = null;
     r.iasKt = Math.max(0, this.asi.step(iasRaw, dt));
     r.casKt = Math.max(0, ac.aero.cas * MS_TO_KT);
     r.tasKt = Math.max(0, ac.aero.tas * MS_TO_KT);
     r.gsKt = Math.max(0, ac.groundSpeedMs * MS_TO_KT);
-    const ps = this.staticPa(s), setting = this.settingPa(s);
+    const ps = psUsed, setting = this.settingPa(s);
     const a = r.altimeter;
     a.pressureAltFt = pressureAltitudeFt(ps);
     let ind = this.alt.step(indicatedAltitudeFt(ps, setting), dt);
@@ -282,8 +296,9 @@ export class InstrumentModel {
     a.settingInHg = setting / INHG;
     a.settingHPa = setting / 100;
     a.modeCFt = Math.round(a.pressureAltFt / 100) * 100;
-    r.vsiFpm = this.vsi.step(ac.verticalSpeedMs * MS_TO_FPM, dt);
-    r.adcVsFpm = this.adcVs.step(ac.verticalSpeedMs * MS_TO_FPM, dt);
+    const vsTrue = fail?.static ? 0 : ac.verticalSpeedMs * MS_TO_FPM;
+    r.vsiFpm = this.vsi.step(vsTrue, dt);
+    r.adcVsFpm = this.adcVs.step(vsTrue, dt);
 
     // Processes that run on simulated time (DG drift, hour meters, annunciator hold timers) stop
     // while the sim is paused or replaying; display lags keep using `dt` so needles still follow a replay.
@@ -308,7 +323,7 @@ export class InstrumentModel {
     r.avionicsOn = avionicsLive;
     r.essentialOn = busLive;
     r.ahrs.pitchDeg = pitchRad * RAD; r.ahrs.rollDeg = rollRad * RAD; r.ahrs.valid = busLive;
-    r.suctionInHg = suctionInHg(running, ac.engine.rpm);
+    r.suctionInHg = s.failures?.vacuum ? 0 : suctionInHg(running, ac.engine.rpm);
     const vacPower = r.suctionInHg / cfg.minVacuumInHg;
 
     // ── gyros
@@ -402,6 +417,10 @@ export class InstrumentModel {
     r.clock.timerS = this.timerRunning ? s.time.simTimeS - this.timerStartS : this.timerHeldS;
     return r;
   }
+
+  /** pressures held by a blocked static port / pitot tube (null while healthy) */
+  private frozenStaticPa: number | null = null;
+  private frozenTotalPa: number | null = null;
 
   private staticPa(s: SimSnapshot): number {
     const p = s.aircraft.atmosphere.pressurePa;

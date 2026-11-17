@@ -74,6 +74,9 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **Activities.** Nine landing challenges scored like MSFS, three instructor-led lessons (basic
   flight, take-off, landing), an eight-leg Pacific Coast bush trip in the Super Cub with saved progress, a
   five-minute replay, slew mode and screenshots (`F12`).
+- **Failures.** A failures panel (toolbar) fails the engine, vacuum pump (attitude and heading
+  gyros spin down), pitot tube (the airspeed indicator acts as an altimeter), static port (altimeter
+  and VSI freeze), alternator, electrical system or avionics bus; random failures are optional.
 - **Interface.** MSFS-style main menu, World Map flight planner, aircraft and weather screens,
   settings (graphics, controls with rebinding and gamepad profiles, audio, assists), in-flight
   toolbar panels (VFR map, ATC, checklists, nav log, weather), a HUD for external views and

@@ -749,7 +749,18 @@ export interface SimSnapshot {
   fps: number;
   /** AI traffic near the aircraft (src/traffic); absent when there is none */
   traffic?: readonly TrafficInfo[];
+  /** system failures in effect (failures panel / random failures); absent when none */
+  failures?: Readonly<Partial<Record<FailureId, boolean>>>;
 }
+
+/**
+ * Failures the pilot can be given (MSFS-style failures panel): engine (fuel starvation, no restart),
+ * vacuum pump (attitude and heading gyros spin down), pitot (blocked with the drain: the airspeed
+ * indicator acts as an altimeter), static port (altimeter and VSI freeze, airspeed errs with
+ * altitude), alternator (the battery discharges), electrical (total: master off), avionics bus.
+ */
+export type FailureId = 'engine' | 'vacuum' | 'pitot' | 'static' | 'alternator' | 'electrical' | 'avionics';
+export const FAILURE_IDS: readonly FailureId[] = ['engine', 'vacuum', 'pitot', 'static', 'alternator', 'electrical', 'avionics'];
 
 /** One AI aircraft as maps, the HUD and ATC see it. */
 export interface TrafficInfo {

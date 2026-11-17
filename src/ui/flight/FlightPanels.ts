@@ -10,13 +10,14 @@ import { AtcWindow } from './AtcWindow';
 import { Checklist } from './Checklist';
 import { checklistsFor } from '../aircraftInfo';
 import { FloatingPanel, type LayoutStore } from './FloatingPanel';
+import { FailuresPanel } from './FailuresPanel';
 import { NavLog } from './NavLog';
 import { ObjectivesPanel } from './ObjectivesPanel';
 import { CAMERA_MODES, Toolbar } from './Toolbar';
 import { VfrMap } from './VfrMap';
 
-export type PanelId = 'atc' | 'checklist' | 'navlog' | 'vfrmap' | 'weather' | 'objectives';
-export const PANEL_IDS: readonly PanelId[] = ['atc', 'checklist', 'navlog', 'vfrmap', 'weather', 'objectives'];
+export type PanelId = 'atc' | 'checklist' | 'navlog' | 'vfrmap' | 'weather' | 'objectives' | 'failures';
+export const PANEL_IDS: readonly PanelId[] = ['atc', 'checklist', 'navlog', 'vfrmap', 'weather', 'objectives', 'failures'];
 
 export interface FlightPanelsDeps {
   host: UiHost;
@@ -57,6 +58,7 @@ export class FlightPanels {
   private navlog: NavLog;
   private vfr: VfrMap;
   private weather: WeatherPanel;
+  private failures: FailuresPanel;
   private lastAtc = -Infinity;
   private lastCamera = '';
   /** window size the default places were computed for */
@@ -65,7 +67,7 @@ export class FlightPanels {
   constructor(private readonly d: FlightPanelsDeps) {
     const W = typeof window !== 'undefined' ? window.innerWidth : 1280;
     const H = typeof window !== 'undefined' ? window.innerHeight : 800;
-    const mk = (id: PanelId, title: string, icon: 'headset' | 'checklist' | 'list' | 'map' | 'cloudSun' | 'target', w: number, hgt: number | undefined, x: number, y: number, tight = false) => {
+    const mk = (id: PanelId, title: string, icon: 'headset' | 'checklist' | 'list' | 'map' | 'cloudSun' | 'target' | 'warning', w: number, hgt: number | undefined, x: number, y: number, tight = false) => {
       const p = new FloatingPanel(d.layer, d.layout, { id, title, icon, width: w, height: hgt, defaultPos: { x, y }, tight, onVisibility: (v) => this.toolbar?.setActive(id, v) });
       this.panels.set(id, p);
       return p;
@@ -79,6 +81,7 @@ export class FlightPanels {
     const wxP = mk('weather', 'Weather & time', 'cloudSun', 420, 560, wxX, top(wxX, 420));
     // top-left like MSFS's objectives; height follows the content (no fixed height)
     const objP = mk('objectives', 'Objectives', 'target', 340, undefined, 16, top(16, 340));
+    const failP = mk('failures', 'Failures', 'warning', 380, undefined, wxX, top(wxX, 380));
     this.view = { W, H };
     objP.el.classList.add('objectives-panel');
     this.atc = new AtcWindow(atcP.body, d.host);
@@ -88,6 +91,7 @@ export class FlightPanels {
     this.weather = new WeatherPanel(d.ctx, { compact: true });
     wxP.body.appendChild(this.weather.el);
     this.objectives = new ObjectivesPanel(objP.body, d.host);
+    this.failures = new FailuresPanel(failP.body, d.host);
 
     this.toolbar = new Toolbar(d.layer, [
       { id: 'camera', label: 'Camera', icon: 'camera', onClick: () => { /* menu handled by the toolbar */ }, title: 'Camera views' },
@@ -97,6 +101,7 @@ export class FlightPanels {
       { id: 'navlog', label: 'Nav log', icon: 'list', onClick: () => this.toggle('navlog'), title: 'Nav log' },
       { id: 'vfrmap', label: 'VFR map', icon: 'map', onClick: () => this.toggle('vfrmap'), title: 'VFR map' },
       { id: 'weather', label: 'Weather', icon: 'cloudSun', onClick: () => this.toggle('weather'), title: 'Weather & time' },
+      { id: 'failures', label: 'Failures', icon: 'warning', onClick: () => this.toggle('failures'), title: 'System failures' },
       { id: 'controls', label: 'Controls', icon: 'keyboard', onClick: () => d.onHelp(), title: 'Controls cheat sheet' },
       { id: 'menu', label: 'Menu', icon: 'pause', onClick: () => d.onMenu(), title: 'Pause menu (Esc)' },
     ], { modes: CAMERA_MODES, onPick: (mode) => d.host.setCamera(mode) });
@@ -154,6 +159,7 @@ export class FlightPanels {
     if (this.isVisible('navlog')) this.navlog.update(s, nowMs);
     if (this.isVisible('vfrmap')) this.vfr.update(s, nowMs);
     if (this.isVisible('weather')) this.weather.update(s, nowMs);
+    if (this.isVisible('failures')) this.failures.update(s);
     if (this.isVisible('objectives')) this.objectives.update(nowMs);
   }
 

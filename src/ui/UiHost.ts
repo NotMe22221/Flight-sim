@@ -113,6 +113,11 @@ export interface UiHost {
 
   // ── Activities: Flight Training lessons and bush trips (src/activities) ──
   /** Activities › Flight training "Start": a lesson id from `LESSONS`. Resolves when the flight is live. */
+  /** Failures panel: fail or repair a system (optional). */
+  setFailure?(id: import('../core/types').FailureId, failed: boolean): void;
+  /** Random failures on/off and its state (optional). */
+  setRandomFailures?(on: boolean): void;
+  randomFailures?(): boolean;
   startLesson?(id: string): Promise<void>;
   /** Activities › Bush trips "Start" / "Resume" / debrief "Next leg": leg `legIndex` of a `BUSH_TRIPS` trip. */
   startBushLeg?(tripId: string, legIndex: number): Promise<void>;

@@ -2,7 +2,7 @@
  * The simulator side of the UI contract (src/ui/UiHost.ts). The UI never touches simulator
  * internals; everything goes through these methods.
  */
-import type { AircraftConfig, AssistanceOptions, CameraMode, SimAction, SimSnapshot, Waypoint, WeatherPresetId, WeatherState } from '../core/types';
+import type { AircraftConfig, AssistanceOptions, FailureId, CameraMode, SimAction, SimSnapshot, Waypoint, WeatherPresetId, WeatherState } from '../core/types';
 import { AIRCRAFT, aircraftForActivity } from './aircraftCatalog';
 import { fetchOpenMeteo, OPEN_METEO_ATTRIBUTION, weatherFromPreset } from '../sky';
 import type { AudioSettings, BindingInfo, GraphicsSettings, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
@@ -67,6 +67,11 @@ export class SimUiHost implements UiHost {
     const fuelFraction = prevFuel != null && usable > 0 ? Math.min(1, Math.max(0.1, prevFuel / usable)) : undefined;
     await this.sim.activities.start(bushLegActivity(trip, legIndex, fuelFraction !== undefined ? { fuelFraction } : {}));
   }
+  // ── failures panel
+  setFailure(id: FailureId, failed: boolean): void { this.sim.setFailure(id, failed); }
+  setRandomFailures(on: boolean): void { this.sim.randomFailures = on; }
+  randomFailures(): boolean { return this.sim.randomFailures; }
+
   abortActivity(): void { this.sim.activities.abort(); }
   restartActivity(): Promise<void> { return this.sim.activities.restart(); }
   restartActivityStep(): void { this.sim.activities.restartStep(); }

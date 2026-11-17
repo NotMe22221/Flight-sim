@@ -4,8 +4,8 @@
  */
 import * as THREE from 'three';
 import { EventBus } from '../core/events';
-import { clamp, wrap360, wrapTwoPi } from '../core/math';
-import { defaultControlInputs, type AircraftConfig, type AircraftState, type Airport, type Runway, type AssistanceOptions, type ControlInputs, type InputSnapshot, type SimAction, type SimSnapshot, type SpawnState, type TimeState, type WeatherPresetId } from '../core/types';
+import { clamp, mulberry32, wrap360, wrapTwoPi } from '../core/math';
+import { FAILURE_IDS, defaultControlInputs, type FailureId, type AircraftConfig, type AircraftState, type Airport, type Runway, type AssistanceOptions, type ControlInputs, type InputSnapshot, type SimAction, type SimSnapshot, type SpawnState, type TimeState, type WeatherPresetId } from '../core/types';
 import { DEG, FPM, FT, INHG, KT, RAD } from '../core/units';
 import { Fdm } from '../fdm/fdm';
 import { C172S } from '../fdm/aircraft/c172';
@@ -109,6 +109,12 @@ export const DEFAULT_ASSISTS: AssistanceOptions = {
 
 /** Longest wait for the terrain under a spawn before placing the aircraft anyway, ms. */
 const SPAWN_TERRAIN_WAIT_MS = 20_000;
+/** mean flying time between random failures, s */
+const RANDOM_FAILURE_MTBF_S = 45 * 60;
+export const FAILURE_LABELS: Readonly<Record<FailureId, string>> = {
+  engine: 'engine', vacuum: 'vacuum pump', pitot: 'pitot tube blocked', static: 'static port blocked',
+  alternator: 'alternator', electrical: 'electrical system', avionics: 'avionics bus',
+};
 const SPAWN_ROLL_OFFSET_M = 40;
 
 /** Aircraft family the landing challenges are written for (approach speeds, flaps 2 of 4). */
@@ -507,6 +513,39 @@ export class Simulator {
     }
     // assists act on what the flight model flies, after the autopilot (auto-rudder sees its aileron)
     this.flightAssists.apply(this.effective, s, simDt, this.assists);
+    // system failures act on what the aircraft can actually do
+    const f = this.failures;
+    if (f.engine) this.effective.mixture = 0; // fuel starvation: the engine stops and will not restart
+    if (f.alternator) this.effective.masterAlternator = false;
+    if (f.electrical) { this.effective.masterBattery = false; this.effective.masterAlternator = false; }
+    if (f.avionics) this.effective.avionicsMaster = false;
+    if (this.randomFailures && simDt > 0) this.rollRandomFailure(simDt);
+  }
+
+  /** Failures in effect (failures panel, random failures); cleared by a new flight. */
+  readonly failures: Partial<Record<FailureId, boolean>> = {};
+  /** Random failures (Settings): about one failure per `RANDOM_FAILURE_MTBF_S` of flying, airborne only. */
+  randomFailures = false;
+  private failureRng = mulberry32(0x5eed);
+
+  /** Fail or repair a system; announced by toast. */
+  setFailure(id: FailureId, failed: boolean): void {
+    if (!!this.failures[id] === failed) return;
+    if (failed) this.failures[id] = true; else delete this.failures[id];
+    this.events.emit('ui:toast', { text: failed ? `Failure: ${FAILURE_LABELS[id]}` : `Repaired: ${FAILURE_LABELS[id]}`, kind: failed ? 'warn' : 'info', durationMs: 5000 });
+  }
+
+  /** Repair everything. */
+  clearFailures(): void { for (const k of Object.keys(this.failures) as FailureId[]) delete this.failures[k]; }
+
+  private rollRandomFailure(simDt: number): void {
+    if (this.fdm.state.onGround) return;
+    if (this.failureRng() >= simDt / RANDOM_FAILURE_MTBF_S) return;
+    const candidates = FAILURE_IDS.filter((id) => !this.failures[id]);
+    if (!candidates.length) return;
+    // engine failures are rarer than instrument or electrical ones
+    const weighted = candidates.flatMap((id) => (id === 'engine' ? [id] : [id, id, id]));
+    this.setFailure(weighted[Math.floor(this.failureRng() * weighted.length)], true);
   }
 
   private physicsStep(h: number): void {
@@ -1113,6 +1152,7 @@ export class Simulator {
     this.trafficTimer = Infinity; // traffic for the new airport on the first frame of the flight
     this.trafficAdvisor.reset();
     this.clearedRunway = null;
+    this.clearFailures();
     this.paused = false;
     this.resetInstruments();
     this.events.emit('flight:reset', { spawn });
@@ -1141,6 +1181,7 @@ export class Simulator {
     sn.fps = this.fps;
     const tr = this.traffic.targets();
     sn.traffic = tr.length ? tr : undefined;
+    sn.failures = Object.keys(this.failures).length ? this.failures : undefined;
     return sn;
   }
 
