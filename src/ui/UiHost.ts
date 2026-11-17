@@ -113,6 +113,9 @@ export interface UiHost {
 
   // ── Activities: Flight Training lessons and bush trips (src/activities) ──
   /** Activities › Flight training "Start": a lesson id from `LESSONS`. Resolves when the flight is live. */
+  /** Weather › Ground: lying snow 'auto' (from temperature and snowfall), 'none' or 'full' (optional). */
+  setGroundSnow?(mode: 'auto' | 'none' | 'full'): void;
+  groundSnow?(): 'auto' | 'none' | 'full';
   /** Failures panel: fail or repair a system (optional). */
   setFailure?(id: import('../core/types').FailureId, failed: boolean): void;
   /** Random failures on/off and its state (optional). */

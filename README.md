@@ -74,6 +74,9 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **Activities.** Nine landing challenges scored like MSFS, three instructor-led lessons (basic
   flight, take-off, landing), an eight-leg Pacific Coast bush trip in the Super Cub with saved progress, a
   five-minute replay, slew mode and screenshots (`F12`).
+- **Ground snow.** Snow lies on the terrain (and frosts roofs and tree crowns) above a snow line
+  set by the surface temperature, and everywhere while it is snowing; steep rock and forest canopies
+  stay darker, drifts break up the edge. Weather › Ground snow: Auto, Bare or Snow-covered.
 - **Failures.** A failures panel (toolbar) fails the engine, vacuum pump (attitude and heading
   gyros spin down), pitot tube (the airspeed indicator acts as an altimeter), static port (altimeter
   and VSI freeze), alternator, electrical system or avionics bus; random failures are optional.

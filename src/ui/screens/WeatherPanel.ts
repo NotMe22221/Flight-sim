@@ -83,7 +83,14 @@ export class WeatherPanel {
     this.scaleSeg = segmented(TIME_SCALES.map((s) => ({ value: String(s), label: `${s}×` })), '1', (v) => ctx.host.setTimeScale(parseFloat(v)), 'stretch');
     this.currentWx = new Txt(h('div', { class: 'muted mono', style: 'font-size:.82em' }), '');
 
-    const presetsCard = h('div', { class: 'panel wx-card' }, h('div', { class: 'section-label' }, icon('cloudSun'), ' Weather'), grid, this.status.el, this.currentWx.el);
+    const host = ctx.host;
+    const ground = host.setGroundSnow
+      ? [h('div', { class: 'section-label' }, icon('snow'), ' Ground snow'),
+        segmented<'auto' | 'none' | 'full'>([{ value: 'auto', label: 'Auto' }, { value: 'none', label: 'Bare' }, { value: 'full', label: 'Snow-covered' }],
+          host.groundSnow?.() ?? 'auto', (v) => host.setGroundSnow?.(v), 'stretch').el,
+        h('div', { class: 'muted', style: 'font-size:.82em', text: 'Auto: snow lies where the temperature keeps it frozen, and wherever it is snowing.' })]
+      : [];
+    const presetsCard = h('div', { class: 'panel wx-card' }, h('div', { class: 'section-label' }, icon('cloudSun'), ' Weather'), grid, this.status.el, this.currentWx.el, ...ground);
     const timeCard = h('div', { class: 'panel wx-card' }, h('div', { class: 'section-label' }, icon('clock'), ' Time of day'), this.timeSeg.el, this.timeSlider,
       h('div', { class: 'section-label' }, icon('fast'), ' Time acceleration'), this.scaleSeg.el);
     this.el = opts.compact

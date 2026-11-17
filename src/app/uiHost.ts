@@ -69,6 +69,8 @@ export class SimUiHost implements UiHost {
   }
   // ── failures panel
   setFailure(id: FailureId, failed: boolean): void { this.sim.setFailure(id, failed); }
+  setGroundSnow(mode: 'auto' | 'none' | 'full'): void { this.sim.setGroundSnow(mode); }
+  groundSnow(): 'auto' | 'none' | 'full' { return this.sim.groundSnowMode; }
   setRandomFailures(on: boolean): void { this.sim.randomFailures = on; }
   randomFailures(): boolean { return this.sim.randomFailures; }
 

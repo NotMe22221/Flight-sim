@@ -61,6 +61,8 @@ export interface MaterialPatch {
   nearDrop?: { value: number };
   /** saturation kept in the ambient irradiance uniform (0 grey … 1 unchanged) */
   ambientSat?: { value: number };
+  /** lying snow 0…1 (shared uniform) and how much of it this material takes (roofs most, tree crowns less) */
+  snow?: { uniform: { value: number }; share: number };
 }
 
 /**
@@ -100,6 +102,12 @@ export function patchMaterial(m: THREE.Material, p: MaterialPatch, key: string):
         .replace('void main() {', 'uniform float sceneryAmbientSat;\nvoid main() {')
         .replace('#include <lights_fragment_begin>', '#include <lights_fragment_begin>\n\tirradiance = mix( vec3( dot( irradiance, vec3( 0.2126, 0.7152, 0.0722 ) ) ), irradiance, sceneryAmbientSat );');
     }
+    if (p.snow && shader.fragmentShader.includes('#include <color_fragment>')) {
+      shader.uniforms.scenerySnow = p.snow.uniform;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('void main() {', 'uniform float scenerySnow;\nvoid main() {')
+        .replace('#include <color_fragment>', `#include <color_fragment>\n\tdiffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.78, 0.81, 0.86 ), scenerySnow * ${p.snow.share.toFixed(2)} );`);
+    }
   };
   m.customProgramCacheKey = () => key;
 }
@@ -121,6 +129,7 @@ export class SceneryMaterials {
   readonly depthBias = { value: DRAPE_DEPTH_BIAS };
   /** saturation kept in the sky ambient light (shared uniform) */
   readonly ambientSat = { value: AMBIENT_SATURATION };
+  readonly snow = { value: 0 };
   /** near-camera drop of airport surfaces (shared uniform, m) */
   readonly nearDrop = { value: NEAR_DROP_M };
   private night = -1;
@@ -153,11 +162,11 @@ export class SceneryMaterials {
     });
     patchMaterial(this.walls, { ambientSat: this.ambientSat }, 'scenery-walls-1');
     patchMaterial(this.plain, { ambientSat: this.ambientSat }, 'scenery-plain-1');
-    patchMaterial(this.roofs, { ambientSat: this.ambientSat }, 'scenery-roofs-1');
+    patchMaterial(this.roofs, { ambientSat: this.ambientSat, snow: { uniform: this.snow, share: 0.85 } }, 'scenery-roofs-2');
     patchMaterial(this.surfaces, { depthBias: this.depthBias, nearDrop: this.nearDrop, ambientSat: this.ambientSat }, 'scenery-surfaces-2');
     patchMaterial(this.markings, { depthBias: this.depthBias, nearDrop: this.nearDrop, ambientSat: this.ambientSat }, 'scenery-markings-2');
     this.trees = new THREE.MeshLambertMaterial({ name: 'scenery-trees', vertexColors: true });
-    patchMaterial(this.trees, { ambientSat: this.ambientSat }, 'scenery-trees-1');
+    patchMaterial(this.trees, { ambientSat: this.ambientSat, snow: { uniform: this.snow, share: 0.45 } }, 'scenery-trees-2');
     // after patchMaterial (it assigns the hooks applyIblScale chains onto)
     applyIblScale(this.walls, ENV_DIFFUSE, ENV_SPECULAR_GLASS);
     for (const m of [this.plain, this.roofs, this.surfaces, this.markings, this.trees]) applyIblScale(m, ENV_DIFFUSE, ENV_SPECULAR);
@@ -195,6 +204,9 @@ export class SceneryMaterials {
     m.customProgramCacheKey = () => (biased ? 'scenery-points-minpx-bias-1' : 'scenery-points-minpx-1');
     return m;
   }
+
+  /** Lying snow at the scenery's altitude, 0 (bare) … 1: whitens roofs and frosts tree crowns. */
+  setSnow(amount: number): void { this.snow.value = Number.isFinite(amount) ? Math.max(0, Math.min(1, amount)) : 0; }
 
   /** Night factor 0 (day) … 1 (night): lit windows, light points and floodlight pools. */
   setNight(f: number): void {

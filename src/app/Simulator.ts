@@ -21,6 +21,7 @@ import { ActivityRunner, ProgressStore } from '../activities';
 import { makeActivityHost } from './activityHost';
 import { TerrainSystem } from '../terrain/TerrainSystem';
 import { SkySystem, WeatherSystem } from '../sky';
+import { GroundSnowState, groundSnowFor, snowAt, type GroundSnowMode } from '../sky/groundSnow';
 import { AircraftModel, bodyQuatToThree } from '../aircraft3d';
 import { CameraController } from '../camera';
 import { InputManager } from '../input/InputManager';
@@ -70,6 +71,8 @@ export interface SceneryLike {
   setFrame(frame: LocalFrame): void;
   setQuality?(q: 'low' | 'medium' | 'high' | 'ultra'): void;
   setVisible?(on: boolean): void;
+  /** lying snow at the scenery's altitude, 0…1 */
+  setSnow?(amount: number): void;
   /** stands / gates / apron positions near a point, best first (for parking spawns) */
   parkingSpots?(lat: number, lon: number, radiusM: number): Promise<{ lat: number; lon: number; headingDeg: number; name: string; kind?: 'gate' | 'stand' }[]>;
   attribution?(): string[];
@@ -522,6 +525,13 @@ export class Simulator {
     if (this.randomFailures && simDt > 0) this.rollRandomFailure(simDt);
   }
 
+  /** Lying snow: 'auto' follows the weather's temperature and snowfall (src/sky/groundSnow.ts). */
+  groundSnowMode: GroundSnowMode = 'auto';
+  readonly groundSnow = new GroundSnowState();
+  /** jump straight to the target cover (a new flight, a changed setting) instead of easing */
+  private snapSnow = true;
+  setGroundSnow(mode: GroundSnowMode): void { this.groundSnowMode = mode; this.snapSnow = true; }
+
   /** Failures in effect (failures panel, random failures); cleared by a new flight. */
   readonly failures: Partial<Record<FailureId, boolean>> = {};
   /** Random failures (Settings): about one failure per `RANDOM_FAILURE_MTBF_S` of flying, airborne only. */
@@ -821,6 +831,10 @@ export class Simulator {
     // the sky's ambient irradiance is in the same light units as the terrain shading
     this.terrain?.setSun(L.sunDirThree, L.sunColor, L.sunIntensity, L.ambientIrradiance);
     this.terrain?.setFog(L.fogColor, L.fogDensity, L.fogHeightFalloff, L.sunGlowColor);
+    const snow = this.groundSnow.update(groundSnowFor(this.weather.state, this.groundSnowMode), dt * (this.paused ? 0 : 1), this.snapSnow);
+    this.snapSnow = false;
+    this.terrain?.setSnow(snow.lineM, snow.amount);
+    this.plugins.scenery?.setSnow?.(snowAt(snow, s.altitudeMslM - s.altitudeAglM));
     let tn = performance.now(); this.mark('sky', tn - tm); tm = tn;
     this.world.update(dt, camPos, this.cameras.camera, s.geo, this.v3, this.sky.sun.elevationRad);
     this.plugins.scenery?.update(dt, camPos, this.cameras.camera, this.sky.sun.elevationRad);
@@ -1153,6 +1167,7 @@ export class Simulator {
     this.trafficAdvisor.reset();
     this.clearedRunway = null;
     this.clearFailures();
+    this.snapSnow = true;
     this.paused = false;
     this.resetInstruments();
     this.events.emit('flight:reset', { spawn });

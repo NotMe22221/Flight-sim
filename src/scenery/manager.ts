@@ -203,6 +203,8 @@ export class SceneryManager implements SceneryLike {
     this.lastSelect.set(NaN, NaN, NaN);
   }
 
+  setSnow(amount: number): void { this.materials.setSnow(amount); }
+
   setVisible(on: boolean): void {
     this.visible = on;
     this.root.visible = on;

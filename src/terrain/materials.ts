@@ -55,6 +55,12 @@ export interface TerrainSharedUniforms extends SkySharedUniforms {
   uTime: { value: number };
   /** render x/z → ground-fixed detail-noise coordinates (moves with floating-origin rebases, mod DETAIL_PERIOD_M) */
   uDetailOffset: { value: Vector2 };
+  /** snow line, metres MSL (ground below it is bare; see src/sky/groundSnow.ts) */
+  uSnowLineM: { value: number };
+  /** 0 bare … 1 fully snow-covered above the snow line */
+  uSnowAmount: { value: number };
+  /** altitude MSL (m) of the render frame's origin: altitude ≈ this + y + (x² + z²) / 2R */
+  uFrameAltM: { value: number };
 }
 
 /** Shared uniforms; the sky's uniform objects (default the process-wide `SKY_UNIFORMS`) are referenced, not copied. */
@@ -74,6 +80,9 @@ export function createTerrainSharedUniforms(sky: SkySharedUniforms = SKY_UNIFORM
     uEarthCenter: { value: new Vector3(0, -6_371_000, 0) },
     uTime: { value: 0 },
     uDetailOffset: { value: new Vector2(0, 0) },
+    uSnowLineM: { value: 9000 },
+    uSnowAmount: { value: 0 },
+    uFrameAltM: { value: 0 },
   };
 }
 
@@ -133,6 +142,39 @@ vec3 proceduralDetail(vec3 albedo, vec3 worldPos, float dist) {
 }
 `;
 
+/**
+ * Lying snow over imagery or procedural colours: above a noisy snow line, on gentle slopes (steep
+ * rock stays bare), thinner over dark vegetation (forest canopies shed it), in drifts and patches near
+ * the line. Needs DETAIL_GLSL (ground-fixed noise).
+ */
+const SNOW_GLSL = /* glsl */ `
+uniform float uSnowLineM;
+uniform float uSnowAmount;
+uniform float uFrameAltM;
+// rgb: albedo with snow, a: snow fraction (snow carries no baked shading: the caller raises slope contrast)
+vec4 applySnow(vec3 albedo, vec3 worldPos, vec3 n, vec3 up, float dist) {
+  if (uSnowAmount <= 0.0) return vec4(albedo, 0.0);
+  float alt = uFrameAltM + worldPos.y + dot(worldPos.xz, worldPos.xz) / 12742000.0;
+  if (alt < uSnowLineM - 400.0) return vec4(albedo, 0.0);
+  vec2 p = worldPos.xz + uDetailOffset;
+  float big = detailNoise(p / 256.0 + 11.0, ${DETAIL_PERIOD_M / 256}.0);
+  float fine = detailNoise(p / 32.0 + 7.0, ${DETAIL_PERIOD_M / 32}.0);
+  float fineFade = 1.0 - smoothstep(1500.0, 9000.0, dist);
+  float patchN = 0.65 * big + 0.35 * mix(0.5, fine, fineFade);
+  float line = uSnowLineM + (big - 0.5) * 350.0;
+  float cover = uSnowAmount * smoothstep(line - 150.0, line + 150.0, alt);
+  float flatness = smoothstep(0.72, 0.93, dot(n, up));
+  // deep cover fills in; near the line only the drifts (high noise) stay white
+  float s = smoothstep(0.15, 0.55, cover * mix(0.3, 1.0, flatness) + 0.45 * (patchN - 0.5) * (1.0 - 0.5 * cover));
+  float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
+  float canopy = (1.0 - smoothstep(0.035, 0.11, lum)) * clamp((albedo.g - albedo.b) * 30.0 + 0.5, 0.0, 1.0);
+  // forest canopies shed snow, and the ground's own pattern (fields, roads, hedges) shows through
+  s *= (1.0 - 0.6 * canopy) * (0.86 + 0.14 * smoothstep(0.25, 0.6, patchN));
+  vec3 snow = vec3(0.76, 0.79, 0.85) * (0.9 + 0.12 * patchN) * mix(1.0, 0.7 + 3.0 * lum, 0.25);
+  return vec4(mix(albedo, min(snow, vec3(0.9)), s), s);
+}
+`;
+
 const TERRAIN_VERT = /* glsl */ `
 #include <common>
 #include <logdepthbuf_pars_vertex>
@@ -168,6 +210,7 @@ varying vec3 vWorldPos;
 ${SKY_UNIFORMS_GLSL}
 ${FOG_GLSL}
 ${DETAIL_GLSL}
+${SNOW_GLSL}
 void main() {
   #include <logdepthbuf_fragment>
   vec3 toFrag = vWorldPos - cameraPosition;
@@ -177,7 +220,9 @@ void main() {
   if (uProcedural > 0.5) albedo = proceduralDetail(albedo, vWorldPos, dist);
   vec3 n = normalize(vNormalW);
   vec3 up = normalize(vWorldPos - uEarthCenter);
-  float direct = mix(max(dot(up, uSunDir), 0.0), max(dot(n, uSunDir), 0.0), uSlopeContrast);
+  vec4 snowed = applySnow(albedo, vWorldPos, n, up, dist);
+  albedo = snowed.rgb;
+  float direct = mix(max(dot(up, uSunDir), 0.0), max(dot(n, uSunDir), 0.0), mix(uSlopeContrast, 0.9, snowed.a));
   direct *= skyCloudShadow(vWorldPos, uSunDir);
   vec3 ambient = uSkyLinked > 0.5 ? uSkyIrradiance : uAmbient;
   vec3 irradiance = uSunColor * (uSunIntensity * direct) + ambient * (0.75 + 0.25 * dot(n, up));

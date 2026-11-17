@@ -843,6 +843,13 @@ export class TerrainSystem {
     u.uAmbient.value.copy(ambient);
   }
 
+  /** Lying snow: snow line (m MSL) and amount 0…1 (src/sky/groundSnow.ts). */
+  setSnow(lineM: number, amount: number): void {
+    const u = this.shared;
+    u.uSnowLineM.value = Number.isFinite(lineM) ? lineM : 9000;
+    u.uSnowAmount.value = Number.isFinite(amount) ? Math.max(0, Math.min(1, amount)) : 0;
+  }
+
   /**
    * Aerial perspective, matching the sky's height fog: linear haze colour, extinction β0 (1/m)
    * and height falloff (1/m, = 1 / scale height). `sunGlow` tints the haze toward the sun
@@ -932,6 +939,7 @@ export class TerrainSystem {
   private updateEarthCenter(): void {
     const c = this.frame.ecefToThree([0, 0, 0]);
     this.shared.uEarthCenter.value.set(c[0], c[1], c[2]);
+    this.shared.uFrameAltM.value = this.frame.alt0;
   }
 
   private resolveWaiters(id: number): void {
