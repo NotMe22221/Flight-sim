@@ -182,6 +182,7 @@ export class SimUiHost implements UiHost {
 
   addWaypoint(wp: Waypoint): void { this.sim.planner.add(wp); }
   clearPlan(): void { this.sim.planner.clear(); }
+  setPlan(waypoints: Waypoint[]): void { this.sim.planner.setWaypoints(waypoints); }
 
   /** Weather preset preview used by the World Map before a flight exists. */
   static presetPreview(id: WeatherPresetId, elevationM: number): WeatherState { return weatherFromPreset(id, elevationM); }
