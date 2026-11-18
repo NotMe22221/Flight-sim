@@ -11,6 +11,7 @@
  *
  * No per-frame allocations: everything is built in the constructor.
  */
+import { SHADOW_PROXY_LAYER, mergeStatic, type MergedLod } from './mergeStatic';
 import { RainGlass } from './rainGlass';
 import * as THREE from 'three';
 import type { AircraftConfig, AircraftState, ControlInputs } from '../core/types';
@@ -144,6 +145,7 @@ const RAIN_LIGHT_DAY = 1.6;
 
 export class AircraftModel {
   private readonly rainGlass = new RainGlass();
+  private shadowProxy: MergedLod | null = null;
   /** add this to the scene; `setPose` drives it */
   readonly root = new THREE.Group();
   /** exterior airframe (fuselage, wings, tail, gear, prop, lights) */
@@ -234,6 +236,17 @@ export class AircraftModel {
       // but does not receive; it is shaded by its materials instead.
       o.receiveShadow = shadows && !transparentish && !interiorMeshes.has(o);
     });
+    // The exterior casts its shadow through one merged proxy (one draw per material instead of ~55
+    // in the shadow pass); the proxy is on the shadow layer only, so the view never draws it. Moving
+    // parts cast in their rest pose, which the coarse shadow map cannot resolve anyway.
+    if (shadows) {
+      const proxy = mergeStatic(this.exterior);
+      for (const src of proxy.sources) src.castShadow = false;
+      proxy.group.name = 'shadowProxy';
+      proxy.group.traverse((o) => { o.layers.set(SHADOW_PROXY_LAYER); if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = false; } });
+      this.root.add(proxy.group);
+      this.shadowProxy = proxy;
+    }
   }
 
   /** Place the model from the integrator's render-frame pose (see frames.ts). */
@@ -280,6 +293,7 @@ export class AircraftModel {
     this.exteriorEnabled = exterior;
     this.interiorEnabled = interior;
     this.exterior.visible = exterior;
+    if (this.shadowProxy) this.shadowProxy.group.visible = exterior;
     this.cabinShell.visible = exterior && !this.interior.visible;
     if (!interior) this.interior.visible = false;
   }
@@ -324,6 +338,7 @@ export class AircraftModel {
     });
     this.propeller.dispose();
     this.rainGlass.dispose();
+    this.shadowProxy?.dispose();
     this.gear.dispose();
     this.lights.dispose();
     this.cockpit.dispose();

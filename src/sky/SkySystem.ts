@@ -11,6 +11,7 @@
  * `CloudLayers` with a volumetric renderer without touching the public surface.
  */
 import * as THREE from 'three';
+import { SHADOW_PROXY_LAYER } from '../aircraft3d/mergeStatic';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { clamp, lerp, smoothstep } from '../core/math';
 import type { SimSnapshot, SunState, Vec3, WeatherState } from '../core/types';
@@ -298,6 +299,8 @@ export class SkySystem {
     const r = this.opts.shadowRadiusM;
     const cam = this.sunLight.shadow.camera;
     cam.left = -r; cam.right = r; cam.top = r; cam.bottom = -r; cam.near = 1; cam.far = SUN_DISTANCE_M * 2;
+    // shadow-only proxies (the aircraft's merged shadow caster) live on their own layer
+    cam.layers.enable(SHADOW_PROXY_LAYER);
     cam.updateProjectionMatrix();
     this.sunLight.shadow.bias = -0.0004;
     this.sunLight.shadow.normalBias = 0.3;

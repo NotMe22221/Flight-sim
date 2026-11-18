@@ -8,6 +8,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
+/**
+ * Render layer of shadow-only proxies: the sun's shadow camera enables it (src/sky/SkySystem.ts), the
+ * view cameras do not, so a proxy casts the shadow while staying invisible.
+ */
+export const SHADOW_PROXY_LAYER = 1;
+
 export interface MergedLod {
   group: THREE.Group;
   /** the source meshes that the merged ones replace (hide these while the LOD is shown) */
