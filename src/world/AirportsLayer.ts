@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { Airport, Geodetic, NavDatabase, Runway, Vec3 } from '../core/types';
 import { LocalFrame } from '../geo/wgs84';
+import { Windsock } from './windsock';
 import { approachLights, papiIndication, runwayGeometry, runwayLights, type RunwayGeometry, type RunwayLights } from './runwayGeometry';
 
 export interface AirportsLayerOptions {
@@ -33,6 +34,24 @@ interface AirportObjects {
   group: THREE.Group;
   runways: RunwayObjects[];
   lightPoints: THREE.Points[];
+  /** windsocks (shared geometry: kept out of `group`, which is disposed deeply) */
+  windsocks: Windsock[];
+}
+
+/** Windsock spots for a runway: beside the pavement 150 m past each threshold, on the left (the PAPI side, nearer the threshold); one end only for short runways. */
+export function windsockPositions(g: RunwayGeometry): THREE.Vector3[] {
+  const out: THREE.Vector3[] = [];
+  const lat = g.widthM / 2 + 25; // inside the flattened shoulder (half width + 30 m)
+  const ends = g.lengthM >= 1500 ? [0, 1] : [0];
+  for (const i of ends) {
+    const e = g.ends[i];
+    const side = i === 0 ? -1 : 1; // `across` is right looking from A: left of A is −across, left of B is +across
+    out.push(new THREE.Vector3(
+      e.pos[0] + e.dir[0] * 150 + side * g.across[0] * lat,
+      e.pos[1] + e.dir[1] * 150 + side * g.across[1] * lat,
+      e.pos[2] + e.dir[2] * 150 + side * g.across[2] * lat));
+  }
+  return out;
 }
 
 const COLOR_WHITE = new THREE.Color(1, 0.98, 0.9);
@@ -99,10 +118,14 @@ export class AirportsLayer {
   private readonly tmpColor = new THREE.Color();
   /** near-camera drop strength 0…1 (camera near the ground → 1), shared by the runway materials */
   readonly nearDrop = { value: 0 };
+  private readonly windsockGroup = new THREE.Group();
+  private readonly windScratch: Vec3 = [0, 0, 0];
 
   constructor(private frame: LocalFrame, private nav: NavDatabase, options: Partial<AirportsLayerOptions> = {}) {
     this.opts = { ...DEFAULTS, ...options };
     this.group.name = 'airports';
+    this.windsockGroup.name = 'windsocks';
+    this.group.add(this.windsockGroup);
     const asphaltTex = makeAsphaltTexture();
     // the texture alone sets the albedo (ASPHALT_SRGB: linear ≈ 0.04 for the calibrated light; the material
     // colour stays white)
@@ -181,6 +204,20 @@ export class AirportsLayer {
     }
   }
 
+  /**
+   * Windsocks follow the wind at their position: `windNED(n, e, d, out)` is the air velocity (m/s, NED)
+   * in this layer's frame. Only those within 15 km of the camera are animated.
+   */
+  updateWindsocks(dt: number, cameraPos: Vec3, windNED: (n: number, e: number, d: number, out: Vec3) => Vec3): void {
+    const w = this.windScratch;
+    for (const ap of this.built.values()) for (const s of ap.windsocks) {
+      const p = s.group.position;
+      if ((p.x - cameraPos[0]) ** 2 + (p.z - cameraPos[2]) ** 2 > 15000 * 15000) continue;
+      windNED(-p.z, p.x, -p.y - 7, w);
+      s.update(dt, w[0], w[1]);
+    }
+  }
+
   dispose(): void {
     for (const icao of [...this.built.keys()]) this.disposeAirport(icao);
     this.asphalt.map?.dispose();
@@ -239,7 +276,11 @@ export class AirportsLayer {
       runways.push({ geom, lights, papiA, papiB, rabbits });
     }
     this.group.add(group);
-    this.built.set(airport.icao, { airport, group, runways, lightPoints });
+    // windsocks by the longest runway
+    const windsocks: Windsock[] = [];
+    const main = runways.reduce<RunwayObjects | null>((a, r) => (!a || r.geom.lengthM > a.geom.lengthM ? r : a), null);
+    if (main) for (const p of windsockPositions(main.geom)) { const w = new Windsock(p); this.windsockGroup.add(w.group); windsocks.push(w); }
+    this.built.set(airport.icao, { airport, group, runways, lightPoints, windsocks });
   }
 
   private disposeAirport(icao: string): void {
@@ -254,6 +295,7 @@ export class AirportsLayer {
       }
     });
     this.group.remove(obj.group);
+    for (const w of obj.windsocks) w.dispose();
     this.built.delete(icao);
   }
 

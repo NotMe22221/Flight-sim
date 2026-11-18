@@ -64,6 +64,9 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **Taxi ribbon.** On the ground, the taxi-ribbon assist routes you along the real OSM taxiways to
   the hold-short point of the runway in use ("Taxi to runway 28L via L2, A, A6") and draws blue
   chevrons on the ground.
+- **Windsocks.** Every airport has windsocks beside its main runway (both ends of a long one). They
+  stream downwind with the sim's real local wind: hanging limp in calm air, fully out at 15 kt,
+  swinging and fluttering in gusts, so you can read the wind on final as in a real aircraft.
 - **AI traffic.** Light aircraft fly touch-and-go circuits at the airport you are at, on the runway
   in use, extending downwind behind each other and going around when you are on the runway; ATC
   calls them as traffic and the VFR map shows them with relative altitude. With OSM scenery, aircraft

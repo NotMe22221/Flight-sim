@@ -38,6 +38,8 @@ export class World {
   private shiftE = 0;
   private shiftG: number | null = null;
   private shiftRev = -1;
+  private readonly windCam: Vec3 = [0, 0, 0];
+  private readonly windAt = (n: number, e: number, d: number, out: Vec3): Vec3 => (this.wind ? this.wind.windNED(n, e, d, out) : zero(out));
 
   constructor(
     readonly terrain: TerrainSystem | null,
@@ -134,6 +136,8 @@ export class World {
   update(dt: number, cameraPosThree: THREE.Vector3, camera: THREE.PerspectiveCamera, aircraftGeo: Geodetic, aircraftPosThree: Vec3, sunElevationRad: number): void {
     this.terrain?.update(cameraPosThree, camera, dt);
     this.airports.update(dt, aircraftGeo, aircraftPosThree, sunElevationRad);
+    this.windCam[0] = cameraPosThree.x; this.windCam[1] = cameraPosThree.y; this.windCam[2] = cameraPosThree.z;
+    this.airports.updateWindsocks(dt, this.windCam, this.windAt);
     // runway pavement comes down to the wheels near the camera only while the camera is near the ground
     const g = this.groundHeight(-cameraPosThree.z, cameraPosThree.x);
     if (g !== null) this.airports.nearDrop.value = runwayNearDropFor(cameraPosThree.y - g);
