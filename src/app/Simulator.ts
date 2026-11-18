@@ -740,6 +740,8 @@ export class Simulator {
       this.fdm.trim(casFromTas(spawn.speedMs, a.pressurePa, a.speedOfSound), 0, this.world.env);
       const tr = this.fdm.trimResult;
       if (tr) { c.throttle = tr.throttle; c.pitchTrim = tr.pitchTrim; }
+      // the rigging balances the roll at cruise power only: trim the ailerons for this power and speed
+      if (tr?.ok) this.trimLateral(c);
     }
     this.fdm.setAltimeter(qnh);
     copyPose(this.fdm.state, this.prev);
@@ -1267,6 +1269,40 @@ export class Simulator {
     return true;
   }
 
+  /**
+   * Lateral trim for an air start: the aileron trim that keeps the wings level hands-off at the trimmed
+   * power and speed (the C172's bent-tab rigging is set for 105 KCAS cruise; at other power settings
+   * the torque no longer balances and, with the auto-rudder holding the ball centred, nothing would
+   * stop a slow roll from becoming a spiral). Secant search on the bank after 3 s of flight from the
+   * trimmed state, which is restored afterwards.
+   */
+  private trimLateral(c: ControlInputs): void {
+    const env = this.world.env;
+    const base = this.fdm.serialize();
+    const mixture = this.assists.autoMixture ? Math.min(c.mixture, this.fdm.peakPowerMixture()) : c.mixture;
+    const bankAfter = (trim: number): number => {
+      this.fdm.deserialize(base);
+      const u: ControlInputs = { ...c, mixture, aileronTrim: trim, lights: { ...c.lights } };
+      for (let i = 0; i < 3 / PHYSICS_DT; i++) this.fdm.step(PHYSICS_DT, u, env);
+      const phi = this.fdm.state.euler[0];
+      return Number.isFinite(phi) ? phi : NaN;
+    };
+    let t0 = clamp(c.aileronTrim ?? 0, -1, 1), f0 = bankAfter(t0);
+    let best = { t: t0, f: Math.abs(f0) };
+    if (Number.isFinite(f0) && Math.abs(f0) > 0.2 * DEG) {
+      let t1 = clamp(t0 - Math.sign(f0) * 0.3, -1, 1), f1 = bankAfter(t1);
+      for (let k = 0; k < 4 && Number.isFinite(f1); k++) {
+        if (Math.abs(f1) < best.f) best = { t: t1, f: Math.abs(f1) };
+        if (Math.abs(f1) < 0.05 * DEG || Math.abs(f1 - f0) < 1e-9) break;
+        const t2 = clamp(t1 - (f1 * (t1 - t0)) / (f1 - f0), -1, 1);
+        t0 = t1; f0 = f1; t1 = t2; f1 = bankAfter(t1);
+      }
+      if (Number.isFinite(f1) && Math.abs(f1) < best.f) best = { t: t1, f: Math.abs(f1) };
+    }
+    this.fdm.deserialize(base);
+    c.aileronTrim = best.t;
+  }
+
   /** Common spawn path: new origin, terrain prefetch, airport geometry, flight-model reset, systems reset. */
   private async beginFlight(airport: Airport | null, end: RunwayEndRef | null, spawn: SpawnState, opts: { fuelFraction?: number; payloadKg?: number; flapsIndex?: number; restore?: SavedFlight }): Promise<void> {
     this.inFlight = false;
@@ -1324,6 +1360,7 @@ export class Simulator {
       this.fdm.trim(cas, spawn.gammaRad ?? 0, this.world.env);
       const tr = this.fdm.trimResult;
       if (tr) { c.throttle = tr.throttle; c.pitchTrim = tr.pitchTrim; }
+      if (tr?.ok && !opts.restore) this.trimLateral(c);
     }
     this.fdm.setAltimeter(this.weather.state.qnhPa);
     if (opts.restore) {
