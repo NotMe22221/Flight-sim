@@ -95,6 +95,10 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **Seasons.** Vegetation follows the date and latitude: autumn colours in the forests in October,
   straw-brown grass and grey-brown woods from November to March (reversed south of the equator; the
   tropics stay green). Weather › Season: Auto, Summer, Autumn or Winter.
+- **Carburettor ice.** The Super Cub's carburetted engine ices in cool, humid air (after the FAA
+  icing chart; worst at glide power, certain in cloud or rain): rpm creeps down, then it runs rough and
+  can stop. Carb heat (H) clears it in under a minute at a cost of ~10 % power. The fuel-injected 172S
+  does not ice. Also available as a failure.
 - **Failures.** A failures panel (toolbar) fails the engine, vacuum pump (attitude and heading
   gyros spin down), pitot tube (the airspeed indicator acts as an altimeter), static port (altimeter
   and VSI freeze), alternator, electrical system or avionics bus; random failures are optional.

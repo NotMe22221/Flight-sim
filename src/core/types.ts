@@ -142,6 +142,7 @@ export interface PistonEngineSpec {
   /** effective throttle-body flow area wide open, m² */ throttleAreaMaxM2: number;
   /** intake manifold volume, m³ (sets the manifold-pressure time constant) */ manifoldVolumeM3: number;
   /** rpm below which combustion cannot sustain itself */ minFiringRPM: number;
+  /** float carburettor (carburettor ice, carb heat); absent = fuel injected */ carburettor?: boolean;
 }
 
 export interface TurbofanEngineSpec {
@@ -759,8 +760,8 @@ export interface SimSnapshot {
  * indicator acts as an altimeter), static port (altimeter and VSI freeze, airspeed errs with
  * altitude), alternator (the battery discharges), electrical (total: master off), avionics bus.
  */
-export type FailureId = 'engine' | 'vacuum' | 'pitot' | 'static' | 'alternator' | 'electrical' | 'avionics';
-export const FAILURE_IDS: readonly FailureId[] = ['engine', 'vacuum', 'pitot', 'static', 'alternator', 'electrical', 'avionics'];
+export type FailureId = 'engine' | 'vacuum' | 'pitot' | 'static' | 'alternator' | 'electrical' | 'avionics' | 'carbIce';
+export const FAILURE_IDS: readonly FailureId[] = ['engine', 'vacuum', 'pitot', 'static', 'alternator', 'electrical', 'avionics', 'carbIce'];
 
 /** One AI aircraft as maps, the HUD and ATC see it. */
 export interface TrafficInfo {

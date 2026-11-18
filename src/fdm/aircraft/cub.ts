@@ -199,6 +199,7 @@ const CUB_AERO: AircraftConfig['aero'] = {
 /** Lycoming O-320-A2B: 150 hp at 2,700 rpm, 319.8 in³, 7.0:1, float carburettor. */
 const CUB_ENGINE: PistonEngineSpec = {
   type: 'piston',
+  carburettor: true,
   ratedPowerW: 150 * HP,
   ratedRPM: 2700,
   idleRPM: 600,

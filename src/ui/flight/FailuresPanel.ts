@@ -14,6 +14,7 @@ export const FAILURE_TEXT: Readonly<Record<FailureId, { label: string; help: str
   alternator: { label: 'Alternator', help: 'The battery carries the bus until it runs flat: LOW VOLTS, shed loads.' },
   electrical: { label: 'Electrical system', help: 'Total electrical failure: radios, lights and the G1000 go dark.' },
   avionics: { label: 'Avionics bus', help: 'Radios and the G1000 displays go dark; the engine instruments stay.' },
+  carbIce: { label: 'Carburettor ice', help: 'Icing conditions in the carburettor: rpm creeps down, then the engine runs rough. Carb heat clears it. Carburetted engines only (Super Cub).' },
 };
 
 export class FailuresPanel {

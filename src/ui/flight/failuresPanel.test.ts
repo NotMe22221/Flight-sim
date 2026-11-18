@@ -26,10 +26,10 @@ describe('FailuresPanel', () => {
     document.body.appendChild(box);
     const panel = new FailuresPanel(box as unknown as HTMLElement, host);
     const switches = (box as unknown as { querySelectorAll(s: string): { click(): void; classList: { contains(c: string): boolean } }[] }).querySelectorAll('button.toggle');
-    expect(switches.length).toBe(8); // seven systems + random
+    expect(switches.length).toBe(9); // eight systems + random
     switches[1].click(); // vacuum
     expect([...failed]).toEqual(['vacuum']);
-    switches[7].click();
+    switches[8].click(); // random failures (after the systems)
     expect(isRandom()).toBe(true);
     // a random failure the sim applied shows up on the next update
     panel.update({ failures: { pitot: true, vacuum: true } } as unknown as SimSnapshot);

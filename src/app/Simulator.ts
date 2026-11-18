@@ -45,6 +45,7 @@ import { StressMonitor, crashIsRecoverable } from './damage';
 import type { RebaseTransform } from '../world/rebase';
 import { createRenderer, type RendererBundle } from './renderer';
 import { DynamicResolution } from './dynamicResolution';
+import { CarbIce } from './carbIce';
 import { TrafficManager, rankRunways } from '../traffic/TrafficManager';
 import { TaxiGraph, type TaxiRoute } from '../world/taxiGraph';
 import { TaxiRibbon } from '../world/TaxiRibbon';
@@ -154,7 +155,7 @@ const SPAWN_TERRAIN_WAIT_MS = 20_000;
 const RANDOM_FAILURE_MTBF_S = 45 * 60;
 export const FAILURE_LABELS: Readonly<Record<FailureId, string>> = {
   engine: 'engine', vacuum: 'vacuum pump', pitot: 'pitot tube blocked', static: 'static port blocked',
-  alternator: 'alternator', electrical: 'electrical system', avionics: 'avionics bus',
+  alternator: 'alternator', electrical: 'electrical system', avionics: 'avionics bus', carbIce: 'carburettor icing',
 };
 const SPAWN_ROLL_OFFSET_M = 40;
 
@@ -566,6 +567,7 @@ export class Simulator {
     if (f.alternator) this.effective.masterAlternator = false;
     if (f.electrical) { this.effective.masterBattery = false; this.effective.masterAlternator = false; }
     if (f.avionics) this.effective.avionicsMaster = false;
+    if (this.carburetted) this.applyCarbIce(simDt, !!f.carbIce);
     if (this.randomFailures && simDt > 0) this.rollRandomFailure(simDt);
   }
 
@@ -594,6 +596,33 @@ export class Simulator {
   private snapSeason = true;
   setSeason(mode: SeasonMode): void { this.seasonMode = mode; this.snapSeason = true; }
 
+  /** Carburettor ice (carburetted engines): see carbIce.ts. */
+  readonly carbIce = new CarbIce();
+  private carbIceWarned = false;
+  get carburetted(): boolean { const e = this.config.propulsion.engine; return e.type === 'piston' && !!e.carburettor; }
+  private applyCarbIce(simDt: number, forced: boolean): void {
+    const st = this.fdm.state, e = this.effective, w = this.weather.state;
+    if (simDt > 0) {
+      this.carbIce.update(simDt, {
+        oatC: st.atmosphere.temperatureK - 273.15, humidity: w.humidity, visibleMoisture: this.inVisibleMoisture(st.altitudeMslM),
+        throttle: e.throttle, carbHeat: e.carbHeat, rpm: st.engine.rpm, forced,
+      });
+    }
+    e.throttle = this.carbIce.throttle(e.throttle, e.carbHeat);
+    if (this.carbIce.starved) e.mixture = 0;
+    // a pilot notices the rpm creeping down: one hint per icing episode
+    if (!this.carbIceWarned && this.carbIce.ice > 0.3 && !e.carbHeat) {
+      this.carbIceWarned = true;
+      this.events.emit('ui:toast', { text: 'RPM dropping, engine running rough: carburettor ice? Pull carb heat (H).', kind: 'warn', durationMs: 7000 });
+    } else if (this.carbIceWarned && this.carbIce.ice < 0.05) this.carbIceWarned = false;
+  }
+  /** In cloud (a layer of ≥ 50 % cover) or in precipitation. */
+  private inVisibleMoisture(altMslM: number): boolean {
+    const w = this.weather.state;
+    if (w.precipitationRate > 0 && w.precipitationType !== 'none' && windscreenRain(w, altMslM) > 0) return true;
+    return w.clouds.some((c) => c.coverage >= 0.5 && c.type !== 'cirrus' && altMslM >= c.baseM && altMslM <= c.topM);
+  }
+
   /** Failures in effect (failures panel, random failures); cleared by a new flight. */
   readonly failures: Partial<Record<FailureId, boolean>> = {};
   /** Random failures (Settings): about one failure per `RANDOM_FAILURE_MTBF_S` of flying, airborne only. */
@@ -613,7 +642,7 @@ export class Simulator {
   private rollRandomFailure(simDt: number): void {
     if (this.fdm.state.onGround) return;
     if (this.failureRng() >= simDt / RANDOM_FAILURE_MTBF_S) return;
-    const candidates = FAILURE_IDS.filter((id) => !this.failures[id]);
+    const candidates = FAILURE_IDS.filter((id) => !this.failures[id] && (id !== 'carbIce' || this.carburetted));
     if (!candidates.length) return;
     // engine failures are rarer than instrument or electrical ones
     const weighted = candidates.flatMap((id) => (id === 'engine' ? [id] : [id, id, id]));
@@ -1318,6 +1347,7 @@ export class Simulator {
     this.trafficAdvisor.reset();
     this.clearedRunway = null;
     this.clearFailures();
+    this.carbIce.reset();
     this.snapSnow = true;
     // the previous flight goes into the logbook; this one starts recording
     this.logNearest = this.airportNear(g.lat, g.lon);
