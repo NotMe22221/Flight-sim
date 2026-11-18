@@ -2,6 +2,7 @@
  * The world around the aircraft: floating-origin frame, streamed terrain, 3D airports and the
  * Environment the flight model sees. Owns rebasing so every system moves together.
  */
+import { VerticalAir } from './verticalAir';
 import * as THREE from 'three';
 import type { Environment, Geodetic, NavDatabase, Vec3 } from '../core/types';
 import { LocalFrame } from '../geo/wgs84';
@@ -39,6 +40,7 @@ export class World {
   private shiftG: number | null = null;
   private shiftRev = -1;
   private readonly windCam: Vec3 = [0, 0, 0];
+  private readonly driftWind: Vec3 = [0, 0, 0];
   private readonly windAt = (n: number, e: number, d: number, out: Vec3): Vec3 => (this.wind ? this.wind.windNED(n, e, d, out) : zero(out));
 
   constructor(
@@ -49,6 +51,7 @@ export class World {
     lon0: number,
   ) {
     this.frame = new LocalFrame(lat0, lon0, 0);
+    this.verticalAir.setFrame(lat0, lon0);
     this.airports = new AirportsLayer(this.frame, nav);
     this.group.name = 'world';
     if (terrain) this.group.add(terrain.group);
@@ -56,11 +59,22 @@ export class World {
     this.env = new SimEnvironment(this.frame.info, {
       groundHeight: (n, e) => this.groundHeight(n, e),
       groundNormal: (n, e, out) => this.groundNormal(n, e, out),
-      windNED: (n, e, d, out) => (this.wind ? this.wind.windNED(n, e, d, out) : zero(out)),
+      windNED: (n, e, d, out) => this.airAt(n, e, d, out),
     });
   }
 
   setWind(w: WorldWind | null): void { this.wind = w; }
+
+  /** Ridge lift / lee sink and thermals over the weather's wind (src/world/verticalAir.ts). */
+  readonly verticalAir = new VerticalAir((n, e) => this.groundHeight(n, e));
+
+  /** The air's velocity at a NED point: the weather's wind plus the terrain- and sun-driven vertical motion. */
+  airAt(n: number, e: number, d: number, out: Vec3): Vec3 {
+    if (!this.wind) return zero(out);
+    this.wind.windNED(n, e, d, out);
+    out[2] -= this.verticalAir.upwardMs(n, e, d, out[0], out[1]);
+    return out;
+  }
 
   /** Up-coordinate of mean sea level at a NED point (curvature drop from the tangent plane). */
   seaLevelUp(n: number, e: number): number {
@@ -111,6 +125,7 @@ export class World {
   setOrigin(lat: number, lon: number, fallbackElevationM: number): void {
     this.shiftG = null;
     this.frame = new LocalFrame(lat, lon, 0);
+    this.verticalAir.setFrame(lat, lon);
     this.terrain?.setFrame(this.frame);
     this.airports.setFrame(this.frame);
     this.env.setFrame(this.frame.info, fallbackElevationM - this.frame.alt0);
@@ -124,6 +139,7 @@ export class World {
     const groundUp = this.env.groundHeight(aircraftPosNED[0], aircraftPosNED[1]);
     this.shiftG = null;
     this.frame = t.newFrame;
+    this.verticalAir.setFrame(t.newFrame.lat0, t.newFrame.lon0);
     this.terrain?.setFrame(this.frame);
     this.airports.setFrame(this.frame);
     // the ground under the aircraft keeps the same MSL height in the new frame
@@ -136,6 +152,8 @@ export class World {
   update(dt: number, cameraPosThree: THREE.Vector3, camera: THREE.PerspectiveCamera, aircraftGeo: Geodetic, aircraftPosThree: Vec3, sunElevationRad: number): void {
     this.terrain?.update(cameraPosThree, camera, dt);
     this.airports.update(dt, aircraftGeo, aircraftPosThree, sunElevationRad);
+    // thermals drift with the low-level wind
+    if (this.wind) { this.wind.windNED(-aircraftPosThree[2], aircraftPosThree[0], -aircraftPosThree[1], this.driftWind); this.verticalAir.update(dt, this.driftWind[0], this.driftWind[1]); }
     this.windCam[0] = cameraPosThree.x; this.windCam[1] = cameraPosThree.y; this.windCam[2] = cameraPosThree.z;
     this.airports.updateWindsocks(dt, this.windCam, this.windAt);
     // runway pavement comes down to the wheels near the camera only while the camera is near the ground

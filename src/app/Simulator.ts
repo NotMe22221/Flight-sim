@@ -927,6 +927,8 @@ export class Simulator {
     this.snapSnow = false;
     this.terrain?.setSnow(snow.lineM, snow.amount);
     this.plugins.scenery?.setSnow?.(snowAt(snow, s.altitudeMslM - s.altitudeAglM));
+    const conv = convectionFor(this.weather.state, this.sky.sun.elevationRad, s.altitudeMslM - s.altitudeAglM, snowAt(snow, s.altitudeMslM - s.altitudeAglM));
+    this.world.verticalAir.setConvection(conv.strength, conv.topAglM);
     if ((this.frameCount & 63) === 0 || this.snapSeason) {
       // the date and latitude change slowly: every 64 frames is plenty
       this.snapSeason = false;
@@ -1470,4 +1472,21 @@ export function windscreenRain(w: Pick<import('../core/types').WeatherState, 'pr
   if (layer && altMslM > layer.topM) return 0;
   const k = Math.min(1, 0.25 + w.precipitationRate / 8);
   return w.precipitationType === 'snow' ? 0.35 * k : k;
+}
+
+/**
+ * Thermal strength (0…1) and the convective top above the ground: driven by the sun's height (none
+ * below 10°, full from 45°), damped by stratus cover, cold air and snow cover, none in precipitation;
+ * the top is the cumulus base when there is one (thermals feed those clouds), else ~1500 m.
+ */
+export function convectionFor(w: Pick<import('../core/types').WeatherState, 'clouds' | 'precipitationRate' | 'temperatureC'>, sunElevationRad: number, groundMslM: number, snowCover = 0): { strength: number; topAglM: number } {
+  const sm = (e0: number, e1: number, x: number) => { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  if (w.precipitationRate > 0) return { strength: 0, topAglM: 1500 };
+  const sun = sm(10, 45, (sunElevationRad * 180) / Math.PI);
+  const stratus = w.clouds.filter((c) => c.type === 'stratus').reduce((m, c) => Math.max(m, c.coverage), 0);
+  const warm = sm(-5, 18, w.temperatureC);
+  const strength = sun * (1 - 0.9 * stratus) * (0.3 + 0.7 * warm) * (1 - 0.7 * snowCover);
+  const cu = w.clouds.filter((c) => c.type === 'cumulus').sort((a, b) => a.baseM - b.baseM)[0];
+  const top = cu ? cu.baseM - groundMslM : 1500;
+  return { strength, topAglM: Math.max(400, Math.min(3000, top)) };
 }

@@ -64,6 +64,10 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **Taxi ribbon.** On the ground, the taxi-ribbon assist routes you along the real OSM taxiways to
   the hold-short point of the runway in use ("Taxi to runway 28L via L2, A, A6") and draws blue
   chevrons on the ground.
+- **Ridge lift and thermals.** Wind blowing up a slope rises (and sinks in the lee), strongest close
+  to the terrain; on a sunny day thermals (columns of lift ~150–350 m across, 1–3.5 m/s, up to the
+  cumulus base, with gentle sink between) form over the ground, drift with the wind and come and go.
+  Damped by overcast, cold and snow; none at night or in rain.
 - **Windsocks.** Every airport has windsocks beside its main runway (both ends of a long one). They
   stream downwind with the sim's real local wind: hanging limp in calm air, fully out at 15 kt,
   swinging and fluttering in gusts, so you can read the wind on final as in a real aircraft.
