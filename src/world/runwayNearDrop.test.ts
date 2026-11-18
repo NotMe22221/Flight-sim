@@ -46,7 +46,7 @@ describe('runway near-camera drop (wheels on the slab, not 0.12 m into it)', () 
       searchAirports: () => [ap], findNavaidByFrequency: () => undefined, findIlsByFrequency: () => undefined,
     };
     const frame = new LocalFrame(37.613538, -122.35716, 0);
-    const layer = new AirportsLayer(frame, nav);
+    const layer = new AirportsLayer(frame, nav, { merge: false });
     layer.ensureAirport(ap);
     let slab: THREE.Mesh | null = null;
     layer.group.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.name === 'runway:10L/28R') slab = o as THREE.Mesh; });

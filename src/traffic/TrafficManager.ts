@@ -12,6 +12,7 @@ import type { AircraftConfig, AircraftState, Airport, ControlInputs, Runway } fr
 import { defaultControlInputs } from '../core/types';
 import { makeAircraftState } from '../core/fakeState';
 import { AircraftModel } from '../aircraft3d/AircraftModel';
+import { mergeStatic, type MergedLod } from '../aircraft3d/mergeStatic';
 import { reciprocalIdent } from '../nav/airportsData';
 import type { TaxiGraph } from '../world/taxiGraph';
 import { bodyQuatToThree } from '../aircraft3d/frames';
@@ -41,7 +42,14 @@ interface Ai {
   inputs: ControlInputs;
   target: TrafficTarget;
   prop: number;
+  /** merged single-mesh-per-material copy shown beyond LOD_FAR_M (~70 → ~15 draw calls) */
+  lod: MergedLod;
+  far: boolean;
 }
+
+/** switch to the merged model beyond this distance from the camera, back inside LOD_NEAR_M */
+const LOD_FAR_M = 250;
+const LOD_NEAR_M = 200;
 
 /** Runway coordinates (x along from the threshold, y right) of a geodetic point. */
 export function toRunwayCoords(r: PatternRunway, lat: number, lon: number): { x: number; y: number } {
@@ -177,10 +185,13 @@ export class TrafficManager {
     model.lights.landingLight.removeFromParent(); model.lights.taxiLight.removeFromParent();
     model.lights.landingLight.target.removeFromParent(); model.lights.taxiLight.target.removeFromParent();
     model.setVisibility(true, false);
+    const lod = mergeStatic(model.root);
+    lod.group.visible = false;
+    model.root.add(lod.group);
     this.group.add(model.root);
     const inputs = defaultControlInputs();
     inputs.lights = { nav: true, beacon: true, strobe: true, landing: true, taxi: false, panel: 0 };
-    return { sim, model, state: makeAircraftState(), inputs, target: newTarget(), prop: 0 };
+    return { sim, model, state: makeAircraftState(), inputs, target: newTarget(), prop: 0, lod, far: false };
   }
 
   /**
@@ -335,6 +346,12 @@ export class TrafficManager {
       eulerToQNB(t.rollDeg * D2R, t.pitchDeg * D2R, t.headingDeg * D2R, this.qNB);
       bodyQuatToThree(this.qNB, this.q);
       a.model.setPose(this.pos, this.q);
+      // distant: the merged model (the light halos stay on the full one)
+      if (this.camera) {
+        const d = this.pos.distanceTo(this.camera);
+        const far = a.far ? d > LOD_NEAR_M : d > LOD_FAR_M;
+        if (far !== a.far) { a.far = far; a.lod.group.visible = far; for (const m of a.lod.sources) m.visible = !far; }
+      }
       // the animated parts the model reads from the state
       const s = a.state;
       s.surfaces.flapDeg = t.flapDeg;
@@ -367,7 +384,14 @@ export class TrafficManager {
     this.rwy = null;
   }
 
-  private disposeAi(a: Ai): void { a.model.dispose(); }
+  private disposeAi(a: Ai): void { a.lod.dispose(); a.model.dispose(); }
+
+  private camera: THREE.Vector3 | null = null;
+  /** Render-frame camera position (for the distant level of detail). */
+  setCamera(pos: THREE.Vector3): void { this.camera = pos; }
+
+  /** How many AI aircraft currently show the merged distant model (for tests and the perf probe). */
+  get farCount(): number { return this.ai.filter((a) => a.far).length; }
 
   dispose(): void { this.clear(); this.group.removeFromParent(); }
 }

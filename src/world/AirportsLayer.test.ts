@@ -29,7 +29,7 @@ const fakeNav: NavDatabase = {
 describe('AirportsLayer (Node, no DOM)', () => {
   it('builds KSFO with 4 runways, markings, lights and PAPI, and rebuilds on rebase', () => {
     const frame = new LocalFrame(37.613538, -122.35716, 4);
-    const layer = new AirportsLayer(frame, fakeNav);
+    const layer = new AirportsLayer(frame, fakeNav, { merge: false });
     layer.update(10, ksfo.position, [0, 0, 0], -0.2); // triggers refresh
     expect(layer.isBuilt('KSFO')).toBe(true);
     const names: string[] = [];
@@ -55,7 +55,7 @@ describe('AirportsLayer (Node, no DOM)', () => {
 
   it('pavement faces up (not back-face culled) and follows the earth-curvature bulge mid-runway', () => {
     const frame = new LocalFrame(37.613538, -122.35716, 4);
-    const layer = new AirportsLayer(frame, fakeNav);
+    const layer = new AirportsLayer(frame, fakeNav, { merge: false });
     layer.update(10, ksfo.position, [0, 0, 0], -0.2);
     let slab: THREE.Mesh | undefined;
     layer.group.traverse((o) => { if (o.name === 'runway:10L/28R') slab = o as THREE.Mesh; });
@@ -76,7 +76,7 @@ describe('AirportsLayer (Node, no DOM)', () => {
 
   it('PAPI colours follow the aircraft glide angle', () => {
     const frame = new LocalFrame(37.613538, -122.35716, 4);
-    const layer = new AirportsLayer(frame, fakeNav);
+    const layer = new AirportsLayer(frame, fakeNav, { merge: false });
     layer.ensureAirport(ksfo);
     // Aircraft 2 km out on the 28R approach (heading 298 → approach from 118°) at 3° → 105 m up
     const d = 2300; // from the PAPI (300 m past threshold)
@@ -91,5 +91,27 @@ describe('AirportsLayer (Node, no DOM)', () => {
     const anyRed = Array.from({ length: 4 }, (_, i) => colors[i * 3 + 1] < 0.5).some(Boolean);
     const anyWhite = Array.from({ length: 4 }, (_, i) => colors[i * 3 + 1] > 0.9).some(Boolean);
     expect(anyRed || anyWhite).toBe(true);
+  });
+
+  it('merged (the default): the same pavement in far fewer meshes', () => {
+    const frame = new LocalFrame(37.613538, -122.35716, 4);
+    const count = (layer: AirportsLayer) => {
+      let meshes = 0, verts = 0;
+      layer.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.parent?.name !== 'windsock' && !m.parent?.parent?.name?.startsWith('windsock')) { meshes++; verts += m.geometry.getAttribute('position').count; } });
+      return { meshes, verts };
+    };
+    const single = new AirportsLayer(frame, fakeNav, { merge: false }), merged = new AirportsLayer(frame, fakeNav);
+    single.update(10, ksfo.position, [0, 0, 0], -0.2); merged.update(10, ksfo.position, [0, 0, 0], -0.2);
+    const a = count(single), b = count(merged);
+    expect(b.meshes).toBeLessThan(a.meshes);
+    // indexed slabs become non-indexed when merged: at least as many vertices, never fewer
+    expect(b.verts).toBeGreaterThanOrEqual(a.verts);
+    let names = 0, steady = 0; merged.group.traverse((o) => { if (o.name === 'airport-merged') names++; if (o.name === 'airport-lights') steady++; });
+    expect(names).toBe(1);
+    expect(steady).toBe(1);
+    // every steady light kept: the merged set holds as many points as the separate ones
+    const pointsIn = (l: AirportsLayer, mat: (o: THREE.Points) => boolean) => { let n = 0; l.group.traverse((o) => { const p = o as THREE.Points; if (p.isPoints && mat(p)) n += p.geometry.getAttribute('position').count; }); return n; };
+    const isSteady = (p: THREE.Points) => p.name === 'airport-lights' || p.name === 'runway-lights' || p.name === 'approach-lights';
+    expect(pointsIn(merged, isSteady)).toBe(pointsIn(single, isSteady));
   });
 });

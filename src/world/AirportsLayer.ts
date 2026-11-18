@@ -7,6 +7,8 @@ import * as THREE from 'three';
 import type { Airport, Geodetic, NavDatabase, Runway, Vec3 } from '../core/types';
 import { LocalFrame } from '../geo/wgs84';
 import { Windsock } from './windsock';
+import { mergeStatic } from '../aircraft3d/mergeStatic';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { approachLights, papiIndication, runwayGeometry, runwayLights, type RunwayGeometry, type RunwayLights } from './runwayGeometry';
 
 export interface AirportsLayerOptions {
@@ -17,9 +19,11 @@ export interface AirportsLayerOptions {
   maxAirports: number;
   /** seconds between database queries */
   refreshIntervalS: number;
+  /** merge each airport's static meshes into one per material (fewer draw calls); off to inspect single runways */
+  merge: boolean;
 }
 
-const DEFAULTS: AirportsLayerOptions = { buildRadiusNm: 45, disposeRadiusNm: 60, maxAirports: 14, refreshIntervalS: 4 };
+const DEFAULTS: AirportsLayerOptions = { buildRadiusNm: 45, disposeRadiusNm: 60, maxAirports: 14, refreshIntervalS: 4, merge: true };
 
 interface RunwayObjects {
   geom: RunwayGeometry;
@@ -274,6 +278,28 @@ export class AirportsLayer {
         }
       }
       runways.push({ geom, lights, papiA, papiB, rabbits });
+    }
+    // the airport never moves: one mesh per material instead of one per slab segment, marking and
+    // designator (an airport is tens of meshes; lights and PAPI stay separate, they animate)
+    if (this.opts.merge) {
+      const merged = mergeStatic(group);
+      for (const m of merged.sources) { m.removeFromParent(); m.geometry.dispose(); }
+      merged.group.name = 'airport-merged';
+      group.add(merged.group);
+      // the steady lights (edge, threshold, approach bars) and the REIL strobes share materials: one
+      // point set each per airport (PAPI and the sequenced flashers change per frame: kept apart)
+      for (const [mat, name] of [[this.lightMaterial, 'airport-lights'], [this.reilMaterial, 'airport-reil']] as const) {
+        const pts: THREE.Points[] = [];
+        group.traverse((o) => { const p = o as THREE.Points; if (p.isPoints && p.material === mat) pts.push(p); });
+        if (pts.length < 2) continue;
+        const geo = mergeGeometries(pts.map((p) => { const g = p.geometry.clone(); g.applyMatrix4(p.matrix); return g; }), false);
+        if (!geo) continue;
+        for (const p of pts) { p.removeFromParent(); p.geometry.dispose(); }
+        const one = new THREE.Points(geo, mat);
+        one.name = name;
+        group.add(one);
+        if (mat === this.lightMaterial) { lightPoints.length = 0; lightPoints.push(one); }
+      }
     }
     this.group.add(group);
     // windsocks by the longest runway

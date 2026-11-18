@@ -791,6 +791,7 @@ export class Simulator {
       }
       this.traffic.setGround(ap && this.trafficStands.length ? this.ensureTaxiGraph(ap) : null, this.trafficStands, s.geo);
     }
+    this.traffic.setCamera(this.cameras.positionThree());
     this.traffic.update(this.lastSimDt, dt, s, this.world.frame, this.sky.sun.elevationRad);
     // traffic advisories on the ATC channel (once a second while flying; not in replay or slew)
     this.advisoryTimer += dt;
