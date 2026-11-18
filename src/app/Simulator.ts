@@ -1317,7 +1317,9 @@ export class Simulator {
     this.world.groundShift(this.fdm.state.posNED[0], this.fdm.state.posNED[1]);
     if (!spawn.onGround) {
       // trim with the approach flaps already set (not a flap motor that has barely started moving)
-      this.fdm.snapControls(c);
+      // trim with the mixture the engine will actually run on: the auto-mixture assist leans to peak power
+      // (at altitude a full-rich trim saturates the throttle, then the leaned engine climbs away)
+      this.fdm.snapControls(this.assists.autoMixture && spawn.engineRunning ? { ...c, mixture: Math.min(c.mixture, this.fdm.peakPowerMixture()) } : c);
       const cas = casFromTas(spawn.speedMs, this.fdm.state.atmosphere.pressurePa, this.fdm.state.atmosphere.speedOfSound);
       this.fdm.trim(cas, spawn.gammaRad ?? 0, this.world.env);
       const tr = this.fdm.trimResult;
