@@ -9,6 +9,9 @@ export function makeActivityHost(sim: Simulator, speak?: (text: string) => void)
   return {
     async spawnAtRunway(icao, runway, opts = {}) {
       await sim.nav.load();
+      // small airports live in regional shards: load the field's region first when it is not in memory
+      // (resuming a later bush-trip leg right after starting the app found only the startup region)
+      if (!sim.nav.getAirport(icao) && opts.near) await sim.nav.loadRegion({ lat: opts.near.lat, lon: opts.near.lon, alt: 0 }, 15);
       const ap = sim.nav.getAirport(icao);
       if (!ap) throw new Error(`${icao} is not in the airport database`);
       await sim.nav.loadRegion(ap.position, 30);

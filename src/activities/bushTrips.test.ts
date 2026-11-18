@@ -270,6 +270,8 @@ describe('bush trip legs flown through the ActivityRunner', () => {
       expect(r.id).toBe(legActivityId(trip.id, i));
       expect(host.calls[0]).toBe(`weather ${trip.legs[i].weather}`);
       expect(host.calls[1]).toBe(`spawnAtRunway ${trip.legs[i].from} ${trip.legs[i].departureRunway}`);
+      // the field's position travels with the spawn, so the host can load a small airport's region
+      expect(host.lastRunwaySpawn?.opts?.near?.lat).toBeCloseTo(trip.airports[trip.legs[i].from].lat, 4);
       expect(host.calls).toContain(`route ${trip.legs[i].waypoints.length + 2}`);
       expect(host.calls[host.calls.length - 1]).toBe('clearRoute');
       // every landmark passed and announced exactly once, the landing scored on the destination runway

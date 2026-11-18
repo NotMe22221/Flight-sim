@@ -15,6 +15,8 @@ export interface RunwaySpawnOptions {
   payloadKg?: number;
   /** set the parking brake once positioned (lessons that teach releasing it); default: the simulator's normal spawn state */
   parkingBrake?: boolean;
+  /** a point at the field: lets the host load the region of a small airport that is not in memory yet */
+  near?: { lat: number; lon: number };
 }
 
 export interface AirSpawnOptions {

@@ -151,7 +151,7 @@ export class ActivityRunner {
       if (token !== this.token) return; // aborted or superseded meanwhile
       if (s.weather) this.host.setWeatherPreset(s.weather);
       if (s.spawn === 'runway') {
-        await this.host.spawnAtRunway(s.icao, s.runway, { coldAndDark: s.coldAndDark, fuelFraction: s.fuelFraction, parkingBrake: s.parkingBrake });
+        await this.host.spawnAtRunway(s.icao, s.runway, { coldAndDark: s.coldAndDark, fuelFraction: s.fuelFraction, parkingBrake: s.parkingBrake, ...(s.anchor ? { near: s.anchor } : {}) });
       } else {
         await this.host.spawnInAir(s.lat, s.lon, s.altFt * FT, s.headingDeg, s.iasKt * KT, { flapsIndex: s.flapsIndex, gammaRad: (s.gammaDeg ?? 0) * DEG });
       }
