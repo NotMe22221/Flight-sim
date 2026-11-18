@@ -77,6 +77,9 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **Save and resume.** Pause menu › Save flight keeps the exact flight (aircraft, attitude, speeds,
   fuel, engine temperatures, switches, radios, autopilot modes, weather, time, flight plan, failures); Main menu › Resume saved
   flight puts you back in it. One slot, in the browser's local storage.
+- **Logbook.** Main menu › Logbook lists every flight (over 30 s in the air): date, aircraft,
+  departure and arrival airports, flight and night time, landings, distance and maximum altitude, with
+  totals. Kept in the browser's local storage (newest 500).
 - **Dynamic resolution.** On by default (Settings › Graphics): when the frame rate stays under about
   40 fps the render resolution steps down (to half at most) and climbs back when there is headroom,
   without bouncing straight back to a resolution that was too slow.

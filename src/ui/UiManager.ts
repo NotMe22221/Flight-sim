@@ -23,6 +23,7 @@ import { AircraftSelect } from './screens/AircraftSelect';
 import { WeatherScreen } from './screens/WeatherScreen';
 import { Settings } from './screens/Settings';
 import { CreditsScreen } from './screens/CreditsScreen';
+import { LogbookScreen } from './screens/LogbookScreen';
 import { Activities } from './screens/Activities';
 import { FlightUi } from './flight/FlightUi';
 import { LayoutStore } from './flight/FloatingPanel';
@@ -121,6 +122,7 @@ export class UiManager {
       settings: new Settings(this.ctx),
       credits: new CreditsScreen(this.ctx),
       activities: new Activities(this.ctx),
+      logbook: new LogbookScreen(this.ctx),
     };
     for (const s of Object.values(this.screens)) this.layers.screens.appendChild(s.el);
 

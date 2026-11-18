@@ -17,7 +17,7 @@ import { LocalFrame, greatCircleDistance, nedToThree } from '../geo/wgs84';
 import { World } from '../world/World';
 import type { PavementArea, PavementSource } from '../world/pavement';
 import { LandingGuide } from '../world/LandingGuide';
-import { ActivityRunner, ProgressStore } from '../activities';
+import { ActivityRunner, Logbook, LogbookRecorder, ProgressStore } from '../activities';
 import { makeActivityHost } from './activityHost';
 import { TerrainSystem } from '../terrain/TerrainSystem';
 import { SkySystem, WeatherSystem } from '../sky';
@@ -465,6 +465,7 @@ export class Simulator {
 
   start(): void {
     this.lastMs = performance.now();
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this.closeLog());
     const tick = (now: number) => { this.raf = requestAnimationFrame(tick); this.frame(now); };
     this.raf = requestAnimationFrame(tick);
   }
@@ -566,6 +567,20 @@ export class Simulator {
     if (f.electrical) { this.effective.masterBattery = false; this.effective.masterAlternator = false; }
     if (f.avionics) this.effective.avionicsMaster = false;
     if (this.randomFailures && simDt > 0) this.rollRandomFailure(simDt);
+  }
+
+  /** Pilot logbook (Main menu › Logbook): one entry per flight, newest first. */
+  readonly logbook = new Logbook(safeLocalStorage());
+  private readonly logRecorder = new LogbookRecorder();
+  private logNearest: string | null = null;
+  private logLastT = 0;
+  /** End the running flight's log entry (page closing): it is written if worth logging. */
+  closeLog(): void { const e = this.logRecorder.end(); if (e) this.logbook.add(e); }
+  /** ICAO of an airport within 3 km of a point (from the nearby list), else null. */
+  private airportNear(lat: number, lon: number): string | null {
+    let best: string | null = null, bd = 3000;
+    for (const a of this.nearbyAirports) { const d = greatCircleDistance({ lat, lon, alt: 0 }, a.position); if (d < bd) { bd = d; best = a.icao; } }
+    return best;
   }
 
   /** Lying snow: 'auto' follows the weather's temperature and snowfall (src/sky/groundSnow.ts). */
@@ -894,6 +909,16 @@ export class Simulator {
     this.plugins.scenery?.update(dt, camPos, this.cameras.camera, this.sky.sun.elevationRad);
     this.landingGuide.update(dt, this.assists.landingPathHints && this.inFlight && !this.replayer.active && !this.slew, s.geo, s.trackRad * RAD, s.onGround, this.nearbyAirports, this.world.frame);
     this.updateTraffic(dt, s);
+    if (this.inFlight && !this.paused && !this.replayer.active && !this.slew) {
+      if ((this.frameCount & 31) === 0) this.logNearest = this.airportNear(s.geo.lat, s.geo.lon);
+      // the flight model's own clock: time actually flown (time acceleration on a slow machine falls behind the wall clock)
+      const tNow = this.fdm.state.t, flown = tNow - this.logLastT;
+      this.logLastT = tNow;
+      this.logRecorder.update({
+        dtS: flown > 0 && flown < 10 ? flown : 0, utcMs: this.time.utcMs, onGround: s.onGround, lat: s.geo.lat, lon: s.geo.lon, altMslM: s.altitudeMslM,
+        groundSpeedMs: s.groundSpeedMs, sunElevationRad: this.sky.sun.elevationRad, crashed: s.crashed, nearestIcao: this.logNearest,
+      });
+    }
     this.updateTaxiRibbon(dt, s);
     tn = performance.now(); this.mark('world', tn - tm); tm = tn;
 
@@ -1293,6 +1318,11 @@ export class Simulator {
     this.clearedRunway = null;
     this.clearFailures();
     this.snapSnow = true;
+    // the previous flight goes into the logbook; this one starts recording
+    this.logNearest = this.airportNear(g.lat, g.lon);
+    this.logLastT = this.fdm.state.t;
+    const logged = this.logRecorder.begin({ utcMs: this.time.utcMs, aircraftId: this.config.id, aircraftName: this.config.name, onGround: spawn.onGround, nearestIcao: this.logNearest });
+    if (logged) this.logbook.add(logged);
     this.paused = false;
     this.resetInstruments();
     this.events.emit('flight:reset', { spawn });
@@ -1393,4 +1423,8 @@ export class Simulator {
     this.g1000Tex?.dispose();
     this.gfx.dispose();
   }
+}
+
+function safeLocalStorage(): Storage | null {
+  try { return typeof localStorage !== 'undefined' ? localStorage : null; } catch { return null; }
 }

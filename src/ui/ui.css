@@ -822,3 +822,12 @@
   .fs-ui .act-detail-foot { padding: 10px 14px 14px; }
 }
 .fs-ui .debrief.fail .debrief-score-v { color: var(--fg-dim); }
+
+/* ── Logbook ── */
+.fs-ui .logbook-card { max-width: 1000px; }
+.fs-ui .logbook-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.fs-ui .logbook-stat-v { font-size: 1.5em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fs-ui .logbook-table { width: 100%; border-collapse: collapse; font-size: .9em; }
+.fs-ui .logbook-table th { text-align: left; font-weight: 500; opacity: .7; padding: 6px 8px; border-bottom: 1px solid rgba(255, 255, 255, .15); white-space: nowrap; }
+.fs-ui .logbook-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255, 255, 255, .06); white-space: nowrap; }
+.fs-ui .logbook-table tr.logbook-crash td { color: #ff8a80; }

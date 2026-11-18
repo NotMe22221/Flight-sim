@@ -48,6 +48,12 @@ export interface AudioSettings { master: number; engine: number; environment: nu
 export interface UnitsSettings { altitude: 'ft' | 'm'; speed: 'kt' | 'kmh' | 'mph'; pressure: 'inHg' | 'hPa'; distance: 'nm' | 'km'; temperature: 'C' | 'F' }
 export interface BindingInfo { action: SimAction; label: string /* e.g. 'Ctrl+E' */; device: 'keyboard' | 'gamepad' | 'mouse' | 'none'; group: string }
 
+/** Logbook (src/activities/logbook.ts) as the UI reads it. */
+export interface LogbookView {
+  entries: { startUtcMs: number; aircraftName: string; from: string | null; to: string | null; airTimeS: number; nightS: number; landings: number; distanceNm: number; maxAltFt: number; crashed: boolean }[];
+  totals: { flights: number; airTimeS: number; nightS: number; landings: number; distanceNm: number };
+}
+
 export interface UiHost {
   readonly events: EventBus;
   readonly nav: NavDatabase;
@@ -124,6 +130,9 @@ export interface UiHost {
    * crashed); `savedFlightInfo` describes the stored one (null: none); `resumeSavedFlight` flies it.
    */
   saveFlight?(): boolean;
+  /** Logbook (optional): its entries and totals; `clearLogbook` deletes them. */
+  logbook?(): LogbookView;
+  clearLogbook?(): void;
   savedFlightInfo?(): { label: string; savedAtMs: number } | null;
   resumeSavedFlight?(): Promise<void>;
   /** Failures panel: fail or repair a system (optional). */

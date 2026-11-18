@@ -5,7 +5,7 @@ import type { SelectionStore } from '../selection';
 import type { PersistedSettings } from '../settingsStore';
 import { button, h } from '../dom';
 
-export type ScreenId = 'loading' | 'main' | 'worldmap' | 'aircraft' | 'weather' | 'settings' | 'credits' | 'activities' | 'flight';
+export type ScreenId = 'loading' | 'main' | 'worldmap' | 'aircraft' | 'weather' | 'settings' | 'credits' | 'activities' | 'logbook' | 'flight';
 
 export interface ScreenContext {
   host: UiHost;

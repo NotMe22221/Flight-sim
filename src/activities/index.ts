@@ -32,3 +32,4 @@ export {
   type KeyValueStorage, type LegRecord, type LessonRecord,
 } from './progressStore';
 export * as speech from './speech';
+export { LOGBOOK_KEY, Logbook, LogbookRecorder, type LogEntry, type LogFrame } from './logbook';

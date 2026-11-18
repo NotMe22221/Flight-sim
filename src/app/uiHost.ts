@@ -5,7 +5,7 @@
 import type { AircraftConfig, AssistanceOptions, FailureId, CameraMode, SimAction, SimSnapshot, Waypoint, WeatherPresetId, WeatherState } from '../core/types';
 import { AIRCRAFT, aircraftById, aircraftForActivity } from './aircraftCatalog';
 import { fetchOpenMeteo, OPEN_METEO_ATTRIBUTION, weatherFromPreset } from '../sky';
-import type { AudioSettings, BindingInfo, GraphicsSettings, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
+import type { AudioSettings, BindingInfo, GraphicsSettings, LogbookView, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
 import type { Simulator } from './Simulator';
 import { SAVED_FLIGHT_KEY, readSavedFlight, savedFlightLabel } from './savedFlight';
 import { magneticDeclinationDeg } from '../geo/magvar';
@@ -70,6 +70,9 @@ export class SimUiHost implements UiHost {
   }
   // ── failures panel
   setFailure(id: FailureId, failed: boolean): void { this.sim.setFailure(id, failed); }
+
+  logbook(): LogbookView { return { entries: this.sim.logbook.entries(), totals: this.sim.logbook.totals() }; }
+  clearLogbook(): void { this.sim.logbook.clear(); }
 
   /** One saved-flight slot in localStorage (a few kB of JSON). */
   saveFlight(): boolean {

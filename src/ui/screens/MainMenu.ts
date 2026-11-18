@@ -28,6 +28,7 @@ export class MainMenu extends Screen {
         button('Activities', () => ctx.navigate('activities'), { icon: 'trophy', cls: 'menu-btn', title: 'Landing challenges, flight training and bush trips' }),
         button('Aircraft', () => ctx.navigate('aircraft'), { icon: 'plane', cls: 'menu-btn' }),
         button('Weather & time', () => ctx.navigate('weather'), { icon: 'cloudSun', cls: 'menu-btn' }),
+        ...(ctx.host.logbook ? [button('Logbook', () => ctx.navigate('logbook'), { icon: 'book', cls: 'menu-btn', title: 'Your flights: times, routes, landings' })] : []),
         button('Settings', () => ctx.navigate('settings'), { icon: 'settings', cls: 'menu-btn' }),
         button('Credits', () => ctx.navigate('credits'), { icon: 'info', cls: 'menu-btn' })));
     const right = h('div', { class: 'main-right' },
