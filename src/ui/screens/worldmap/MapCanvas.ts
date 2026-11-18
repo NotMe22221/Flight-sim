@@ -13,9 +13,9 @@ import {
   MAX_MAP_PX_PER_DEG, OVERVIEW_QUERY, ZOOM_LOAD_REGION, ZOOM_MEDIUM, airportQuery, hitTestAirport, isOverviewType, needsRefetch, scaleBar,
   type AirportQuery,
 } from '../../worldMapModel';
-import { drawMap } from './mapDraw';
+import { drawMap, type MapScene } from './mapDraw';
 
-export interface MapCanvasState { departure: Airport; departureEnd: RunwayEndChoice | null; focused: Airport | null; arrival: Airport | null }
+export interface MapCanvasState { departure: Airport; departureEnd: RunwayEndChoice | null; focused: Airport | null; arrival: Airport | null; route?: MapScene['route'] }
 
 export interface MapCanvasOptions {
   host: UiHost;
@@ -193,7 +193,7 @@ export class MapCanvas {
     if (!g) return;
     const st = this.o.state();
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    drawMap(g, { view: this.view, airports: this.airports, departure: st.departure, departureEnd: st.departureEnd, focused: st.focused, arrival: st.arrival, hover: this.hover });
+    drawMap(g, { view: this.view, airports: this.airports, departure: st.departure, departureEnd: st.departureEnd, focused: st.focused, arrival: st.arrival, route: st.route, hover: this.hover });
     const sb = scaleBar(this.view, this.view.centerLat, this.o.units().distance, 110);
     this.scaleBarEl.style.width = `${Math.round(sb.px)}px`;
     this.scaleTxt.set(sb.label);

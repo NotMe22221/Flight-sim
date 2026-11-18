@@ -2,7 +2,7 @@
  * Pre-flight selection shared by Main Menu, World Map, Aircraft and Weather screens:
  * departure (airport + runway end or parking), aircraft, fuel/payload, weather, time.
  */
-import type { Airport, WeatherPresetId, WeatherState } from '../core/types';
+import type { Airport, Waypoint, WeatherPresetId, WeatherState } from '../core/types';
 import type { SpawnChoice, UiHost } from './UiHost';
 import { FALLBACK_KSFO, findRunwayEnd } from './runways';
 import { SELECTION_KEY, loadJson, saveJson } from './settingsStore';
@@ -28,6 +28,8 @@ export interface FlightSelection {
   time: TimeSelection;
   /** World Map "Set as arrival": added to the flight plan once the flight is live. */
   arrival: Airport | null;
+  /** World Map "Import .pln": the full route, set as the flight plan once the flight is live (not persisted). */
+  route?: Waypoint[] | null;
 }
 
 export interface PersistedSelection { icao?: string; endIdent?: string | null; aircraftId?: string; fuelFraction?: number; payloadKg?: number; weather?: WeatherSelection; time?: TimeSelection; arrivalIcao?: string | null }

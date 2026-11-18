@@ -54,7 +54,9 @@ export class FlightLauncher {
         host.requestLiveWeather().then((ok) => { if (!ok) this.d.toast({ text: 'Live weather unavailable — keeping the current weather', kind: 'warn' }); }, () => undefined);
       }
       const arr = sel.arrival;
-      if (arr && host.addWaypoint && arr.icao !== sel.spawn.airport.icao) host.addWaypoint({ id: arr.icao, position: arr.position, type: 'airport' });
+      // an imported route wins over a bare arrival
+      if (sel.route?.length && host.setPlan) host.setPlan(sel.route.map((w) => ({ ...w, position: { ...w.position } })));
+      else if (arr && host.addWaypoint && arr.icao !== sel.spawn.airport.icao) host.addWaypoint({ id: arr.icao, position: arr.position, type: 'airport' });
     }, 'Could not start the flight');
   }
 

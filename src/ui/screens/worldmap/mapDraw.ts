@@ -24,6 +24,8 @@ export interface MapScene {
   focused: Airport | null;
   arrival: Airport | null;
   hover: Airport | null;
+  /** an imported flight plan (World Map "Import .pln"): drawn through its waypoints instead of direct */
+  route?: readonly { id: string; type: string; position: { lat: number; lon: number } }[] | null;
 }
 
 export function drawMap(g: CanvasRenderingContext2D, s: MapScene): void {
@@ -33,7 +35,8 @@ export function drawMap(g: CanvasRenderingContext2D, s: MapScene): void {
   g.fillStyle = grad;
   g.fillRect(0, 0, w, hgt);
   drawGraticule(g, s.view);
-  if (s.arrival) drawRoute(g, s.view, s.departure, s.arrival);
+  if (s.route && s.route.length > 1) drawWaypoints(g, s.view, s.route);
+  else if (s.arrival) drawRoute(g, s.view, s.departure.position, s.arrival.position);
   drawAirports(g, s);
   const showRunways = s.view.pxPerDeg >= ZOOM_RUNWAYS;
   if (showRunways && s.focused && s.focused.icao !== s.departure.icao) drawRunways(g, s.view, s.focused);
@@ -75,9 +78,9 @@ function drawGraticule(g: CanvasRenderingContext2D, v: MapView): void {
 }
 
 /** Great-circle leg departure → arrival, dashed, broken at the antimeridian. */
-function drawRoute(g: CanvasRenderingContext2D, v: MapView, a: Airport, b: Airport): void {
-  const from = { lat: a.position.lat, lon: a.position.lon };
-  const to = { lat: b.position.lat, lon: b.position.lon };
+function drawRoute(g: CanvasRenderingContext2D, v: MapView, a: { lat: number; lon: number }, b: { lat: number; lon: number }): void {
+  const from = { lat: a.lat, lon: a.lon };
+  const to = { lat: b.lat, lon: b.lon };
   const d = distanceM(from, to);
   const brg = bearingDeg(from, to);
   const n = Math.min(64, Math.max(2, Math.ceil(d / 50_000)));
@@ -92,6 +95,23 @@ function drawRoute(g: CanvasRenderingContext2D, v: MapView, a: Airport, b: Airpo
     px = q.x;
   }
   g.stroke();
+  g.restore();
+}
+
+/** An imported route: each leg as a great-circle segment, intermediate waypoints as small labelled diamonds. */
+function drawWaypoints(g: CanvasRenderingContext2D, v: MapView, route: NonNullable<MapScene['route']>): void {
+  for (let i = 1; i < route.length; i++) drawRoute(g, v, route[i - 1].position, route[i].position);
+  g.save();
+  g.font = '10px ui-monospace, Menlo, Consolas, monospace';
+  g.textBaseline = 'middle';
+  for (let i = 1; i < route.length - 1; i++) {
+    const w = route[i];
+    const p = project(v, w.position.lon, w.position.lat);
+    if (p.x < -20 || p.y < -20 || p.x > v.width + 20 || p.y > v.height + 20) continue;
+    g.fillStyle = C.ok;
+    g.beginPath(); g.moveTo(p.x, p.y - 4); g.lineTo(p.x + 4, p.y); g.lineTo(p.x, p.y + 4); g.lineTo(p.x - 4, p.y); g.closePath(); g.fill();
+    if (v.pxPerDeg > 60) { g.fillStyle = C.fg; g.fillText(w.id, p.x + 7, p.y); }
+  }
   g.restore();
 }
 

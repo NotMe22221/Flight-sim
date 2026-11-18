@@ -7,7 +7,8 @@ import type { RunwayEndChoice } from '../UiHost';
 import { Screen, screenHeader, type ScreenContext } from './Screen';
 import { Txt, button, h, isCoarsePointer } from '../dom';
 import { formatDistance, formatFrequencyMHz, formatLength, formatTimeLocal, timezoneOffsetFromLon } from '../format';
-import { magneticVariationAt, runwayHeadingLabel } from '../runways';
+import { findRunwayEnd, magneticVariationAt, runwayEnds, runwayHeadingLabel } from '../runways';
+import { parsePln } from '../../nav/pln';
 import { distanceM } from '../geoMath';
 import { AIRPORT_FOCUS_PX_PER_DEG } from '../worldMapModel';
 import { AirportSearch } from './worldmap/AirportSearch';
@@ -40,7 +41,7 @@ export class WorldMap extends Screen {
     this.map = new MapCanvas({
       host,
       units: () => ctx.settings().units,
-      state: () => { const s = ctx.selection.sel; return { departure: s.spawn.airport, departureEnd: s.spawn.runwayEnd, focused: this.focused, arrival: s.arrival }; },
+      state: () => { const s = ctx.selection.sel; return { departure: s.spawn.airport, departureEnd: s.spawn.runwayEnd, focused: this.focused, arrival: s.arrival, route: s.route }; },
       onPick: (ap) => this.focusAirport(ap, false),
     });
     this.conditions = new FlightConditions(ctx);
@@ -55,7 +56,7 @@ export class WorldMap extends Screen {
     const fly = button('Fly', () => ctx.fly(), { primary: true, big: true, icon: 'plane', title: 'Start the flight (Enter on the map)' });
 
     this.el.append(
-      screenHeader(ctx, 'World map', 'Pick a departure, set the conditions, then fly'),
+      screenHeader(ctx, 'World map', 'Pick a departure, set the conditions, then fly', ...this.importControls()),
       h('div', { class: 'screen-body' },
         h('aside', { class: 'wm-sidebar' }, this.search.el, this.card.el),
         h('div', { class: 'wm-center' }, this.map.el, h('div', { class: 'wm-bottom' }, summary, fly)),
@@ -104,12 +105,15 @@ export class WorldMap extends Screen {
   }
 
   private chooseEnd(ap: Airport, end: RunwayEndChoice | null): void {
-    this.ctx.selection.set({ spawn: { airport: ap, runwayEnd: end, coldAndDark: end === null } });
+    const s = this.ctx.selection.sel;
+    // another departure airport no longer fits an imported route
+    const route = s.route && s.spawn.airport.icao === ap.icao ? s.route : null;
+    this.ctx.selection.set({ spawn: { airport: ap, runwayEnd: end, coldAndDark: end === null }, route });
     this.centeredOn = ap.icao;
   }
 
   private setArrival(ap: Airport | null): void {
-    this.ctx.selection.set({ arrival: ap });
+    this.ctx.selection.set({ arrival: ap, route: null });
     if (!ap) { this.ctx.toast('Arrival cleared', 'info'); return; }
     if (this.ctx.inFlight() && this.ctx.host.addWaypoint) {
       this.ctx.host.addWaypoint({ id: ap.icao, position: ap.position, type: 'airport' });
@@ -134,9 +138,48 @@ export class WorldMap extends Screen {
     this.summary.pos.set(end ? `Runway ${end.endIdent}` : 'Parking');
     this.summarySub.pos.set(end ? `${runwayHeadingLabel(end.headingDeg, magneticVariationAt(this.ctx.host, end.threshold.lat, end.threshold.lon))} · ${formatLength(end.lengthM, u)}${end.ilsMHz !== undefined ? ` · ILS ${formatFrequencyMHz(end.ilsMHz)}` : ''}` : 'Cold & dark');
     this.summary.arr.set(s.arrival ? s.arrival.icao : '—');
-    this.summarySub.arr.set(s.arrival ? `${formatDistance(distanceM(s.spawn.airport.position, s.arrival.position), u)} direct` : 'Free flight');
+    if (s.route?.length) {
+      let m = 0;
+      for (let i = 1; i < s.route.length; i++) m += distanceM(s.route[i - 1].position, s.route[i].position);
+      this.summary.arr.set(s.arrival ? s.arrival.icao : s.route[s.route.length - 1].id);
+      this.summarySub.arr.set(`Route · ${s.route.length} waypoints · ${formatDistance(m, u)}`);
+    } else this.summarySub.arr.set(s.arrival ? `${formatDistance(distanceM(s.spawn.airport.position, s.arrival.position), u)} direct` : 'Free flight');
     this.summary.cond.set(d.weather);
     const timeName = t.mode === 'now' ? 'Now' : t.mode === 'preset' ? t.preset.charAt(0).toUpperCase() + t.preset.slice(1) : 'Custom';
     this.summarySub.cond.set(`${timeName} · ${formatTimeLocal(this.ctx.selection.resolvedTimeUtcMs(), timezoneOffsetFromLon(s.spawn.airport.position.lon))} local`);
+  }
+
+  /** "Import .pln" in the header: departure, arrival and the route from an MSFS flight plan. */
+  private importControls(): HTMLElement[] {
+    if (!this.ctx.host.setPlan) return [];
+    const file = h('input', { type: 'file', style: 'display:none' }) as HTMLInputElement;
+    file.accept = '.pln,application/xml,text/xml';
+    file.addEventListener('change', () => {
+      const f = file.files?.[0];
+      file.value = '';
+      if (f) void f.text().then((xml) => this.importPln(xml), (e: unknown) => this.ctx.toast(`Could not read the file: ${String(e)}`, 'error'));
+    });
+    return [file, button('Import .pln', () => file.click(), { cls: 'btn-ghost', icon: 'route', title: 'Load an MSFS flight plan (.pln from MSFS, Little Navmap, SimBrief): departure, arrival and route' })];
+  }
+
+  /** Apply an imported plan to the selection (exported for tests through the screen instance). */
+  importPln(xml: string): void {
+    let plan;
+    try { plan = parsePln(xml); } catch (e) { this.ctx.toast(`Could not import: ${e instanceof Error ? e.message : String(e)}`, 'error'); return; }
+    const nav = this.ctx.host.nav;
+    const wps = plan.waypoints;
+    const first = wps[0], last = wps[wps.length - 1];
+    const dep = first.type === 'airport' ? nav.getAirport(first.id) : null;
+    const arr = wps.length > 1 && last.type === 'airport' ? nav.getAirport(last.id) : null;
+    const patch: Parameters<typeof this.ctx.selection.set>[0] = { route: wps, arrival: arr ?? null };
+    if (dep) {
+      // keep the chosen runway when the departure is unchanged, else the airport's first runway end
+      const cur = this.ctx.selection.sel.spawn;
+      const end = cur.airport.icao === dep.icao ? cur.runwayEnd : (dep.runways[0] ? findRunwayEnd(dep, runwayEnds(dep.runways[0])[0].endIdent) : null);
+      patch.spawn = { airport: dep, runwayEnd: end, coldAndDark: end === null };
+      this.focusAirport(dep, true);
+    }
+    this.ctx.selection.set(patch);
+    this.ctx.toast(`Imported "${plan.title}": ${wps.length} waypoints${dep ? `, departing ${dep.icao}` : ' (departure not in the airport database: pick one)'}`, dep ? 'success' : 'warn');
   }
 }
