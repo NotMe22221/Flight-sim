@@ -158,6 +158,8 @@ export const FAILURE_LABELS: Readonly<Record<FailureId, string>> = {
   alternator: 'alternator', electrical: 'electrical system', avionics: 'avionics bus', carbIce: 'carburettor icing',
 };
 const SPAWN_ROLL_OFFSET_M = 40;
+/** an air start is raised to at least this height above the terrain under it, m */
+const AIR_SPAWN_MIN_AGL_M = 150;
 
 /** Aircraft family the landing challenges are written for (approach speeds, flaps 2 of 4). */
 const LANDING_CHALLENGE_AIRCRAFT = 'c172';
@@ -1327,6 +1329,14 @@ export class Simulator {
     // is in). A slow connection gets 20 s before the aircraft is placed on whatever ground exists; a
     // later reload under it is ridden out by groundShift in physicsStep.
     if (this.terrain) await Promise.race([this.terrain.prefetch(g.lat, g.lon, 2500), new Promise((r) => setTimeout(r, SPAWN_TERRAIN_WAIT_MS))]);
+    // an air start never begins in (or skimming) the terrain: a glide path or a scenic start computed
+    // from an airport's elevation can pass under rising ground (KTRK 29 put the aircraft 34 m under it)
+    if (!spawn.onGround && !opts.restore) {
+      const ground = this.world.groundHeight(0, 0);
+      if (ground !== null && Number.isFinite(ground) && g.alt < ground + AIR_SPAWN_MIN_AGL_M) {
+        spawn = { ...spawn, geo: { ...g, alt: ground + AIR_SPAWN_MIN_AGL_M } };
+      }
+    }
     if (opts.fuelFraction !== undefined) this.fdm.setFuelFraction(opts.fuelFraction);
     if (opts.payloadKg !== undefined) {
       let rest = opts.payloadKg;

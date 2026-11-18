@@ -71,6 +71,8 @@ export class Fdm implements FlightModel {
   private readonly k3 = new Float64Array(NS);
   private readonly k4 = new Float64Array(NS);
   private readonly yt = new Float64Array(NS);
+  /** the state before the current step: restored if the step goes non-finite */
+  private readonly yGood = new Float64Array(NS);
 
   private readonly aero: AeroModel;
   private readonly prop: PistonPropulsion;
@@ -291,6 +293,7 @@ export class Fdm implements FlightModel {
     this.updateTurbulence(dt);
 
     const y = this.y, k1 = this.k1, k2 = this.k2, k3 = this.k3, k4 = this.k4, yt = this.yt;
+    this.yGood.set(y);
     this.deriv(y, k1);
     for (let i = 0; i < NS; i++) yt[i] = y[i] + 0.5 * dt * k1[i];
     this.deriv(yt, k2);
@@ -304,7 +307,15 @@ export class Fdm implements FlightModel {
     y[6] /= qn; y[7] /= qn; y[8] /= qn; y[9] /= qn;
     if (y[13] < 0) y[13] = 0;
     if (y[14] < 1000) y[14] = 1000;
-    for (let i = 0; i < NS; i++) if (!Number.isFinite(y[i])) { this.crash('numerical instability'); return; }
+    for (let i = 0; i < NS; i++) {
+      if (Number.isFinite(y[i])) continue;
+      // back to the last finite state, so the crashed aircraft (and everything reading its pose) stays valid
+      y.set(this.yGood);
+      this.deriv(y, k1);
+      this.updateOutputs();
+      this.crash('numerical instability');
+      return;
+    }
 
     // outputs consistent with the new state
     this.deriv(y, k1);

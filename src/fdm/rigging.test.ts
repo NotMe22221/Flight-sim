@@ -54,3 +54,18 @@ describe('snapControls', () => {
     void DT;
   });
 });
+
+describe('numerical instability', () => {
+  it('a non-finite step crashes the aircraft at its last finite state (no NaN pose escapes)', () => {
+    const env = makeEnv();
+    const f = makeFdm(1043);
+    const u = airborne(f, env, 914, 100, 90);
+    run(f, env, u, 1);
+    const before = [...f.state.posNED];
+    const bad = { ...env, windNED: (_n: number, _e: number, _d: number, out: [number, number, number]) => { out[0] = NaN; out[1] = 0; out[2] = 0; return out; } };
+    f.step(DT, u, bad as typeof env);
+    expect(f.state.crashed).toBe(true);
+    for (const v of [...f.state.posNED, ...f.state.euler, f.state.aero.ias, f.state.geo.lat, f.state.geo.alt]) expect(Number.isFinite(v)).toBe(true);
+    expect(Math.hypot(f.state.posNED[0] - before[0], f.state.posNED[1] - before[1])).toBeLessThan(5);
+  });
+});

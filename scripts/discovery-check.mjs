@@ -9,7 +9,7 @@
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
-const URL = process.argv[2] ?? 'http://localhost:4173/';
+const APP_URL = process.argv[2] ?? 'http://localhost:4173/';
 import { readFileSync } from 'node:fs';
 const src = readFileSync(new URL('../src/activities/discovery.ts', import.meta.url), 'utf8');
 const body = src.slice(src.indexOf('DISCOVERY_FLIGHTS: readonly DiscoveryFlight[] = [') + 'DISCOVERY_FLIGHTS: readonly DiscoveryFlight[] = '.length, src.indexOf('];', src.indexOf('DISCOVERY_FLIGHTS')) + 1);
@@ -17,7 +17,7 @@ const FLIGHTS = new Function(`return ${body}`)();
 const b = await chromium.launch({ args: ['--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'] });
 const p = await b.newPage({ viewport: { width: 640, height: 360 } });
 const errs = []; p.on('pageerror', (e) => errs.push(e.message));
-await p.goto(URL, { waitUntil: 'load', timeout: 60000 });
+await p.goto(APP_URL, { waitUntil: 'load', timeout: 60000 });
 await p.waitForFunction(() => window.__sim?.ready === true, null, { timeout: 60000 });
 for (const d of FLIGHTS) {
   const r = await p.evaluate(async (d) => {
