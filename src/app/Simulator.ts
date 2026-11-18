@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { EventBus } from '../core/events';
 import { clamp, mulberry32, wrap360, wrapTwoPi } from '../core/math';
-import { FAILURE_IDS, defaultControlInputs, type FailureId, type AircraftConfig, type AircraftState, type Airport, type Runway, type AssistanceOptions, type ControlInputs, type InputSnapshot, type SimAction, type SimSnapshot, type SpawnState, type TimeState, type WeatherPresetId, type WeatherState, type Waypoint } from '../core/types';
+import { FAILURE_IDS, defaultControlInputs, type FailureId, type AircraftConfig, type AircraftState, type Airport, type Runway, type AssistanceOptions, type ControlInputs, type InputSnapshot, type SimAction, type SimSnapshot, type SpawnState, type TimeState, type WeatherPresetId, type WeatherState, type Waypoint, type LateralMode, type VerticalMode } from '../core/types';
 import { DEG, FPM, FT, INHG, KT, RAD } from '../core/units';
 import { Fdm } from '../fdm/fdm';
 import { C172S } from '../fdm/aircraft/c172';
@@ -122,6 +122,14 @@ export interface SavedFlight {
   plan: Waypoint[];
   activeLeg: number;
   failures: FailureId[];
+  /** NAV1/NAV2 tuning and COM1 (absent in older saves) */
+  radios?: { tuning: { activeKHz: number; standbyKHz: number; obsDeg: number }[]; com1: { activeMHz: number; standbyMHz: number } };
+  /** autopilot modes and targets (absent in older saves) */
+  autopilot?: {
+    engaged: boolean; flightDirector: boolean; yawDamper: boolean; lateral: string; vertical: string;
+    armedLateral: string | null; armedVertical: string | null;
+    headingBugDeg: number; altitudeTargetM: number; verticalSpeedTargetMs: number; iasTargetMs: number;
+  };
 }
 
 /** Optional subsystems attached after construction (UI, glass cockpit, HUD, audio, ATC, scenery). */
@@ -1154,6 +1162,9 @@ export class Simulator {
       controls: structuredClone(this.input.controls), weather: structuredClone(this.weather.state), utcMs: this.time.utcMs,
       plan: this.planner.waypoints.map((w) => structuredClone(w)), activeLeg: this.planner.activeLeg,
       failures: Object.keys(this.failures) as FailureId[],
+      radios: { tuning: this.radios.tuning.map((t) => ({ ...t })), com1: { ...this.radios.state.com1 } },
+      autopilot: (({ engaged, flightDirector, yawDamper, lateral, vertical, armedLateral, armedVertical, headingBugDeg, altitudeTargetM, verticalSpeedTargetMs, iasTargetMs }) =>
+        ({ engaged, flightDirector, yawDamper, lateral, vertical, armedLateral, armedVertical, headingBugDeg, altitudeTargetM, verticalSpeedTargetMs, iasTargetMs }))(this.autopilot.state),
     };
   }
 
@@ -1174,6 +1185,27 @@ export class Simulator {
     this.weather.setState(save.weather, 0);
     if (save.plan.length) { this.planner.setWaypoints(save.plan); if (save.activeLeg > 0 && save.activeLeg < save.plan.length) this.planner.activateLeg(save.activeLeg); }
     for (const f of save.failures) if ((FAILURE_IDS as readonly string[]).includes(f)) this.setFailure(f, true);
+    if (save.radios) {
+      save.radios.tuning.slice(0, 2).forEach((t, i) => {
+        const r = this.radios.tuning[i];
+        if (Number.isFinite(t.activeKHz)) r.standbyKHz = t.standbyKHz;
+        if (Number.isFinite(t.activeKHz)) this.radios.tuneNav(i as 0 | 1, t.activeKHz, t.obsDeg);
+      });
+      Object.assign(this.radios.state.com1, save.radios.com1);
+    }
+    const ap = save.autopilot;
+    if (ap && this.hasAutopilot) {
+      const a = this.autopilot;
+      a.setHeadingBug(ap.headingBugDeg); a.setAltitudeTarget(ap.altitudeTargetM);
+      a.setVerticalSpeedTarget(ap.verticalSpeedTargetMs); a.setIasTarget(ap.iasTargetMs);
+      a.setFlightDirector(ap.flightDirector); a.setYawDamper(ap.yawDamper);
+      if (ap.engaged) a.engage(true);
+      // modes after engaging (engaging picks default modes); armed modes are re-armed by selecting them
+      if (ap.lateral !== 'OFF') a.setLateral(ap.lateral as LateralMode);
+      if (ap.vertical !== 'OFF') a.setVertical(ap.vertical as VerticalMode);
+      if (ap.armedLateral) a.setLateral(ap.armedLateral as LateralMode);
+      if (ap.armedVertical) a.setVertical(ap.armedVertical as VerticalMode);
+    }
     return true;
   }
 
