@@ -86,6 +86,9 @@ buffer; Firefox falls back to a logarithmic depth buffer.
 - **Dynamic resolution.** On by default (Settings › Graphics): when the frame rate stays under about
   40 fps the render resolution steps down (to half at most) and climbs back when there is headroom,
   without bouncing straight back to a resolution that was too slow.
+- **Rain on the windscreen.** Below the rain clouds the cockpit glass wets: beads sit on it while
+  slow and are blown off as speed builds, streaks run up the windscreen and back along the side
+  windows in flight, and it dries off gradually (faster in the airflow) once out of the rain.
 - **Ground snow.** Snow lies on the terrain (and frosts roofs and tree crowns) above a snow line
   set by the surface temperature, and everywhere while it is snowing; steep rock and forest canopies
   stay darker, drifts break up the edge. Weather › Ground snow: Auto, Bare or Snow-covered.

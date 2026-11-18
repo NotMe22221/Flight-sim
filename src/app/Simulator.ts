@@ -889,6 +889,7 @@ export class Simulator {
     this.weather.update(dt * (this.paused ? 0 : this.time.timeScale), { tasMs: s.aero.tas, altMslM: s.altitudeMslM, aglM: s.altitudeAglM });
     this.sky.update({ time: this.time, aircraft: s, weather: this.weather.state, frame: this.world.frame.info }, camPos, dt);
     this.model.setSunElevation(this.sky.sun.elevationRad);
+    this.model.setRain(windscreenRain(this.weather.state, s.altitudeMslM));
     const L = this.sky.lighting;
     // the sky's ambient irradiance is in the same light units as the terrain shading
     this.terrain?.setSun(L.sunDirThree, L.sunColor, L.sunIntensity, L.ambientIrradiance);
@@ -1427,4 +1428,16 @@ export class Simulator {
 
 function safeLocalStorage(): Storage | null {
   try { return typeof localStorage !== 'undefined' ? localStorage : null; } catch { return null; }
+}
+
+/**
+ * How hard it rains on the windscreen (0…1): rain (snow wets it a little: flakes melt on the glass)
+ * below the top of the rain-bearing (lowest dense) cloud layer; ~8 mm/h is heavy.
+ */
+export function windscreenRain(w: Pick<import('../core/types').WeatherState, 'precipitationRate' | 'precipitationType' | 'clouds'>, altMslM: number): number {
+  if (!(w.precipitationRate > 0) || w.precipitationType === 'none') return 0;
+  const layer = w.clouds.filter((c) => c.coverage >= 0.5 && c.type !== 'cirrus').sort((a, b) => a.baseM - b.baseM)[0];
+  if (layer && altMslM > layer.topM) return 0;
+  const k = Math.min(1, 0.25 + w.precipitationRate / 8);
+  return w.precipitationType === 'snow' ? 0.35 * k : k;
 }

@@ -24,7 +24,8 @@ function opaqueMeshes(model: AircraftModel): THREE.Mesh[] {
   const see = new Set<THREE.Material>([m.glass, m.glassInterior, m.propDisc, m.navRed, m.navGreen, m.navWhite]);
   const out: THREE.Mesh[] = [];
   const visible = (o: THREE.Object3D | null): boolean => { for (let p = o; p; p = p.parent) if (!p.visible) return false; return true; };
-  model.root.traverse((o) => { if (o instanceof THREE.Mesh && !see.has(o.material as THREE.Material) && visible(o)) out.push(o); });
+  // the cockpit glass carries the rain shader ('rain-glass')
+  model.root.traverse((o) => { if (o instanceof THREE.Mesh && !see.has(o.material as THREE.Material) && (o.material as THREE.Material).name !== 'rain-glass' && visible(o)) out.push(o); });
   return out;
 }
 

@@ -11,6 +11,7 @@
  *
  * No per-frame allocations: everything is built in the constructor.
  */
+import { RainGlass } from './rainGlass';
 import * as THREE from 'three';
 import type { AircraftConfig, AircraftState, ControlInputs } from '../core/types';
 import { c172ModelConfig, resolveC172Layout, toModelConfig, type AircraftModelConfig, type C172Layout } from './c172Layout';
@@ -137,7 +138,12 @@ function addCubFuselageDetails(L: CubLayout, fuselage: FuselageAssembly, mats: M
   fuselage.cabinShell.add(handle);
 }
 
+/** Light scale of the drops on the glass (unlit shader, before tone mapping), night … noon. */
+const RAIN_LIGHT_NIGHT = 0.04;
+const RAIN_LIGHT_DAY = 1.6;
+
 export class AircraftModel {
+  private readonly rainGlass = new RainGlass();
   /** add this to the scene; `setPose` drives it */
   readonly root = new THREE.Group();
   /** exterior airframe (fuselage, wings, tail, gear, prop, lights) */
@@ -214,12 +220,14 @@ export class AircraftModel {
 
     const shadows = options.shadows ?? true;
     const m = this.materials;
+    // the cockpit side of the windows carries the rain
+    this.interior.traverse((o) => { if (o instanceof THREE.Mesh && o.material === m.glassInterior) o.material = this.rainGlass.material; });
     const interiorMeshes = new Set<THREE.Object3D>();
     this.interior.traverse((o) => interiorMeshes.add(o));
     this.root.traverse((o) => {
       if (!(o instanceof THREE.Mesh)) return;
       const mat = o.material as THREE.Material;
-      const transparentish = mat === m.glass || mat === m.glassInterior || mat === m.propDisc || mat === m.navRed || mat === m.navGreen || mat === m.navWhite || mat === m.cabinInner;
+      const transparentish = mat === m.glass || mat === m.glassInterior || mat === this.rainGlass.material || mat === m.propDisc || mat === m.navRed || mat === m.navGreen || mat === m.navWhite || mat === m.cabinInner;
       o.castShadow = shadows && !transparentish;
       // The sun's shadow map spans hundreds of metres (texels of ~0.2 m): on the cockpit
       // interior that only produces blotches, so the cabin casts (ground shadow from inside)
@@ -261,6 +269,7 @@ export class AircraftModel {
     this.cockpit.update(inputs, state);
     this.panelLight = inputs.lights?.panel ?? 0;
     this.cockpit.setPanelLighting(this.daylight, this.panelLight);
+    this.rainGlass.update(step, finiteOr(state.aero.tas));
 
     this.cabinShell.visible = this.exteriorEnabled && !cameraIsCockpit;
     this.interior.visible = this.interiorEnabled && cameraIsCockpit;
@@ -290,7 +299,12 @@ export class AircraftModel {
     this.daylight = t * t * (3 - 2 * t);
     this.materials.setDaylight(this.daylight);
     this.cockpit.setPanelLighting(this.daylight, this.panelLight);
+    this.rainGlass.setLight(RAIN_LIGHT_NIGHT + (RAIN_LIGHT_DAY - RAIN_LIGHT_NIGHT) * this.daylight);
   }
+
+  /** Rain on the windscreen: 0 dry … 1 heavy (the glass wets and dries gradually). */
+  setRain(intensity: number): void { this.rainGlass.setRain(intensity); }
+  get windscreenWetness(): number { return this.rainGlass.wetness; }
 
   get isNight(): boolean { return this.night; }
 
@@ -309,6 +323,7 @@ export class AircraftModel {
       if (geo instanceof THREE.BufferGeometry && !seen.has(geo)) { seen.add(geo); geo.dispose(); }
     });
     this.propeller.dispose();
+    this.rainGlass.dispose();
     this.gear.dispose();
     this.lights.dispose();
     this.cockpit.dispose();
