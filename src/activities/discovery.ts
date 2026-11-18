@@ -83,8 +83,9 @@ export const DISCOVERY_FLIGHTS: readonly DiscoveryFlight[] = [
   },
   {
     id: 'geiranger', title: 'Geirangerfjord', region: 'Møre og Romsdal, Norway',
-    blurb: 'East up the fiord from Hellesylt between walls of rock and waterfalls, to the village at its head.',
-    lat: 62.085, lon: 6.90, altFt: 3_000, headingDeg: 80, iasKt: 75, aircraft: 'pa18-150', time: 'noon', weather: 'few',
+    blurb: 'East along the fiord from its junction with Sunnylvsfjorden, between walls of rock and waterfalls, to the village at its head.',
+    // over the water just inside Geirangerfjord (Hellesylt is round the corner on Sunnylvsfjorden: no straight line from there)
+    lat: 62.098, lon: 6.985, altFt: 3_000, headingDeg: 95, iasKt: 75, aircraft: 'pa18-150', time: 'noon', weather: 'few',
     target: { lat: 62.101, lon: 7.206 }, terrainFt: 5_600,
   },
   {
