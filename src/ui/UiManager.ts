@@ -95,6 +95,10 @@ export class UiManager {
         const start = host.startLesson;
         if (start) void this.launcher.startActivity(() => start.call(host, id), 'Could not start the lesson');
       },
+      startDiscovery: (id) => {
+        const start = host.startDiscovery;
+        if (start) void this.launcher.startActivity(() => start.call(host, id), 'Could not start the discovery flight');
+      },
       startBushLeg: (tripId, legIndex) => {
         const start = host.startBushLeg;
         if (start) void this.launcher.startActivity(() => start.call(host, tripId, legIndex), `Could not start leg ${legIndex + 1}`);

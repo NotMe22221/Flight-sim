@@ -9,6 +9,7 @@ import type { AudioSettings, BindingInfo, GraphicsSettings, LogbookView, SpawnCh
 import type { Simulator } from './Simulator';
 import { SAVED_FLIGHT_KEY, readSavedFlight, savedFlightLabel } from './savedFlight';
 import { magneticDeclinationDeg } from '../geo/magvar';
+import { discoveryById } from '../activities/discovery';
 import { bushLegActivity, lessonById, tripById, type ActivityRunner, type ProgressStore } from '../activities';
 
 const CREDITS = [
@@ -67,6 +68,17 @@ export class SimUiHost implements UiHost {
     const usable = aircraftForActivity(trip.aircraft, this.sim.config).mass.tanks.reduce((a, t) => a + t.usableKg, 0);
     const fuelFraction = prevFuel != null && usable > 0 ? Math.min(1, Math.max(0.1, prevFuel / usable)) : undefined;
     await this.sim.activities.start(bushLegActivity(trip, legIndex, fuelFraction !== undefined ? { fuelFraction } : {}));
+  }
+  /** Discovery flight: its aircraft, weather and light, in the air near the landmark. */
+  async startDiscovery(id: string): Promise<void> {
+    const d = discoveryById(id);
+    if (!d) throw new Error(`unknown discovery flight ${id}`);
+    this.sim.selectAircraft(aircraftForActivity(d.aircraft, this.sim.config).id);
+    this.sim.setWeatherPreset(d.weather, 0);
+    this.sim.events.emit('weather:changed', { state: this.sim.weather.state });
+    await this.sim.spawnInAir(d.lat, d.lon, d.altFt * 0.3048, d.headingDeg, d.iasKt * 0.514444);
+    // the light of the place (after the spawn: the preset is solved for the new position)
+    this.sim.setTimePreset(d.time);
   }
   // ── failures panel
   setFailure(id: FailureId, failed: boolean): void { this.sim.setFailure(id, failed); }

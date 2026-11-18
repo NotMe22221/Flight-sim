@@ -145,6 +145,8 @@ export interface UiHost {
   startLesson?(id: string): Promise<void>;
   /** Activities › Bush trips "Start" / "Resume" / debrief "Next leg": leg `legIndex` of a `BUSH_TRIPS` trip. */
   startBushLeg?(tripId: string, legIndex: number): Promise<void>;
+  /** Activities › Discovery flights "Start": an id from DISCOVERY_FLIGHTS. Resolves when the flight is live. */
+  startDiscovery?(id: string): Promise<void>;
   /** Pause menu "Abort activity": ends the running activity (unsuccessfully); the flight goes on. */
   abortActivity?(): void;
   /** Debrief "Retry": starts the current (or last) activity again from its set-up. */

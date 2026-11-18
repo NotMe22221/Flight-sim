@@ -9,6 +9,7 @@ import { loadJson, saveJson } from '../settingsStore';
 import { ChallengesTab } from './activities/ChallengesTab';
 import { TrainingTab } from './activities/TrainingTab';
 import { BushTripsTab } from './activities/BushTripsTab';
+import { DiscoveryTab } from './activities/DiscoveryTab';
 import { ACTIVITY_TABS, parseActivitiesTab, type ActivitiesTab, type ActivityTabView } from './activities/types';
 
 const TAB_KEY = 'flightsim.ui.activitiesTab.v1';
@@ -24,7 +25,7 @@ export class Activities extends Screen {
   constructor(private readonly ctx: ScreenContext) {
     super('activities');
     this.tab = parseActivitiesTab(loadJson<unknown>(TAB_KEY, 'challenges'));
-    this.views = { challenges: new ChallengesTab(ctx), training: new TrainingTab(ctx), bush: new BushTripsTab(ctx) };
+    this.views = { challenges: new ChallengesTab(ctx), training: new TrainingTab(ctx), bush: new BushTripsTab(ctx), discovery: new DiscoveryTab(ctx) };
     const bar = h('div', { class: 'tabs act-modes', role: 'tablist', aria: { label: 'Activity types' } });
     ACTIVITY_TABS.forEach((t, i) => {
       const b = h('button', { class: 'tab', type: 'button', role: 'tab', title: t.label, aria: { label: t.label }, dataset: { tab: t.id }, onClick: () => this.select(t.id) },

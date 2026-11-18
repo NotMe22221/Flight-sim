@@ -2,12 +2,13 @@
 import type { ScreenContext } from '../Screen';
 import type { UiHost } from '../../UiHost';
 
-export type ActivitiesTab = 'challenges' | 'training' | 'bush';
+export type ActivitiesTab = 'challenges' | 'training' | 'bush' | 'discovery';
 /** `short`: the phone label (three tabs share a 360 px wide bar). */
-export const ACTIVITY_TABS: readonly { id: ActivitiesTab; label: string; short: string; icon: 'trophy' | 'school' | 'route'; subtitle: string }[] = [
+export const ACTIVITY_TABS: readonly { id: ActivitiesTab; label: string; short: string; icon: 'trophy' | 'school' | 'route' | 'globe'; subtitle: string }[] = [
   { id: 'challenges', label: 'Landing challenges', short: 'Challenges', icon: 'trophy', subtitle: 'Start on final, land, get scored' },
   { id: 'training', label: 'Flight training', short: 'Training', icon: 'school', subtitle: 'Lessons with an instructor, step by step' },
   { id: 'bush', label: 'Bush trips', short: 'Bush trips', icon: 'route', subtitle: 'Multi-leg VFR journeys, navigating by landmarks' },
+  { id: 'discovery', label: 'Discovery flights', short: 'Discover', icon: 'globe', subtitle: 'Scenic flights over famous landscapes' },
 ];
 
 export function parseActivitiesTab(v: unknown): ActivitiesTab {
