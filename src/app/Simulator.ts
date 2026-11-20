@@ -625,6 +625,23 @@ export class Simulator {
     return w.clouds.some((c) => c.coverage >= 0.5 && c.type !== 'cirrus' && altMslM >= c.baseM && altMslM <= c.topM);
   }
 
+  private cdiHintT = 0;
+  private cdiHinted = false;
+  /**
+   * NAV armed with the G1000's CDI on GPS, no flight plan and a VOR on NAV1: as on the real panel the
+   * autopilot has nothing to capture until the CDI is switched to VOR1. Say so once (after 5 s).
+   */
+  private hintCdiSource(dt: number): void {
+    const ap = this.autopilot, n1 = this.radios.state.nav1;
+    const stuck = this.hasAutopilot && ap.state.armedLateral === 'NAV' && ap.navSource === 'gps' && !this.plan && n1.valid && !n1.isLocalizer;
+    this.cdiHintT = stuck ? this.cdiHintT + dt : 0;
+    if (!stuck) { if (ap.state.armedLateral !== 'NAV') this.cdiHinted = false; return; }
+    if (this.cdiHintT > 5 && !this.cdiHinted) {
+      this.cdiHinted = true;
+      this.events.emit('ui:toast', { text: `NAV is armed on GPS, but there is no flight plan. To fly ${n1.ident || 'the VOR'}, press CDI on the PFD to select VOR1.`, kind: 'info', durationMs: 8000 });
+    }
+  }
+
   /** Failures in effect (failures panel, random failures); cleared by a new flight. */
   readonly failures: Partial<Record<FailureId, boolean>> = {};
   /** Random failures (Settings): about one failure per `RANDOM_FAILURE_MTBF_S` of flying, airborne only. */
@@ -946,6 +963,7 @@ export class Simulator {
     this.plugins.scenery?.update(dt, camPos, this.cameras.camera, this.sky.sun.elevationRad);
     this.landingGuide.update(dt, this.assists.landingPathHints && this.inFlight && !this.replayer.active && !this.slew, s.geo, s.trackRad * RAD, s.onGround, this.nearbyAirports, this.world.frame);
     this.updateTraffic(dt, s);
+    this.hintCdiSource(dt);
     if (this.inFlight && !this.paused && !this.replayer.active && !this.slew) {
       if ((this.frameCount & 31) === 0) this.logNearest = this.airportNear(s.geo.lat, s.geo.lon);
       // the flight model's own clock: time actually flown (time acceleration on a slow machine falls behind the wall clock)
