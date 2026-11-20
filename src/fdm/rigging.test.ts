@@ -69,3 +69,19 @@ describe('numerical instability', () => {
     expect(Math.hypot(f.state.posNED[0] - before[0], f.state.posNED[1] - before[1])).toBeLessThan(5);
   });
 });
+
+import { atmosphere } from './atmosphere';
+
+describe('altitude away from the frame origin (earth curvature)', () => {
+  it('the air the aircraft flies in matches its true altitude 11 km from the frame origin', () => {
+    const env = makeEnv();
+    const f = makeFdm(1043);
+    // 0.1° north of the frame origin (≈ 11 km): the tangent plane is ~9.7 m above the sphere there
+    f.reset({ geo: { lat: KSFO.lat + 0.1, lon: KSFO.lon, alt: 914 }, headingRad: 0, speedMs: 50, onGround: false, engineRunning: true }, env);
+    const st = f.state;
+    const ref = atmosphere(st.geo.alt, 0, 101325);
+    expect(st.geo.alt).toBeCloseTo(914, 0);
+    // within the pressure change of 1 m (≈ 12 Pa near sea level)
+    expect(Math.abs(st.atmosphere.pressurePa - ref.pressurePa)).toBeLessThan(12);
+  });
+});

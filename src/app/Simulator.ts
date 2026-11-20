@@ -1448,6 +1448,13 @@ export class Simulator {
   advance(seconds: number): void {
     const n = Math.round(seconds / PHYSICS_DT);
     for (let i = 0; i < n && !this.fdm.state.crashed; i++) {
+      // navigation (radios, flight-plan guidance) as the display frames would update it: the autopilot's
+      // NAV / APR modes read them (without this, fast-forwarded flights flew with no plan or signal)
+      if (i % 12 === 0) {
+        const s = this.fdm.state, ndt = Math.min(12, n - i) * PHYSICS_DT;
+        this.radios.update(ndt, s.geo, this.magVar);
+        this.plan = this.planner.waypoints.length ? this.planner.update(s.geo, s.groundSpeedMs) : null;
+      }
       this.composeControls(PHYSICS_DT, PHYSICS_DT);
       this.physicsStep(PHYSICS_DT);
       this.time.utcMs += PHYSICS_DT * 1000;

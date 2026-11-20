@@ -500,7 +500,10 @@ export class Fdm implements FlightModel {
 
   /** Geodetic altitude of a NED point (flat-earth + curvature drop). */
   private altitudeOf(n: number, e: number, d: number): number {
-    return (this.env?.frame.alt0 ?? 0) - d - (n * n + e * e) / (2 * EARTH_R);
+    // the tangent plane rises above the sphere away from the origin: a point r metres out at a given
+    // −d is r²/2R higher above sea level than over the origin (the sign was inverted: the barometric
+    // altitude fell 2·r²/2R behind the true one, so an altitude hold climbed ~50 ft over 10 km)
+    return (this.env?.frame.alt0 ?? 0) - d + (n * n + e * e) / (2 * EARTH_R);
   }
 
   private sampleEnvironment(): void {
