@@ -1400,6 +1400,11 @@ export class Simulator {
     this.clearedRunway = null;
     this.clearFailures();
     this.carbIce.reset();
+    // magnetic variation of the new position now, not up to 30 s later: a localizer tuned right after
+    // the spawn takes its auto-course from it (the first value came from the pre-flight state at 0°, 0°,
+    // −4°, so a KSFO ILS was set 17° off and the autopilot could not centre the localizer)
+    this.magVar = magneticDeclinationDeg(this.fdm.state.geo.lat, this.fdm.state.geo.lon, this.fdm.state.geo.alt, this.time.utcMs);
+    this.magTimer = 0;
     this.snapSnow = true;
     // the previous flight goes into the logbook; this one starts recording
     this.logNearest = this.airportNear(g.lat, g.lon);
@@ -1452,6 +1457,8 @@ export class Simulator {
       // NAV / APR modes read them (without this, fast-forwarded flights flew with no plan or signal)
       if (i % 12 === 0) {
         const s = this.fdm.state, ndt = Math.min(12, n - i) * PHYSICS_DT;
+        this.magTimer += ndt;
+        if (this.magTimer > 30) { this.magTimer = 0; this.magVar = magneticDeclinationDeg(s.geo.lat, s.geo.lon, s.geo.alt, this.time.utcMs); }
         this.radios.update(ndt, s.geo, this.magVar);
         this.plan = this.planner.waypoints.length ? this.planner.update(s.geo, s.groundSpeedMs) : null;
       }

@@ -34,6 +34,7 @@ streamed terrain and airport data (run `npm run build` and `npx vite preview` fi
 | `scripts/ground-start-check.mjs` | every bush-trip and lesson runway start: on the wheels, on the centreline, holds on the brake |
 | `scripts/challenge-check.mjs` | every landing challenge: trims, starts clear of the ground, the glide path clears the terrain |
 | `scripts/discovery-check.mjs` | every discovery flight: clearance along the first 6 km of its heading |
+| `scripts/ils-check.mjs` | a coupled ILS approach (KSFO 28R, G1000): localizer and glideslope captured and held within 0.15 dot |
 
 The flight model is checked against the C172S POH in the unit tests (stall speeds, Vy climb, cruise,
 glide, take-off and landing ground rolls).
