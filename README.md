@@ -22,6 +22,22 @@ node scripts/smoke.mjs --out screenshots   # headless flight + screenshots (need
 Requires Node 20.19+ and a WebGL2 browser. Chrome, Edge and Safari 18+ use a reversed-Z depth
 buffer; Firefox falls back to a logarithmic depth buffer.
 
+### Checks against the real world
+
+Beyond the unit tests, these scripts drive a production build in headless Chromium against the real
+streamed terrain and airport data (run `npm run build` and `npx vite preview` first, then pass its URL):
+
+| Script | What it checks |
+|---|---|
+| `scripts/smoke.mjs` | boots, flies, renders every view and time of day; fails on page errors |
+| `scripts/perf.mjs` | CPU timings, draw calls, triangles and memory per scenario |
+| `scripts/ground-start-check.mjs` | every bush-trip and lesson runway start: on the wheels, on the centreline, holds on the brake |
+| `scripts/challenge-check.mjs` | every landing challenge: trims, starts clear of the ground, the glide path clears the terrain |
+| `scripts/discovery-check.mjs` | every discovery flight: clearance along the first 6 km of its heading |
+
+The flight model is checked against the C172S POH in the unit tests (stall speeds, Vy climb, cruise,
+glide, take-off and landing ground rolls).
+
 ## What you get
 
 - **Aircraft.** Pick one in the Aircraft screen (its fuel, payload and specs), switching rebuilds
