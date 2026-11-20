@@ -216,8 +216,10 @@ export const C172S: AircraftConfig = {
   // The nose leg is an oil/air oleo and keeps its damping.
   gear: [
     wheel('Nose', fromStructural(-6.8, 0, -19.5), 52_538, 7_000, 11_000, 0.17, 10, 'none'),
-    wheel('Left main', fromStructural(58.2, -50, -15.5), 78_807, 4_000, 18_000, 0.19, 0, 'left'),
-    wheel('Right main', fromStructural(58.2, 50, -15.5), 78_807, 4_000, 18_000, 0.19, 0, 'right'),
+    // single-disc Cleveland brakes are torque-limited well below tyre grip: full braking gives ~0.4,
+    // not the tyre's 0.8 (which stopped a 55 kt landing in 330 ft, POH ground roll 575 ft)
+    { ...wheel('Left main', fromStructural(58.2, -50, -15.5), 78_807, 4_000, 18_000, 0.19, 0, 'left'), brakeMu: 0.4 },
+    { ...wheel('Right main', fromStructural(58.2, 50, -15.5), 78_807, 4_000, 18_000, 0.19, 0, 'right'), brakeMu: 0.4 },
     // lowest point of the 76 in propeller disc (hub WL 26.6 − 38 in): ≈ 0.21 m static clearance
     structure('Propeller', fromStructural(-37.7, 0, 26.6 - 38)),
     structure('Tail', fromStructural(188, 0, 8)),

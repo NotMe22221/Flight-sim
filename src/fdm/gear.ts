@@ -27,6 +27,8 @@ const ANCHOR_K = 60_000;
 const ANCHOR_C = 9_000;
 const ANCHOR_SPEED = 0.08;
 const BRAKE_ANCHOR = 0.3;
+/** static / kinetic friction of the brake pads: how much more a held brake resists than a slipping one */
+const BRAKE_STATIC_GAIN = 2;
 /**
  * Wheel load (× aircraft weight) that collapses a leg. A 600 fpm arrival peaks at ≈ 1.3 W per
  * main and ≈ 1.8 W on the nose leg as it slams down; ≈ 1000–1100 fpm reaches 3 W.
@@ -221,9 +223,11 @@ export class GearModel {
         fLat = -ANCHOR_K * dLat - ANCHOR_C * vLat;
         const mag = Math.sqrt(fLong * fLong + fLat * fLat);
         if (mag > fMax) { fLong *= fMax / mag; fLat *= fMax / mag; out.anchorSaturated[i] = 1; }
-        // a torque-limited brake cannot hold more than its own friction along the wheel
+        // a torque-limited brake cannot hold more than its own friction along the wheel; held still,
+        // the pads grip with their static friction, well above the kinetic friction that slows a
+        // rolling wheel (a 172 holds a full-power run-up on its brakes, yet rolls 575 ft after landing)
         if (g.brakeMu !== undefined) {
-          const lim = g.brakeMu * surfaceBrake * Fn;
+          const lim = Math.min(g.muStatic, g.brakeMu * BRAKE_STATIC_GAIN) * surfaceBrake * Fn;
           if (fLong > lim || fLong < -lim) { fLong = fLong > 0 ? lim : -lim; out.anchorSaturated[i] = 1; }
         }
       } else if (g.type === 'structure') {

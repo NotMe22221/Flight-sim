@@ -52,3 +52,37 @@ describe('C172S takeoff distance vs POH', () => {
     expect(up.liftoffFt).toBeGreaterThan(ten.liftoffFt * 0.95);
   });
 });
+
+import { touchdownArrival } from './testing';
+
+/**
+ * C172S POH Section 5, short-field landing distance: 2,550 lb, sea level, 15 °C, flaps 30, power
+ * off, maximum braking, paved level dry runway, zero wind: ground roll 575 ft (61 KIAS approach).
+ * Flown from a 300 fpm touchdown in the landing attitude, then full brakes with the stick held back.
+ */
+function landingRoll(): { rollFt: number; touchKt: number; crashed: boolean } {
+  const env = makeEnv();
+  const f = makeFdm(1157);
+  const u = touchdownArrival(f, env, { sinkFpm: 300, pitchDeg: 5, flapsIndex: 3 });
+  const s = f.state;
+  let n0 = NaN, e0 = NaN, touchKt = NaN, rollFt = NaN;
+  for (let t = 0; t < 60; t += DT) {
+    const hdgErr = Math.atan2(-Math.sin(s.headingTrueRad), Math.cos(s.headingTrueRad));
+    u.yaw = Math.max(-1, Math.min(1, 4 * hdgErr - 1.5 * s.rates[2]));
+    u.roll = Math.max(-1, Math.min(1, -2 * s.euler[0] - 0.4 * s.rates[0]));
+    if (Number.isFinite(n0)) { u.pitch = 1; u.brakeLeft = 1; u.brakeRight = 1; u.throttle = 0; }
+    f.step(DT, u, env);
+    if (!Number.isFinite(n0) && s.gear.some((g) => g.onGround)) { n0 = s.posNED[0]; e0 = s.posNED[1]; touchKt = s.groundSpeedMs / KT; }
+    if (Number.isFinite(n0) && s.groundSpeedMs < 0.3) { rollFt = Math.hypot(s.posNED[0] - n0, s.posNED[1] - e0) / FT; break; }
+  }
+  return { rollFt, touchKt, crashed: s.crashed };
+}
+
+describe('C172S landing distance vs POH', () => {
+  it('flaps 30, maximum braking: ground roll 430–800 ft (POH 575)', () => {
+    const r = landingRoll();
+    expect(r.crashed).toBe(false);
+    expect(r.touchKt).toBeGreaterThan(35); expect(r.touchKt).toBeLessThan(60);
+    expect(r.rollFt).toBeGreaterThan(430); expect(r.rollFt).toBeLessThan(800);
+  });
+});

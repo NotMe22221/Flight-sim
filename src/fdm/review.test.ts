@@ -176,7 +176,7 @@ describe('gear: touchdown loads and crash detection', () => {
     inner(f).y[3] = 25; // ≈ 49 kt
     const u = defaultControlInputs();
     u.parkingBrake = false; u.brakeLeft = 1; u.brakeRight = 1; u.magnetos = 3; u.mixture = 1;
-    run(f, env, u, 12); // stops at ≈ 7.5 s, then the airframe rocks back onto the nose strut
+    run(f, env, u, 20); // torque-limited brakes (~0.2 g): stops at ≈ 13 s, then rocks back onto the nose strut
     expect(f.state.crashed).toBe(false);
     expect(f.state.groundSpeedMs).toBeLessThan(0.05);
   });
