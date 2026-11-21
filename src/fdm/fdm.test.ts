@@ -158,6 +158,11 @@ describe('Fdm — performance vs POH (docs/research/02 §10)', () => {
     expect(ktas).toBeLessThan(135);
     expect(f.state.engine.rpm).toBeGreaterThan(2450);
     expect(f.state.engine.rpm).toBeLessThan(2750);
+    // POH cruise table at ~73 %: 8.4 gal/h leaned to the recommended (lean) setting. Best power runs
+    // richer by design (BSFC ≈ 0.50–0.55 lb/hp/h against ≈ 0.40): ≈ 11–12 gal/h at this power
+    const gph = (f.state.engine.fuelFlowKgS * 3600) / 0.72 / 3.785411784;
+    expect(gph).toBeGreaterThan(8);
+    expect(gph).toBeLessThan(12.5);
   });
 
   it('best glide at 68 KIAS, engine off: L/D 8–11 (POH ≈ 9)', () => {

@@ -95,6 +95,8 @@ export class PistonPropulsion {
   private readonly mixEff: Table1D;
   /** fuel/air ratio where this model's power (fuel flow x efficiency) peaks */
   private readonly faPeakPower: number;
+  /** richest fuel/air ratio at full mixture efficiency: fuel × efficiency never releases more than this (best power) */
+  private readonly faRichLimit: number;
   private readonly diskArea: number;
 
   constructor(readonly engine: PistonEngineSpec, readonly prop: PropellerSpec) {
@@ -105,10 +107,14 @@ export class PistonPropulsion {
     this.ctEnd = this.ct.at(this.jMax);
     this.cpEnd = this.cp.at(this.jMax);
     this.mixEff = new Table1D(engine.mixtureEfficiency.xs, engine.mixtureEfficiency.ys);
+    const xs = engine.mixtureEfficiency.xs, ys = engine.mixtureEfficiency.ys;
+    // the richest fuel/air ratio still at full efficiency: richer fuel is not burnt for power
+    let rich = 0;
+    for (let i = 0; i < xs.length; i++) if (ys[i] >= 0.999) rich = xs[i];
+    this.faRichLimit = rich > 0 ? rich : xs[xs.length - 1];
     let best = 0.083, bestP = -1;
-    const xs = engine.mixtureEfficiency.xs;
     for (let fa = xs[0]; fa <= xs[xs.length - 1]; fa += 0.0002) {
-      const pw = fa * this.mixEff.at(fa);
+      const pw = Math.min(fa * this.mixEff.at(fa), this.faRichLimit);
       if (pw > bestP) { bestP = pw; best = fa; }
     }
     this.faPeakPower = best;
@@ -139,6 +145,12 @@ export class PistonPropulsion {
   peakPowerMixture(pAmb: number): number {
     const m = (this.faPeakPower * STOICH) / (1.3 * Math.pow(101325 / pAmb, 0.8));
     return m > 1 ? 1 : m;
+  }
+
+  /** Relative power of a lever setting at an ambient pressure: fuel/air × efficiency, capped at best power. */
+  relativePower(mixture: number, pAmb: number): number {
+    const fa = this.fuelAirRatio(mixture, pAmb);
+    return Math.min(fa * this.mixEff.at(fa), this.faRichLimit);
   }
 
   /** Mixture efficiency for a fuel/air ratio (0 outside the combustible range). */
@@ -182,7 +194,11 @@ export class PistonPropulsion {
     const combusting = sparks > 0 && etaMix > 0 && rpm >= e.minFiringRPM;
     const mapInHg = map / INHG;
     const lowLoad = 0.55 + 0.45 * smooth(8, 20, mapInHg);
-    const pInd = combusting ? ((fuelFlow * 3600 * LB_PER_KG) / e.ISFC) * W_PER_HP * etaMix * sparks * lowLoad : 0;
+    // a given airflow can only release so much energy: past the rich end of the full-efficiency band
+    // extra fuel has no oxygen to burn. JSBSim's fuel × efficiency kept rising to fa ≈ 0.10, 6.5 % above
+    // best power (and the auto-mixture assist found it: 162 hp at 8,000 ft); cap it at best power
+    const burn = fuelOn ? Math.min(fa * etaMix, this.faRichLimit) : 0;
+    const pInd = combusting ? ((mdotAir * burn * 3600 * LB_PER_KG) / e.ISFC) * W_PER_HP * sparks * lowLoad : 0;
     const wEff = w > 1 ? w : 1;
     const qInd = pInd / wEff;
 
