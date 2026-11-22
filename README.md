@@ -35,6 +35,7 @@ streamed terrain and airport data (run `npm run build` and `npx vite preview` fi
 | `scripts/challenge-check.mjs` | every landing challenge: trims, starts clear of the ground, the glide path clears the terrain |
 | `scripts/discovery-check.mjs` | every discovery flight: clearance along the first 6 km of its heading |
 | `scripts/ils-check.mjs` | a coupled ILS approach (KSFO 28R, G1000): localizer and glideslope captured and held within 0.15 dot |
+| `scripts/long-flight-check.mjs` | ~74 km on the autopilot across three floating-origin rebases: no jumps, altitude held within 15 m |
 
 The flight model is checked against the C172S POH in the unit tests (stall speeds, Vy climb, cruise,
 glide, take-off and landing ground rolls).
