@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { EventBus } from '../core/events';
-import { clamp, mulberry32, wrap360, wrapTwoPi } from '../core/math';
+import { clamp, mulberry32, qConj, qMul, qRotate, wrap360, wrapTwoPi } from '../core/math';
 import { FAILURE_IDS, defaultControlInputs, type FailureId, type AircraftConfig, type AircraftState, type Airport, type Runway, type AssistanceOptions, type ControlInputs, type InputSnapshot, type SimAction, type SimSnapshot, type SpawnState, type TimeState, type WeatherPresetId, type WeatherState, type Waypoint, type LateralMode, type VerticalMode } from '../core/types';
 import { DEG, FPM, FT, INHG, KT, RAD } from '../core/units';
 import { Fdm } from '../fdm/fdm';
@@ -711,7 +711,11 @@ export class Simulator {
     this.sky.notifyRebase(this.tmpV);
     this.weather.notifyRebase(shift[0], shift[2]);
     this.cameras.shiftOrigin(this.tmpV.clone().negate());
-    this.replay.clear();
+    // keep the replay: re-express its recorded poses in the new frame (clearing it threw away the
+    // history every 20 km, so a landing just after a rebase had little or nothing to replay)
+    const R = t.rotation, tr = t.translationNED, Rc = qConj(R);
+    const pv: [number, number, number] = [0, 0, 0], pq: [number, number, number, number] = [1, 0, 0, 0];
+    this.replay.rebase((v) => qRotate(R, [v[0] - tr[0], v[1] - tr[1], v[2] - tr[2]], pv), (q) => qMul(q, Rc, pq));
     copyPose(this.fdm.state, this.prev);
     this.plugins.scenery?.setFrame(this.world.frame);
     this.events.emit('frame:rebased', { frame: this.world.frame.info, translationNED: t.translationNED, rotation: t.rotation });
