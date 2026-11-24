@@ -1002,7 +1002,7 @@ export class Simulator {
     this.plugins.audio?.update(dt, s, this.cameras.state, this.weather.state);
     this.plugins.audio?.setMarker?.(this.radios.state.nav1.marker ?? null);
     // ATC follows live flight only: replayed poses and slew teleports would drive its state machine
-    if (this.inFlight && !this.replayer.active && !this.slew) this.plugins.atc?.update(dt * (this.paused ? 0 : 1), s, this.weather.state);
+    if (this.inFlight && !this.replayer.active && !this.slew) this.plugins.atc?.update(dt * (this.paused ? 0 : this.time.timeScale), s, this.weather.state);
     this.plugins.ui?.update(snap, dt);
     if ((this.frameCount & 15) === 0) this.events.emit('terrain:progress', { ready: snap.terrainReady });
     tn = performance.now(); this.mark('instruments', tn - tm); tm = tn;
@@ -1483,6 +1483,8 @@ export class Simulator {
         if (this.magTimer > 30) { this.magTimer = 0; this.magVar = magneticDeclinationDeg(s.geo.lat, s.geo.lon, s.geo.alt, this.time.utcMs); }
         this.radios.update(ndt, s.geo, this.magVar);
         this.plan = this.planner.waypoints.length ? this.planner.update(s.geo, s.groundSpeedMs) : null;
+        // ATC follows the flight too (its monitors and reply timers run on this clock)
+        if (this.inFlight && !this.slew) this.plugins.atc?.update(ndt, s, this.weather.state);
       }
       this.composeControls(PHYSICS_DT, PHYSICS_DT);
       this.physicsStep(PHYSICS_DT);
