@@ -6,6 +6,7 @@ import { FlightAssists, stallAlphaFromConfig, type AssistFlags } from './assists
 import { GroundRollPlant, type GroundRollConfig } from './testGroundRoll';
 import { TestPlant, type TestPlantConfig } from './testPlant';
 import { Sim } from './testSim';
+import { makeAircraftState } from '../core/fakeState';
 
 const DT = 1 / 120;
 const copy = (src: ControlInputs, dst: ControlInputs): ControlInputs => Object.assign(dst, src, { lights: dst.lights });
@@ -249,5 +250,30 @@ describe('LVL emergency', () => {
     expect(sim.s.engaged).toBe(true);
     expect(Math.abs(sim.ac.euler[0])).toBeLessThan(1 * DEG);
     expect(Math.abs(sim.ac.verticalSpeedMs)).toBeLessThan(100 * FPM);
+  });
+});
+
+describe('auto-rudder: aileron input steers on the ground (arrow-key taxiing)', () => {
+  const yawFor = (roll: number, gsKt: number, flags: AssistFlags, pilotYaw = 0) => {
+    const a = new FlightAssists();
+    const s = makeAircraftState({ onGround: true, groundSpeedMs: gsKt * KT });
+    const u: ControlInputs = { ...defaultControlInputs(), roll, yaw: pilotYaw };
+    a.apply(u, s, 1 / 120, flags);
+    return u.yaw;
+  };
+  const on: AssistFlags = { autoRudder: true, assistedTakeoff: false };
+
+  it('right aileron steers right at taxi speed, fading out to nothing by ~45 kt', () => {
+    expect(yawFor(1, 5, on)).toBeGreaterThan(0.85);
+    expect(yawFor(-0.5, 5, on)).toBeLessThan(-0.4);
+    expect(yawFor(1, 30, on)).toBeGreaterThan(0.2);
+    expect(yawFor(1, 30, on)).toBeLessThan(yawFor(1, 5, on));
+    expect(yawFor(1, 50, on)).toBe(0);
+  });
+
+  it('only with auto-rudder on; the pilot rudder still adds, clamped to full deflection', () => {
+    expect(yawFor(1, 5, { autoRudder: false, assistedTakeoff: false })).toBe(0);
+    expect(yawFor(0, 5, on, -0.3)).toBeCloseTo(-0.3);
+    expect(yawFor(1, 5, on, 0.5)).toBe(1);
   });
 });

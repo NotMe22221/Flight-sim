@@ -153,6 +153,9 @@ export const stallAlphaFromConfig = (config: AircraftConfig): number => {
 };
 
 /** Which assists `FlightAssists.apply` runs (a subset of `AssistanceOptions`, plus anti-stall). */
+/** ground speed by which aileron-to-rudder ground steering has faded out (≈ 45 kt), m/s */
+const GROUND_STEER_FADE_MS = 45 * KT;
+
 export type AssistFlags = Pick<AssistanceOptions, 'autoRudder' | 'assistedTakeoff'> & { antiStall?: boolean };
 
 export class FlightAssists {
@@ -228,6 +231,9 @@ export class FlightAssists {
       this.betaI = 0;
       if (this.assistedTakeoff) assist = this.groundHold(inputs, s, dt);
       else { this.dropHold(); this.disarm(); }
+      // as in MSFS: with auto-rudder on, the aileron input (arrow keys, stick) also steers on the ground,
+      // so taxiing needs no rudder keys; full authority at taxi speeds, fading out to none by rotation speed (no crosswind aileron turned into rudder)
+      if (this.coordinateInAir && !this.holding) assist += inputs.roll * clamp(1 - s.groundSpeedMs / GROUND_STEER_FADE_MS, 0, 1);
     } else {
       this.airborneT += dt;
       const air = this.coordinateInAir ? this.coordination(inputs, s, dt) : 0;
