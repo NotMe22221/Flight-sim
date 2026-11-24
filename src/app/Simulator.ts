@@ -657,6 +657,24 @@ export class Simulator {
     }
   }
   private brakeHintT = 0;
+  /** first-flights controls tip, shown once the flight is running and visible */
+  private tipPending: 'ground' | 'air' | null = null;
+
+  /** The first few flights open with a one-line controls tip (counted in localStorage). */
+  private showFlightTip(): void {
+    const kind = this.tipPending;
+    if (!kind || this.paused || !this.inFlight || this.replayer.active || this.plugins.ui?.coversView?.()) return;
+    this.tipPending = null;
+    const store = safeLocalStorage();
+    let n = 0;
+    try { n = Number(store?.getItem(TIP_COUNT_KEY) ?? 0) || 0; store?.setItem(TIP_COUNT_KEY, String(n + 1)); } catch { /* private mode: show it */ }
+    if (n >= TIP_FLIGHTS) return;
+    const help = this.keyLabel('toggleHelp', '?').replace(/^Shift\+\/$/, '?');
+    const text = kind === 'ground'
+      ? `Arrow keys fly and steer · Page Up / Page Down: throttle · ${this.keyLabel('parkingBrakeToggle', 'Ctrl+.')}: parking brake · ${help}: all controls`
+      : `Arrow keys fly · Page Up / Page Down: throttle · ${this.keyLabel('apToggle', 'Z')}: autopilot · ${help}: all controls`;
+    this.events.emit('ui:toast', { text, kind: 'info', durationMs: 12000 });
+  }
   private brakeHinted = false;
 
   private hintCdiSource(dt: number): void {
@@ -997,6 +1015,7 @@ export class Simulator {
     this.updateTraffic(dt, s);
     this.hintCdiSource(dt);
     this.hintParkingBrake(dt);
+    this.showFlightTip();
     if (this.inFlight && !this.paused && !this.replayer.active && !this.slew) {
       if ((this.frameCount & 31) === 0) this.logNearest = this.airportNear(s.geo.lat, s.geo.lon);
       // the flight model's own clock: time actually flown (time acceleration on a slow machine falls behind the wall clock)
@@ -1446,6 +1465,7 @@ export class Simulator {
     this.cameras.snapToAircraft();
     this.lastSpawn = { airport, spawn, end };
     this.inFlight = true;
+    this.tipPending = spawn.onGround ? 'ground' : 'air';
     this.trafficTimer = Infinity; // traffic for the new airport on the first frame of the flight
     this.trafficAdvisor.reset();
     this.clearedRunway = null;
@@ -1574,6 +1594,10 @@ export class Simulator {
     this.gfx.dispose();
   }
 }
+
+/** localStorage key counting the flights that opened with the controls tip, and how many get one */
+const TIP_COUNT_KEY = 'flightsim.tips.v1';
+const TIP_FLIGHTS = 3;
 
 function safeLocalStorage(): Storage | null {
   try { return typeof localStorage !== 'undefined' ? localStorage : null; } catch { return null; }
