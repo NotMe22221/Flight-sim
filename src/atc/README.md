@@ -17,6 +17,7 @@ const atc = new AtcController({
   emit: (m) => bus.emit('atc:message', m),                       // { from, text, frequencyMHz }
   emitOptions: (options) => bus.emit('atc:options', { options }), // only when the list changes
   speak: (text, voice) => audio.speak(text, voice),              // spelled-out text, 'atc' | 'pilot'
+  destination: () => plan.destinationIcao ?? null,                // optional: listed first in "Prepare to land at …"
 });
 atc.reset(navDb.getAirport('KSFO') ?? null);   // or null: nearest airport within 3 nm / en route if airborne
 // every frame (after the FDM step):

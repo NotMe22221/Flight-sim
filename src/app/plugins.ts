@@ -191,6 +191,8 @@ export async function attachPlugin(sim: Simulator, path: string, mod: Record<str
       emitOptions: (options: string[]) => sim.events.emit('atc:options', { options }),
       taxiRoute: (icao: string, runwayIdent: string) => sim.atcTaxiVia(icao, runwayIdent),
       trafficAhead: (icao: string, runwayIdent: string) => sim.atcTrafficAhead(icao, runwayIdent),
+      // the flight plan's last airport (a plan from the departure field back to itself counts too)
+      destination: () => { const w = sim.planner.waypoints; for (let i = w.length - 1; i > 0; i--) if (w[i].type === 'airport') return w[i].id; return null; },
     });
     let atc = make(sim.config);
     let callsign = radioCallsign(sim.config).callsign;

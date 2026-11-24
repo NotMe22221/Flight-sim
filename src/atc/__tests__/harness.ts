@@ -9,7 +9,7 @@ import { DEG, RAD } from '../../core/units';
 import { destinationPoint } from '../../geo/wgs84';
 import { AtcController } from '../AtcController';
 import type { RadioMessage, RadioVoice } from '../radio';
-import type { AtcPhase } from '../types';
+import type { AtcControllerOptions, AtcPhase } from '../types';
 import type { NavDatabase } from '../../core/types';
 
 export interface LoggedMessage extends RadioMessage { t: number }
@@ -35,7 +35,7 @@ export class Harness {
   private vs = 0;
   private trackDeg: number;
 
-  constructor(nav: NavDatabase, private readonly weather: WeatherState, private readonly frame: Frame, start: Point, utcMs: number) {
+  constructor(nav: NavDatabase, private readonly weather: WeatherState, private readonly frame: Frame, start: Point, utcMs: number, extra: Partial<AtcControllerOptions> = {}) {
     this.trackDeg = frame.headingDeg;
     this.pos = { ...start };
     this.atc = new AtcController({
@@ -43,6 +43,7 @@ export class Harness {
       emit: (m) => this.messages.push({ ...m, t: this.t }),
       speak: (text, voice) => this.speech.push({ t: this.t, text, voice }),
       emitOptions: (options) => this.optionLists.push({ t: this.t, options }),
+      ...extra,
     });
   }
 

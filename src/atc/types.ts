@@ -51,6 +51,11 @@ export interface AtcControllerOptions {
    * (its type word, e.g. 'Cessna', and circuit leg), or null. Tower then says "number two, follow …".
    */
   trafficAhead?: (icao: string, runwayIdent: string) => { type: string; leg: string } | null;
+  /**
+   * Optional: ICAO of the airport the pilot means to land at (the flight plan's destination), or null.
+   * "Prepare to land at …" offers it first, even beyond the nearest few airports.
+   */
+  destination?: () => string | null;
   /** initial UTC epoch ms of the world clock (default 2026-01-01T12:00Z); advanced with dt */
   utcMs?: number;
   /** seed for reply delays and squawk codes (default: derived from the callsign) */

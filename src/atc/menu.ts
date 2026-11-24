@@ -5,6 +5,7 @@
  */
 import type { Airport } from '../core/types';
 import { NM } from '../core/units';
+import { greatCircleDistance } from '../geo/wgs84';
 import {
   callInbound, cancelFlightFollowing, cancelInbound, cancelTakeoff, departureRunway, listenAtis, readBack, readyForDeparture, requestClearance,
   requestClosedTraffic, requestFlightFollowing, requestFrequencyChange, requestLandingFromRadar, requestTaxi, selectDestination, announceInbound,
@@ -74,6 +75,16 @@ function nearbyFields(s: AtcSession, max: number, rangeM: number): FieldCtx[] {
   return s.nav.nearestAirports(s.ac.geo, max, rangeM / NM).map((a: Airport) => s.peekField(a));
 }
 
+/** The flight plan's destination within flight-following range, as a field context, or null. */
+function plannedDestination(s: AtcSession): FieldCtx | null {
+  if (!s.ac || !s.destination) return null;
+  let icao: string | null = null;
+  try { icao = s.destination(); } catch { icao = null; }
+  const ap = icao ? s.nav.getAirport(icao) : undefined;
+  if (!ap || greatCircleDistance(s.ac.geo, ap.position) > RADAR_RANGE_M) return null;
+  return s.peekField(ap);
+}
+
 function enrouteItems(s: AtcSession, out: MenuItem[]): void {
   const ff = s.flightFollowing;
   if (ff) out.push({ label: `Cancel flight following${via(ff)}`, run: () => cancelFlightFollowing(s) });
@@ -83,6 +94,13 @@ function enrouteItems(s: AtcSession, out: MenuItem[]): void {
     if (radar && f) out.push({ label: `Request VFR flight following${via(f)}`, run: () => requestFlightFollowing(s, s.fieldCtx(radar.info.airport)) });
   }
   const near = nearbyFields(s, 3, NEARBY_M);
+  // the planned destination comes first, even when it is not among the nearest three
+  const dest = plannedDestination(s);
+  if (dest) {
+    const i = near.findIndex((c) => c.info.airport.icao === dest.info.airport.icao);
+    if (i >= 0) near.splice(i, 1); else near.pop();
+    near.unshift(dest);
+  }
   for (const c of near) {
     const ap = c.info.airport;
     out.push({ label: `Prepare to land at ${c.info.shortName} (${ap.icao})`, run: () => selectDestination(s, ap) });

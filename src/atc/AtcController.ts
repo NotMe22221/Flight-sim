@@ -62,6 +62,7 @@ export class AtcController {
     this.emitOptions = opts.emitOptions;
     this.s.taxiRoute = opts.taxiRoute ?? null;
     this.s.trafficAhead = opts.trafficAhead ?? null;
+    this.s.destination = opts.destination ?? null;
   }
 
   /** Current flight phase. */

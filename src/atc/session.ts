@@ -73,6 +73,8 @@ export class AtcSession {
 
   /** taxiway names to a runway's hold-short point (AtcControllerOptions.taxiRoute) */
   taxiRoute: ((icao: string, runwayIdent: string) => string[] | null) | null = null;
+  /** the flight plan's destination airport (AtcControllerOptions.destination) */
+  destination: (() => string | null) | null = null;
   /** the aircraft ahead in the landing sequence (AtcControllerOptions.trafficAhead) */
   trafficAhead: ((icao: string, runwayIdent: string) => { type: string; leg: string } | null) | null = null;
   /** the sequencing phrase for a landing clearance or a pattern report, or empty */

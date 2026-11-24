@@ -220,3 +220,30 @@ describe('AtcController — determinism, reset and facility fallbacks', () => {
     expect(none.ctaf.name.text).toBe('Half Moon Bay traffic');
   });
 });
+
+describe('AtcController — planned destination', () => {
+  const enroute = (destination?: () => string | null) => {
+    const khaf = airport('KHAF');
+    const h = new Harness(db, ksfoWeather(), frameOf(khaf, '30'), { along: 7500, cross: 0, h: 600 }, UTC, destination ? { destination } : {});
+    h.setMotion(50, 0, false);
+    h.atc.reset(null);
+    h.wait(2);
+    expect(h.atc.phase).toBe('ENROUTE');
+    return h.atc.options.filter((o) => o.startsWith('Prepare to land'));
+  };
+
+  it('offers the flight plan destination first, even when it is not among the nearest airports', () => {
+    const plain = enroute();
+    expect(plain).toHaveLength(3);
+    expect(plain.some((o) => o.includes('(KOAK)'))).toBe(false);
+    const planned = enroute(() => 'KOAK');
+    expect(planned).toHaveLength(3);
+    expect(planned[0]).toBe('Prepare to land at Oakland (KOAK)');
+    expect(planned.slice(1)).toEqual(plain.slice(0, 2));
+    // a nearby destination moves to the top without duplicates; an unknown one changes nothing
+    const near = enroute(() => plain[2].slice(-5, -1));
+    expect(near).toEqual([plain[2], plain[0], plain[1]]);
+    expect(enroute(() => 'ZZZZ')).toEqual(plain);
+    expect(enroute(() => { throw new Error('x'); })).toEqual(plain);
+  });
+});
