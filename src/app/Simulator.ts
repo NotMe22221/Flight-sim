@@ -949,7 +949,7 @@ export class Simulator {
     // the sky's ambient irradiance is in the same light units as the terrain shading
     this.terrain?.setSun(L.sunDirThree, L.sunColor, L.sunIntensity, L.ambientIrradiance);
     this.terrain?.setFog(L.fogColor, L.fogDensity, L.fogHeightFalloff, L.sunGlowColor);
-    const snow = this.groundSnow.update(groundSnowFor(this.weather.state, this.groundSnowMode), dt * (this.paused ? 0 : 1), this.snapSnow);
+    const snow = this.groundSnow.update(groundSnowFor(this.weather.state, this.groundSnowMode), dt * (this.paused ? 0 : this.time.timeScale), this.snapSnow);
     this.snapSnow = false;
     this.terrain?.setSnow(snow.lineM, snow.amount);
     this.plugins.scenery?.setSnow?.(snowAt(snow, s.altitudeMslM - s.altitudeAglM));
@@ -963,7 +963,7 @@ export class Simulator {
       this.plugins.scenery?.setSeason?.(sea.autumn, sea.dormant);
     }
     let tn = performance.now(); this.mark('sky', tn - tm); tm = tn;
-    this.world.update(dt, camPos, this.cameras.camera, s.geo, this.v3, this.sky.sun.elevationRad);
+    this.world.update(dt, camPos, this.cameras.camera, s.geo, this.v3, this.sky.sun.elevationRad, dt * (this.paused ? 0 : this.time.timeScale));
     this.plugins.scenery?.update(dt, camPos, this.cameras.camera, this.sky.sun.elevationRad);
     this.landingGuide.update(dt, this.assists.landingPathHints && this.inFlight && !this.replayer.active && !this.slew, s.geo, s.trackRad * RAD, s.onGround, this.nearbyAirports, this.world.frame);
     this.updateTraffic(dt, s);

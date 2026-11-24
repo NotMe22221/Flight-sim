@@ -149,11 +149,11 @@ export class World {
   }
 
   /** Per-frame update: terrain LOD/streaming, airport set, runway flattening and surface map. */
-  update(dt: number, cameraPosThree: THREE.Vector3, camera: THREE.PerspectiveCamera, aircraftGeo: Geodetic, aircraftPosThree: Vec3, sunElevationRad: number): void {
+  update(dt: number, cameraPosThree: THREE.Vector3, camera: THREE.PerspectiveCamera, aircraftGeo: Geodetic, aircraftPosThree: Vec3, sunElevationRad: number, simDt = dt): void {
     this.terrain?.update(cameraPosThree, camera, dt);
     this.airports.update(dt, aircraftGeo, aircraftPosThree, sunElevationRad);
     // thermals drift with the low-level wind
-    if (this.wind) { this.wind.windNED(-aircraftPosThree[2], aircraftPosThree[0], -aircraftPosThree[1], this.driftWind); this.verticalAir.update(dt, this.driftWind[0], this.driftWind[1]); }
+    if (this.wind) { this.wind.windNED(-aircraftPosThree[2], aircraftPosThree[0], -aircraftPosThree[1], this.driftWind); this.verticalAir.update(simDt, this.driftWind[0], this.driftWind[1]); }
     this.windCam[0] = cameraPosThree.x; this.windCam[1] = cameraPosThree.y; this.windCam[2] = cameraPosThree.z;
     this.airports.updateWindsocks(dt, this.windCam, this.windAt);
     // runway pavement comes down to the wheels near the camera only while the camera is near the ground
