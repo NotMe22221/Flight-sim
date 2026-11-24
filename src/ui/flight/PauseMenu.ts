@@ -26,6 +26,7 @@ export class PauseMenu {
   private restartStepBtn: HTMLButtonElement;
   private abortBtn: HTMLButtonElement;
   private restartBtn: HTMLButtonElement;
+  private crashed = false;
 
   constructor(layer: HTMLElement, a: PauseMenuActions) {
     this.first = button('Resume flight', a.resume, { icon: 'play', cls: 'menu-btn primary' });
@@ -63,6 +64,12 @@ export class PauseMenu {
   get visible(): boolean { return this.el.classList.contains('visible'); }
   /** 'Paused' by default; 'Crashed' + the reason after a crash. */
   setTitle(title: string, note = ''): void {
+    // after a crash there is nothing to resume: "Restart flight" moves to the top and takes the focus
+    this.crashed = title === 'Crashed';
+    this.restartBtn.classList.toggle('primary', this.crashed);
+    this.first.classList.toggle('primary', !this.crashed);
+    const list = this.first.parentNode;
+    if (list) list.insertBefore(this.restartBtn, this.crashed ? this.first : this.abortBtn);
     this.titleEl.textContent = title;
     this.noteEl.textContent = note;
     this.noteEl.style.display = note ? '' : 'none';
@@ -91,8 +98,9 @@ export class PauseMenu {
     this.restartBtn.querySelector('.btn-label')!.textContent = 'Restart flight';
     this.restartBtn.title = 'Start again from the same position (runway, parking or challenge final)';
   }
-  show(): void { this.el.classList.add('visible'); this.first.focus(); }
-  /** Keyboard focus back on "Resume flight" (after an item disappeared under it). */
-  focusFirst(): void { if (this.visible) this.first.focus(); }
+  show(): void { this.el.classList.add('visible'); this.top().focus(); }
+  /** Keyboard focus back on the top item (after an item disappeared under it). */
+  focusFirst(): void { if (this.visible) this.top().focus(); }
+  private top(): HTMLButtonElement { return this.crashed ? this.restartBtn : this.first; }
   hide(): void { this.el.classList.remove('visible'); }
 }

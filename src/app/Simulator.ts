@@ -657,6 +657,27 @@ export class Simulator {
     }
   }
   private brakeHintT = 0;
+  private upsetT = 0;
+  private upsetHinted = false;
+
+  /**
+   * With crash damage off (the default assists) a crash is ignored: a nose-in or a cartwheel can
+   * leave the aircraft on its back or its nose, where nothing short of a restart helps. After 3 s
+   * there, stopped, say how to restart (once until it is upright and moving again).
+   */
+  private hintUpset(dt: number): void {
+    const s = this.fdm.state;
+    const roll = Math.abs(s.euler[0]), pitch = s.euler[1];
+    const upset = this.inFlight && !this.paused && !this.replayer.active && !this.slew && !s.crashed
+      && s.altitudeAglM < 3 && s.groundSpeedMs < 3 && (roll > 60 * DEG || pitch < -30 * DEG || pitch > 50 * DEG);
+    this.upsetT = upset ? this.upsetT + dt : 0;
+    if (!upset && s.groundSpeedMs > 5) this.upsetHinted = false;
+    if (this.upsetT > 3 && !this.upsetHinted) {
+      this.upsetHinted = true;
+      const what = roll > 90 * DEG ? 'The aircraft has flipped over' : pitch < 0 ? 'The aircraft is stuck on its nose' : 'The aircraft is stuck on its tail';
+      this.events.emit('ui:toast', { text: `${what}. Press ${this.keyLabel('resetFlight', 'Ctrl+;')} to restart the flight, or Esc for the menu.`, kind: 'warn', durationMs: 10000 });
+    }
+  }
   /** first-flights controls tip, shown once the flight is running and visible */
   private tipPending: 'ground' | 'air' | null = null;
 
@@ -1015,6 +1036,7 @@ export class Simulator {
     this.updateTraffic(dt, s);
     this.hintCdiSource(dt);
     this.hintParkingBrake(dt);
+    this.hintUpset(dt);
     this.showFlightTip();
     if (this.inFlight && !this.paused && !this.replayer.active && !this.slew) {
       if ((this.frameCount & 31) === 0) this.logNearest = this.airportNear(s.geo.lat, s.geo.lon);
