@@ -134,6 +134,7 @@ export class SimUiHost implements UiHost {
   /** Settings > General > Flight info strip: the HUD's flight-data tapes in external views. */
   infoStrip = true;
   setInfoStrip(visible: boolean): void { this.infoStrip = visible; }
+  setInvertPitch(on: boolean): void { this.sim.invertPitch = on; }
 
   async requestLiveWeather(): Promise<boolean> {
     const g = this.sim.aircraft.geo;

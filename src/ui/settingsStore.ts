@@ -17,6 +17,7 @@ export interface InterfaceSettings {
   /** CSS --ui-scale, 0.75..1.5 */ scale: number;
   /** ATC subtitles bottom-left while the ATC panel is closed */ subtitles: boolean;
   /** flight info strip outside the cockpit */ infoStrip: boolean;
+  /** game-style pitch: stick forward / arrow up raises the nose (sent to the host) */ invertPitch: boolean;
 }
 
 export const SETTINGS_VERSION = 2;
@@ -44,7 +45,7 @@ const LEGACY_DEFAULT_FOV = 75;
 export const defaultGraphics = (): GraphicsSettings => ({ quality: 'medium', ...GRAPHICS_QUALITY_PRESETS.medium, imagery: 'satellite', fov: DEFAULT_FOV, autoResolution: true });
 export const defaultAudio = (): AudioSettings => ({ master: 0.8, engine: 0.8, environment: 0.7, cockpit: 0.8, ui: 0.6, atc: 0.9 });
 export const defaultUnitsSettings = (): UnitsSettings => ({ altitude: 'ft', speed: 'kt', pressure: 'inHg', distance: 'nm', temperature: 'C' });
-export const defaultInterface = (): InterfaceSettings => ({ scale: 1, subtitles: true, infoStrip: true });
+export const defaultInterface = (): InterfaceSettings => ({ scale: 1, subtitles: true, infoStrip: true, invertPitch: false });
 export const UI_SCALE_MIN = 0.75;
 export const UI_SCALE_MAX = 1.5;
 export const defaultSettings = (): PersistedSettings => ({
@@ -125,6 +126,7 @@ export function sanitizeSettings(raw: unknown): PersistedSettings {
       scale: num(i.scale, d.ui.scale, UI_SCALE_MIN, UI_SCALE_MAX),
       subtitles: bool(i.subtitles, d.ui.subtitles),
       infoStrip: bool(i.infoStrip, d.ui.infoStrip),
+      invertPitch: bool(i.invertPitch, d.ui.invertPitch),
     },
   };
   const base = missingAssistBase(s);

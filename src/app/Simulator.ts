@@ -231,6 +231,8 @@ export class Simulator {
   readonly effective: ControlInputs = defaultControlInputs();
   /** automation overrides applied after the input layer (tests, smoke test, scripted demos) */
   readonly overrides: Partial<ControlInputs> = {};
+  /** Settings > Controls: game-style pitch (arrow up / stick forward raises the nose) */
+  invertPitch = false;
   lastSpawn: { airport: Airport | null; spawn: SpawnState; end: RunwayEndRef | null } | null = null;
   currentAirport: Airport | null = null;
   panelVariant: 'steam' | 'g1000' = 'steam';
@@ -531,6 +533,7 @@ export class Simulator {
     if (drone && !this.droneHold) this.droneHold = { pitch: this.effective.pitch, roll: this.effective.roll, yaw: this.effective.yaw, throttle: this.effective.throttle };
     else if (!drone) this.droneHold = null;
     Object.assign(this.effective, u);
+    if (this.invertPitch) this.effective.pitch = -this.effective.pitch;
     this.effective.lights = u.lights;
     if (this.droneHold) Object.assign(this.effective, this.droneHold);
     for (const k in this.overrides) (this.effective as unknown as Record<string, unknown>)[k] = (this.overrides as Record<string, unknown>)[k];

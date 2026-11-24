@@ -319,6 +319,7 @@ export class UiManager {
     if (p.ui) {
       this.applyInterface();
       if (this.host.setInfoStrip) safe('setInfoStrip', () => this.host.setInfoStrip!(s.ui.infoStrip));
+      if (this.host.setInvertPitch) safe('setInvertPitch', () => this.host.setInvertPitch!(s.ui.invertPitch));
     }
   }
 

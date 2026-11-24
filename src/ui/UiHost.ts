@@ -118,6 +118,8 @@ export interface UiHost {
    * draws its own speed/altitude/heading strip (an instruments HUD replacing the UI's) honour it.
    */
   setInfoStrip?(visible: boolean): void;
+  /** Settings > Controls: arrow up / stick forward raises the nose (game style) */
+  setInvertPitch?(on: boolean): void;
 
   // ── Activities: Flight Training lessons and bush trips (src/activities) ──
   /** Activities › Flight training "Start": a lesson id from `LESSONS`. Resolves when the flight is live. */

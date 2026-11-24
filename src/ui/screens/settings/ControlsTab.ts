@@ -5,7 +5,7 @@
  */
 import type { SimAction } from '../../../core/types';
 import type { BindingInfo } from '../../UiHost';
-import { Txt, button, clear, deviceIcon, h, humanizeAction, segmented } from '../../dom';
+import { Txt, button, clear, deviceIcon, h, humanizeAction, segmented, toggle, type ToggleHandle } from '../../dom';
 import { BINDING_PROFILES, DEFAULT_BINDING_PROFILE, bindingGroups, conflictCount, type BindingProfileId, type DeviceFilter } from '../../bindingsModel';
 import type { SettingsTabView, TabDeps } from './types';
 
@@ -22,6 +22,7 @@ export class ControlsTab implements SettingsTabView {
   private endedThisTask = false;
   private confirm: { id: BindingProfileId; until: number } | null = null;
   private profileButtons = new Map<BindingProfileId, HTMLButtonElement>();
+  private invertPitch: ToggleHandle;
 
   constructor(private readonly d: TabDeps) {
     this.search = h('input', { class: 'input input-sm', type: 'search', placeholder: 'Search actions or keys…', autocomplete: 'off', spellcheck: false, aria: { label: 'Search bindings' }, onInput: () => this.render() });
@@ -40,7 +41,10 @@ export class ControlsTab implements SettingsTabView {
         this.profileButtons.set(p.id, b);
         return b;
       }));
+    this.invertPitch = toggle('Arrow up raises the nose', d.ctx.settings().ui.invertPitch, (v) => d.dispatch({ type: 'ui', patch: { invertPitch: v } }),
+      'Game style: ↑ (or stick forward) pitches up. Off is like a real yoke: push forward, nose down.');
     this.el = h('div', { class: 'col', style: 'gap:12px' },
+      h('section', { class: 'panel settings-group' }, this.invertPitch.el),
       h('div', { class: 'row wrap' }, h('div', { style: 'flex:1;min-width:220px' }, this.search), dev.el, this.conflicts.el),
       h('div', { class: 'muted', style: 'font-size:.85em', text: 'Click an action, then press the new key or button. Esc cancels. Keys shown red are bound twice.' }),
       h('section', { class: 'panel settings-group' }, this.list),
@@ -53,7 +57,11 @@ export class ControlsTab implements SettingsTabView {
    * it, or the next key pressed in flight would silently become the new binding.
    */
   onHide(): void { if (this.rebinding) this.cancelPending(); }
-  sync(): void { /* bindings live in the input module, not in PersistedSettings */ }
+  sync(): void {
+    // bindings live in the input module; only the pitch sense is a persisted setting
+    const v = this.d.ctx.settings().ui.invertPitch;
+    if (this.invertPitch.get() !== v) this.invertPitch.set(v);
+  }
 
   /**
    * Esc while waiting for a key belongs to the input module (it cancels the rebind). The rebind

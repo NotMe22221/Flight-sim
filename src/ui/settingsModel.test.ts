@@ -119,7 +119,9 @@ describe('interface settings persistence', () => {
   it('fills the new ui group for blobs saved before it existed', () => {
     const old = { version: 1, graphics: {}, audio: {}, units: {}, assists: {} };
     expect(sanitizeSettings(old).ui).toEqual(defaultSettings().ui);
-    expect(sanitizeSettings({ ui: { scale: 0.1, subtitles: false } }).ui).toEqual({ scale: 0.75, subtitles: false, infoStrip: true });
+    expect(sanitizeSettings({ ui: { scale: 0.1, subtitles: false } }).ui).toEqual({ scale: 0.75, subtitles: false, infoStrip: true, invertPitch: false });
+    expect(sanitizeSettings({ ui: { invertPitch: true } }).ui.invertPitch).toBe(true);
+    expect(sanitizeSettings({ ui: { invertPitch: 'yes' } }).ui.invertPitch).toBe(false);
   });
   it('sameFlat compares flat objects', () => {
     expect(sameFlat({ a: 1, b: 'x' }, { b: 'x', a: 1 })).toBe(true);
