@@ -46,7 +46,11 @@ export interface SpawnChoice { airport: Airport; runwayEnd: RunwayEndChoice | nu
 export interface GraphicsSettings { quality: 'low' | 'medium' | 'high' | 'ultra'; renderScale: number; shadows: boolean; clouds: boolean; terrainDetail: number; imagery: 'satellite' | 'procedural'; fov: number; /** lower the resolution while the frame rate is below ~40 fps (default on) */ autoResolution?: boolean }
 export interface AudioSettings { master: number; engine: number; environment: number; cockpit: number; ui: number; atc: number }
 export interface UnitsSettings { altitude: 'ft' | 'm'; speed: 'kt' | 'kmh' | 'mph'; pressure: 'inHg' | 'hPa'; distance: 'nm' | 'km'; temperature: 'C' | 'F' }
-export interface BindingInfo { action: SimAction; label: string /* e.g. 'Ctrl+E' */; device: 'keyboard' | 'gamepad' | 'mouse' | 'none'; group: string }
+export interface BindingInfo {
+  action: SimAction; label: string /* e.g. 'Ctrl+E' */; device: 'keyboard' | 'gamepad' | 'mouse' | 'none'; group: string;
+  /** further inputs bound to the same action (e.g. the laptop key besides the numpad one) */
+  alt?: string[];
+}
 
 /** Logbook (src/activities/logbook.ts) as the UI reads it. */
 export interface LogbookView {
@@ -118,6 +122,11 @@ export interface UiHost {
    * draws its own speed/altitude/heading strip (an instruments HUD replacing the UI's) honour it.
    */
   setInfoStrip?(visible: boolean): void;
+  /**
+   * The primary flight controls (pitch, roll, rudder, brakes as axes; the arrow keys) and input-local
+   * actions, for the help sheet: plain-language title and every input bound to it. Optional.
+   */
+  flyingControls?(): { title: string; keys: string[] }[];
   /** Settings > Controls: arrow up / stick forward raises the nose (game style) */
   setInvertPitch?(on: boolean): void;
 

@@ -172,8 +172,26 @@ export class SimUiHost implements UiHost {
   setUnits(u: UnitsSettings): void { this.units = { ...u }; }
   get currentUnits(): UnitsSettings { return this.units; }
 
+  flyingControls(): { title: string; keys: string[] }[] {
+    // 'pitch −' is the push (nose down) binding: with game-style pitch it raises the nose
+    const inv = this.sim.invertPitch;
+    const titles: Record<string, string> = {
+      'axis:pitch:-1': inv ? 'Nose up' : 'Nose down (push)', 'axis:pitch:1': inv ? 'Nose down' : 'Nose up (pull)',
+      'axis:roll:-1': 'Bank left', 'axis:roll:1': 'Bank right',
+      'axis:yaw:-1': 'Rudder / steer left', 'axis:yaw:1': 'Rudder / steer right',
+      'axis:brakeLeft:1': 'Left brake', 'axis:brakeRight:1': 'Right brake',
+      'axis:throttle': 'Throttle', 'axis:mixture': 'Mixture',
+      'axis:lookYaw': 'Look left / right', 'axis:lookPitch': 'Look up / down', 'axis:cameraZoom': 'Zoom',
+    };
+    const order = Object.keys(titles);
+    // neither aircraft has a constant-speed propeller or spoilers: leave those rows out of the help
+    const rows = this.sim.input.controlsList().filter((r) => r.labels.length > 0 && !/^action:(propeller|spoilers)/.test(r.id));
+    rows.sort((a, b) => { const i = order.indexOf(a.id), j = order.indexOf(b.id); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); });
+    return rows.map((r) => ({ title: titles[r.id] ?? r.title, keys: r.labels }));
+  }
+
   bindings(): BindingInfo[] {
-    return this.sim.input.bindingsList().map((r) => ({ action: r.action, label: r.label, device: r.device, group: r.group }));
+    return this.sim.input.bindingsList().map((r) => ({ action: r.action, label: r.label, device: r.device, group: r.group, ...(r.labels.length > 1 ? { alt: r.labels.slice(1) } : {}) }));
   }
 
   async rebind(action: SimAction): Promise<BindingInfo | null> {

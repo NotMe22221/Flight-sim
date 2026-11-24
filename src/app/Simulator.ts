@@ -634,6 +634,31 @@ export class Simulator {
    * NAV armed with the G1000's CDI on GPS, no flight plan and a VOR on NAV1: as on the real panel the
    * autopilot has nothing to capture until the CDI is switched to VOR1. Say so once (after 5 s).
    */
+  /** The keyboard key bound to `action` (the laptop key before a numpad one), or `fallback`. */
+  private keyLabel(action: string, fallback: string): string {
+    try {
+      const keys = this.input.bindingsList().find((b) => b.action === action)?.labels ?? [];
+      return keys.find((k) => !/num/i.test(k)) ?? keys[0] ?? fallback;
+    } catch { return fallback; }
+  }
+
+  /**
+   * The most common first-flight snag: full power against the parking brake (the aircraft starts with
+   * it set). After 3 s at high power without moving, say once how to release it.
+   */
+  private hintParkingBrake(dt: number): void {
+    const s = this.fdm.state, e = this.effective;
+    if (!e.parkingBrake) { this.brakeHinted = false; this.brakeHintT = 0; return; }
+    const stuck = this.inFlight && !this.paused && !this.replayer.active && !this.slew && s.onGround && s.engine.running && e.throttle > 0.7 && s.groundSpeedMs < 1;
+    this.brakeHintT = stuck ? this.brakeHintT + dt : 0;
+    if (this.brakeHintT > 3 && !this.brakeHinted) {
+      this.brakeHinted = true;
+      this.events.emit('ui:toast', { text: `The parking brake is set. Press ${this.keyLabel('parkingBrakeToggle', 'Ctrl+.')} to release it.`, kind: 'info', durationMs: 7000 });
+    }
+  }
+  private brakeHintT = 0;
+  private brakeHinted = false;
+
   private hintCdiSource(dt: number): void {
     const ap = this.autopilot, n1 = this.radios.state.nav1;
     const stuck = this.hasAutopilot && ap.state.armedLateral === 'NAV' && ap.navSource === 'gps' && !this.plan && n1.valid && !n1.isLocalizer;
@@ -971,6 +996,7 @@ export class Simulator {
     this.landingGuide.update(dt, this.assists.landingPathHints && this.inFlight && !this.replayer.active && !this.slew, s.geo, s.trackRad * RAD, s.onGround, this.nearbyAirports, this.world.frame);
     this.updateTraffic(dt, s);
     this.hintCdiSource(dt);
+    this.hintParkingBrake(dt);
     if (this.inFlight && !this.paused && !this.replayer.active && !this.slew) {
       if ((this.frameCount & 31) === 0) this.logNearest = this.airportNear(s.geo.lat, s.geo.lon);
       // the flight model's own clock: time actually flown (time acceleration on a slow machine falls behind the wall clock)

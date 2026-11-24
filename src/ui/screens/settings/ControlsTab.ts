@@ -113,7 +113,8 @@ export class ControlsTab implements SettingsTabView {
         },
         h('span', { text: r.title }),
         deviceIcon(r.info.device),
-        h('span', { class: 'binding-key' }, h('span', { class: 'key', text: busy ? 'Press a key…' : r.unbound ? 'unbound' : r.info.label })));
+        h('span', { class: 'binding-key' }, h('span', { class: 'key', text: busy ? 'Press a key…' : r.unbound ? 'unbound' : r.info.label }),
+          ...(busy || r.unbound ? [] : (r.info.alt ?? []).map((k) => h('span', { class: 'key muted', title: 'Also bound', text: k })))));
         wrap.appendChild(row);
       }
       this.list.appendChild(wrap);

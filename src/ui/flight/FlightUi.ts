@@ -206,7 +206,9 @@ export class FlightUi {
   toggleHelp(): void {
     let list: ReturnType<UiHost['bindings']> = [];
     try { list = this.d.host.bindings(); } catch { list = []; }
-    this.help.toggle(list, () => this.d.onOverlayChange());
+    let flying: { title: string; keys: string[] }[] = [];
+    try { flying = this.d.host.flyingControls?.() ?? []; } catch { flying = []; }
+    this.help.toggle(list, () => this.d.onOverlayChange(), flying);
     this.d.onOverlayChange();
   }
 

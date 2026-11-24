@@ -8,6 +8,7 @@ export class HelpOverlay {
   private list: HTMLElement;
   private search: HTMLInputElement;
   private bindings: BindingInfo[] = [];
+  private flying: { title: string; keys: string[] }[] = [];
   private onClose?: () => void;
   private card!: HTMLElement;
 
@@ -29,8 +30,9 @@ export class HelpOverlay {
 
   get visible(): boolean { return this.el.classList.contains('visible'); }
 
-  show(bindings: BindingInfo[], onClose?: () => void): void {
+  show(bindings: BindingInfo[], onClose?: () => void, flying: { title: string; keys: string[] }[] = []): void {
     this.bindings = bindings;
+    this.flying = flying;
     this.onClose = onClose;
     this.el.classList.add('visible');
     this.render();
@@ -38,7 +40,7 @@ export class HelpOverlay {
     if (isCoarsePointer()) this.card.focus(); else this.search.focus();
   }
   hide(): void { if (!this.visible) return; this.el.classList.remove('visible'); const cb = this.onClose; this.onClose = undefined; cb?.(); }
-  toggle(bindings: BindingInfo[], onClose?: () => void): void { this.visible ? this.hide() : this.show(bindings, onClose); }
+  toggle(bindings: BindingInfo[], onClose?: () => void, flying: { title: string; keys: string[] }[] = []): void { this.visible ? this.hide() : this.show(bindings, onClose, flying); }
 
   private render(): void {
     clear(this.list);
@@ -47,12 +49,23 @@ export class HelpOverlay {
     const groups = bindingGroups(this.bindings, q)
       .map((g) => ({ group: g.group, rows: q ? g.rows : g.rows.filter((r) => !r.unbound) }))
       .filter((g) => g.rows.length > 0);
+    // the stick and rudder first: what a new pilot looks for (axis keys are not actions, so they come separately)
+    const ql = q.toLowerCase();
+    const fly = this.flying.filter((f) => !ql || f.title.toLowerCase().includes(ql) || f.keys.some((k) => k.toLowerCase().includes(ql)));
+    if (fly.length) {
+      const g = h('div', { class: 'help-group' }, h('div', { class: 'section-label', text: 'Flying' }));
+      for (const f of fly) g.appendChild(h('div', { class: 'help-row' }, h('span', { text: f.title }),
+        h('span', { class: 'row', style: 'gap:6px;flex-wrap:wrap;justify-content:flex-end' }, ...f.keys.map((k) => h('span', { class: 'key', text: k })))));
+      this.list.appendChild(g);
+    }
+    if (groups.length === 0 && fly.length) return;
     if (groups.length === 0) { this.list.appendChild(h('div', { class: 'empty', text: this.bindings.length ? 'No matching bindings' : 'No bindings reported by the input module' })); return; }
     for (const { group, rows } of groups) {
       const g = h('div', { class: 'help-group' }, h('div', { class: 'section-label', text: group }));
       for (const r of rows) {
         g.appendChild(h('div', { class: 'help-row' }, h('span', { text: r.title }),
-          h('span', { class: 'row', style: 'gap:6px' }, deviceIcon(r.info.device), h('span', { class: 'key', text: r.unbound ? 'unbound' : r.info.label }))));
+          h('span', { class: 'row', style: 'gap:6px;flex-wrap:wrap;justify-content:flex-end' }, deviceIcon(r.info.device),
+            ...(r.unbound ? ['unbound'] : [r.info.label, ...(r.info.alt ?? [])]).map((k) => h('span', { class: 'key', text: k })))));
       }
       this.list.appendChild(g);
     }

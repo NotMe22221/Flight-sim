@@ -57,7 +57,7 @@ export function bindingConflicts(list: readonly BindingInfo[]): Map<SimAction, S
 export function bindingMatches(b: BindingInfo, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return humanizeAction(b.action).toLowerCase().includes(q) || b.label.toLowerCase().includes(q) || b.group.toLowerCase().includes(q) || b.action.toLowerCase().includes(q);
+  return humanizeAction(b.action).toLowerCase().includes(q) || b.label.toLowerCase().includes(q) || (b.alt ?? []).some((l) => l.toLowerCase().includes(q)) || b.group.toLowerCase().includes(q) || b.action.toLowerCase().includes(q);
 }
 
 /**

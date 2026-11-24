@@ -288,7 +288,7 @@
 .fs-ui .binding-row:hover { background: var(--ui-bg-soft); }
 .fs-ui .binding-row.conflict .key { border-color: var(--err); color: var(--err); }
 .fs-ui .binding-row.rebinding .key { border-color: var(--accent); color: var(--accent); animation: fs-pulse 1s ease-in-out infinite; }
-.fs-ui .binding-key { min-width: 120px; text-align: right; }
+.fs-ui .binding-key { min-width: 120px; text-align: right; display: inline-flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
 .fs-ui .device-icon { color: var(--fg-faint); }
 .fs-ui .effective { font-size: 0.75em; color: var(--fg-faint); text-transform: uppercase; letter-spacing: 0.08em; }
 .fs-ui .credits-list { line-height: 1.6; }
