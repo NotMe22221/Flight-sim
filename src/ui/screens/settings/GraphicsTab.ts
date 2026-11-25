@@ -25,7 +25,7 @@ export class GraphicsTab implements SettingsTabView {
       null, (quality) => d.dispatch({ type: 'graphicsQuality', quality }), 'stretch');
     this.qualityNote = new Txt(h('div', { class: 'effective' }), '');
     this.shadows = toggle('Shadows', g.shadows, (v) => d.dispatch({ type: 'graphics', patch: { shadows: v } }), 'Sun shadows from the aircraft and nearby terrain');
-    this.clouds = toggle('Volumetric clouds', g.clouds, (v) => d.dispatch({ type: 'graphics', patch: { clouds: v } }), 'Raymarched cloud layers (the most expensive effect)');
+    this.clouds = toggle('Clouds', g.clouds, (v) => d.dispatch({ type: 'graphics', patch: { clouds: v } }), 'Cloud layers in the sky and their shadows on the ground');
     // expensive to apply: commit on release, readout follows the drag
     this.renderScale = slider({ min: 50, max: 200, step: 5, value: Math.round(g.renderScale * 100), label: 'Render scale', format: (v) => `${v}%`,
       onInput: () => { /* readout */ }, onChange: (v) => d.dispatch({ type: 'graphics', patch: { renderScale: v / 100 } }) });

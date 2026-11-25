@@ -110,6 +110,14 @@ export class Quadtree {
     this.heightRange = heightRange;
   }
 
+  /** Change the finest LOD distance (Settings > Terrain detail); every coarser level doubles it. */
+  setRange0(range0: number): void {
+    if (!(range0 > 0) || range0 === this.options.range0) return;
+    this.options.range0 = range0;
+    for (let l = 0; l < this.levels; l++) this.ranges[l] = range0 * 2 ** l;
+    this.epoch++;
+  }
+
   /** Replace the height-range source (e.g. after providers change). */
   setHeightRange(fn: HeightRangeFn): void { this.heightRange = fn; this.epoch++; }
 

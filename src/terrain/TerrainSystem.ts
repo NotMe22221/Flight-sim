@@ -137,7 +137,8 @@ export class TerrainSystem {
   readonly depthMode: DepthMode;
   readonly maxZoom: number;
   readonly minZoom: number;
-  readonly range0: number;
+  range0: number;
+  private baseRange0: number;
 
   private frame: LocalFrame;
   private readonly heights: HeightField;
@@ -207,6 +208,7 @@ export class TerrainSystem {
       throw new Error(`TerrainSystem: need 0 ≤ minZoom (${this.minZoom}) ≤ maxZoom (${this.maxZoom}) ≤ 22`);
     }
     this.range0 = options.range0M ?? 3500;
+    this.baseRange0 = this.range0;
     this.depthMode = options.depthMode ?? 'reversed';
     this.imageryMode = options.imagery ?? 'satellite';
     this.anisotropy = Math.max(1, options.maxAnisotropy ?? 4);
@@ -826,6 +828,19 @@ export class TerrainSystem {
   }
 
   /** Switch the imagery chain; resident tiles reload in the background (keeping their old look until then). */
+  /**
+   * Settings > Terrain detail (×0.25…×4, 1 = default): the finest-LOD distance scales with its square
+   * root (×0.5 → 0.71 × 3.5 km, ×2 → 1.41 ×), so the tile count grows about linearly, not with the square.
+   */
+  setDetail(factor: number): void {
+    if (this.disposed || !Number.isFinite(factor)) return;
+    const r = this.baseRange0 * Math.sqrt(Math.min(Math.max(factor, 0.25), 4));
+    if (Math.abs(r - this.range0) < 1) return;
+    this.range0 = r;
+    this.quadtree.setRange0(r);
+    this.lastSelectAt = -Infinity;
+  }
+
   setImagery(mode: ImageryMode): void {
     if (this.disposed || mode === this.imageryMode) return;
     this.imageryMode = mode;

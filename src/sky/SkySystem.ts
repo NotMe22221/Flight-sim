@@ -765,6 +765,15 @@ export class SkySystem {
   private readonly shadowCentre = new THREE.Vector3();
   private readonly shadowEye = new THREE.Vector3();
 
+  /** Shadow-map resolution (Settings > Graphics quality); the map is rebuilt at the next shadow pass. */
+  setShadowMapSize(size: number): void {
+    const n = Math.round(Math.min(Math.max(size, 256), 8192));
+    const sh = this.sunLight.shadow;
+    if (sh.mapSize.x === n) return;
+    sh.mapSize.set(n, n);
+    if (sh.map) { sh.map.dispose(); sh.map = null; }
+  }
+
   /** `pos` moved to the nearest shadow-map texel centre in the sun camera's right/up axes. */
   private snapShadowCentre(pos: THREE.Vector3, sunDir: THREE.Vector3): THREE.Vector3 {
     const cam = this.sunLight.shadow.camera;

@@ -7,6 +7,7 @@ import { AIRCRAFT, aircraftById, aircraftForActivity } from './aircraftCatalog';
 import { fetchOpenMeteo, OPEN_METEO_ATTRIBUTION, weatherFromPreset } from '../sky';
 import type { AudioSettings, BindingInfo, GraphicsSettings, LogbookView, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
 import type { Simulator } from './Simulator';
+import { QUALITY } from './renderer';
 import { SAVED_FLIGHT_KEY, readSavedFlight, savedFlightLabel } from './savedFlight';
 import { magneticDeclinationDeg } from '../geo/magvar';
 import { discoveryById } from '../activities/discovery';
@@ -162,6 +163,8 @@ export class SimUiHost implements UiHost {
     if (this.sim.dynRes.update(1 / 60)) this.sim.gfx.setDynamicScale(this.sim.dynRes.scale);
     this.sim.cameras.setFov(g.fov);
     this.sim.terrain?.setImagery(g.imagery);
+    this.sim.terrain?.setDetail(g.terrainDetail);
+    this.sim.sky.setShadowMapSize(QUALITY[g.quality].shadowMapSize);
     this.sim.sky.clouds.group.visible = g.clouds;
     this.sim.setShadows(g.shadows);
     this.sim.plugins.scenery?.setQuality?.(g.quality);

@@ -142,4 +142,19 @@ describe('Quadtree CDLOD selection', () => {
     const c = frame.geodeticToThree(37.61, -122.36, 50);
     for (let a = 0; a < 3; a++) { expect(c[a]).toBeGreaterThan(min[a]); expect(c[a]).toBeLessThan(max[a]); }
   });
+
+  it('setRange0 (Settings > Terrain detail) rescales every level: a longer finest range selects more nodes', () => {
+    const qt = new Quadtree(frame, { range0: 3500 }, flatRange);
+    const base = qt.select([0, 1000, 0], null).length;
+    qt.setRange0(3500 * Math.SQRT2);
+    expect(qt.ranges[0]).toBeCloseTo(3500 * Math.SQRT2, 6);
+    expect(qt.ranges[8]).toBeCloseTo(3500 * Math.SQRT2 * 256, 3);
+    const more = qt.select([0, 1000, 0], null).length;
+    expect(more).toBeGreaterThan(base);
+    qt.setRange0(3500 / Math.SQRT2);
+    expect(qt.select([0, 1000, 0], null).length).toBeLessThan(base);
+    qt.setRange0(-5); // ignored
+    expect(qt.ranges[0]).toBeCloseTo(3500 / Math.SQRT2, 6);
+  });
 });
+

@@ -20,8 +20,8 @@ export interface QualityProfile {
 
 export const QUALITY: Record<'low' | 'medium' | 'high' | 'ultra', QualityProfile> = {
   low: { pixelRatioCap: 1, shadows: false, shadowMapSize: 1024, antialias: false, anisotropy: 2 },
-  medium: { pixelRatioCap: 1.25, shadows: true, shadowMapSize: 1024, antialias: true, anisotropy: 4 },
-  high: { pixelRatioCap: 1.75, shadows: true, shadowMapSize: 2048, antialias: true, anisotropy: 8 },
+  medium: { pixelRatioCap: 1.25, shadows: true, shadowMapSize: 2048, antialias: true, anisotropy: 4 },
+  high: { pixelRatioCap: 1.75, shadows: true, shadowMapSize: 4096, antialias: true, anisotropy: 8 },
   ultra: { pixelRatioCap: 2, shadows: true, shadowMapSize: 4096, antialias: true, anisotropy: 16 },
 };
 
