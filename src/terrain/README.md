@@ -150,7 +150,7 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   sky module's exponential height fog (`β(y) = β0·exp(−(y − groundY)·falloff)`, closed-form optical
   depth; `groundY` is the sky's `uSkyGroundY` once a sky is linked — the reference of the built-in
   materials' and cloud planes' fog — else the ground under the camera) toward its haze colour with the
-  Henyey–Greenstein sun-ward lobe (`hazeSunLobe`), tone mapping and colour-space chunks. Real imagery is sampled unmodified (only lit, shadowed and fogged); procedural
+  Henyey–Greenstein sun-ward lobe (`hazeSunLobe`), tone mapping and colour-space chunks. Real imagery keeps its colours, with a fine 4/16 m grain fading out by ≈ 2.5 km and rock texture on slopes over ≈ 40° (`imageryDetail`); procedural
   fallback tiles (`uProcedural`) add a ground-fixed detail texture (value noise at 4 / 32 / 128 / 512 m,
   brightness ± and lush/dry tint, fine octaves faded with distance; `uDetailOffset` follows rebases mod
   8192 m so it never jumps). Includes `<logdepthbuf_*>` chunks, so it is correct with a logarithmic depth
@@ -291,9 +291,9 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   distant terrain below the tangent plane; at those distances the terrain is fully hazed anyway. Its
   ground reference is the ground under the aircraft (the sky's), so with a far tower or drone camera over
   other ground the haze near the camera is referenced to the aircraft's ground, as for every renderer.
-* **No terrain self-shadows** (only cloud shadows), no night lights (city glow). The detail texture
-  (§6.3) is only on procedural fallback tiles; real imagery gets none (it is shown unmodified), so it
-  softens below ≈ 10 m/px at low altitude. Cloud shadows skip the cloud planes' edge erosion (slightly
+* **No terrain self-shadows** (only cloud shadows), no night lights (city glow). Real imagery gets only a fine grain and
+  steep-slope rock (`imageryDetail`), not the §6.3 detail texture of the procedural tiles, so its fields and
+  forests still soften below ≈ 10 m/px at low altitude. Cloud shadows skip the cloud planes' edge erosion (slightly
   softer edges than the clouds above) and are limited to `MAX_SHADOW_LAYERS` (4) layers; a layer counts
   only where its middle is above the ground point (peaks on top of a deck are in full sun), with a hard
   switch at the layer middle.

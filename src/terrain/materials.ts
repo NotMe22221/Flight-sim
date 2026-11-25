@@ -14,8 +14,9 @@
  * groundY)·falloff), closed-form optical depth along the view ray) toward the haze colour with the
  * sun-ward Henyey–Greenstein lobe, before tone mapping.
  *
- * Imagery is shown unmodified apart from that lighting and fog. Only the procedural fallback colours
- * (`uProcedural`) get a world-space detail texture, so they do not read as flat paint close up.
+ * Real imagery keeps its colours: within ≈ 2.5 km it gets a fine ground-fixed grain and, on slopes over
+ * ≈ 40°, rock texture (`imageryDetail`), so it does not read as flat paint below 1,000 ft. The procedural
+ * fallback colours (`uProcedural`) get the stronger world-space detail texture.
  *
  * Depth: no custom depth math. With a reversed depth buffer three supplies the projection and
  * depth function; with a logarithmic depth buffer the logdepthbuf chunks below write gl_FragDepth.
@@ -146,6 +147,29 @@ vec3 proceduralDetail(vec3 albedo, vec3 worldPos, float dist) {
   vec3 tint = vec3(1.0 + 0.35 * dry, 1.0 + 0.08 * dry, 1.0 - 0.25 * dry);
   return clamp(albedo * bright * tint, 0.0, 1.0);
 }
+// real imagery (≈ 8–10 m/px) reads as flat paint below ≈ 1 km: fine ground-fixed grain (2, 4, 16 m; each divides DETAIL_PERIOD_M) that
+// keeps the imagery's own colour, gone by ≈ 2.5 km; steep slopes (> ≈ 40°) get broken rock texture
+vec3 imageryDetail(vec3 albedo, vec3 worldPos, float dist, float flatness) {
+  float near = 1.0 - smoothstep(300.0, 2500.0, dist);
+  if (near <= 0.0 && flatness > 0.99) return albedo;
+  vec2 p = worldPos.xz + uDetailOffset;
+  float fine = 1.0 - smoothstep(60.0, 500.0, dist);
+  float closeUp = 1.0 - smoothstep(20.0, 140.0, dist);
+  float n0 = closeUp > 0.0 ? detailNoise(p / 2.0 + 7.0, ${DETAIL_PERIOD_M / 2}.0) - 0.5 : 0.0;
+  float n1 = detailNoise(p / 4.0 + 3.0, ${DETAIL_PERIOD_M / 4}.0) - 0.5;
+  float n2 = detailNoise(p / 16.0 + 29.0, ${DETAIL_PERIOD_M / 16}.0) - 0.5;
+  float bright = 1.0 + near * (0.14 * n0 * closeUp + 0.24 * n1 * fine + 0.2 * n2);
+  vec3 a = albedo * bright;
+  // rock: greyer and grainier where the slope is steep (the imagery smears cliffs into stripes)
+  float rock = (1.0 - smoothstep(0.62, 0.8, flatness));
+  if (rock > 0.0) {
+    float lum = dot(a, vec3(0.2126, 0.7152, 0.0722));
+    vec3 grey = vec3(lum) * vec3(1.04, 1.0, 0.95);
+    float strata = detailNoise(vec2(p.x + p.y, worldPos.y * 6.0) / 8.0 + 51.0, ${DETAIL_PERIOD_M / 8}.0) - 0.5;
+    a = mix(a, grey * (1.0 + 0.35 * strata), rock * 0.55);
+  }
+  return clamp(a, 0.0, 1.0);
+}
 `;
 
 /**
@@ -226,9 +250,10 @@ void main() {
   float dist = length(toFrag);
   vec3 dir = toFrag / max(dist, 1e-3);
   vec3 albedo = uHasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(0.08, 0.1, 0.06);
-  if (uProcedural > 0.5) albedo = proceduralDetail(albedo, vWorldPos, dist);
   vec3 n = normalize(vNormalW);
   vec3 up = normalize(vWorldPos - uEarthCenter);
+  if (uProcedural > 0.5) albedo = proceduralDetail(albedo, vWorldPos, dist);
+  else if (uHasMap > 0.5) albedo = imageryDetail(albedo, vWorldPos, dist, dot(n, up));
   if (uAutumn + uDormant > 0.0) {
     vec2 sp = vWorldPos.xz + uDetailOffset;
     float stand = detailNoise(sp / 128.0 + 23.0, ${DETAIL_PERIOD_M / 128}.0);
@@ -343,7 +368,8 @@ const SHADOW_DEFINES = { CLOUD_OCTAVES: 3 } as const;
 
 /**
  * Per-tile terrain material. `shared` uniform objects are referenced, not copied. `procedural` marks the
- * synthetic fallback colours (adds the world-space detail texture); real imagery is never altered.
+ * synthetic fallback colours (adds the world-space detail texture); real imagery only gets a fine grain
+ * near the camera and rock texture on steep slopes (`imageryDetail`).
  */
 export function createTerrainMaterial(shared: TerrainSharedUniforms, map: Texture | null, uvTransform: ArrayLike<number>, procedural = false): ShaderMaterial {
   return new ShaderMaterial({
