@@ -467,7 +467,7 @@ depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app
 - Exposure is a model, not metered. Night bound 1.5 (spec: 6–10) with a ≈ 10× brighter moonlight (0.08 vs
   0.0075·fraction) and a bright night ambient: same moonlit-surface brightness, but emissive lights stay
   coloured instead of clipping; raise `exposure.night` if the bloom/lights module wants more.
-- Shadow frustum follows the aircraft without texel snapping (can shimmer when moving).
+- Shadow frustum follows the aircraft in whole shadow-map texels (`snapShadowCentre`, light-space right/up axes), so edges do not shimmer; the terrain samples the same map (aircraft shadow on grass).
 - `geo/solar` `sunPosition`/`moonPosition` return fresh objects (two small allocations per frame;
   owned by `src/geo` — proposed: optional `out` parameters).
 - Gusts are spatially uniform along the mean wind; continuous Dryden turbulence lives in the FDM. Call

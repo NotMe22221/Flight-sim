@@ -71,6 +71,7 @@ export function createTileGpu(
   const material = createTerrainMaterial(shared, texture, uvTransform, procedural);
   const m: TileMesh = new Mesh(geometryFrom(mesh.position, mesh.normal, mesh.uv, mesh.aabb, index), [material]);
   m.name = `terrain ${key}`;
+  m.receiveShadow = true;
   m.matrixAutoUpdate = false;
   m.visible = false;
   let w: TileMesh | null = null;

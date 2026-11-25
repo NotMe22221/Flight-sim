@@ -291,7 +291,7 @@ update() ─► Quadtree.select (CDLOD, all-around, horizon-culled)          qua
   distant terrain below the tangent plane; at those distances the terrain is fully hazed anyway. Its
   ground reference is the ground under the aircraft (the sky's), so with a far tower or drone camera over
   other ground the haze near the camera is referenced to the aircraft's ground, as for every renderer.
-* **No terrain self-shadows** (only cloud shadows), no night lights (city glow). Real imagery gets only a fine grain and
+* **No terrain self-shadows** (cloud shadows, and the sun's shadow map within its ≈ 200 m box: the aircraft and other casters shadow the ground through three's shadow chunks, `lights: true`), no night lights (city glow). Real imagery gets only a fine grain and
   steep-slope rock (`imageryDetail`), not the §6.3 detail texture of the procedural tiles, so its fields and
   forests still soften below ≈ 10 m/px at low altitude. Cloud shadows skip the cloud planes' edge erosion (slightly
   softer edges than the clouds above) and are limited to `MAX_SHADOW_LAYERS` (4) layers; a layer counts

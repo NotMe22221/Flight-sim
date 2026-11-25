@@ -108,6 +108,7 @@ export type SkySnapshot = Pick<SimSnapshot, 'time' | 'aircraft' | 'weather'> & P
 
 const SUN_DISTANCE_M = 600;
 /** Sun shadow depth bias as a distance along the light, m (the old −0.0004 over the ~700 m ground range). */
+const ZERO_V3 = new THREE.Vector3();
 const SHADOW_BIAS_M = 0.28;
 
 /**
@@ -490,8 +491,11 @@ export class SkySystem {
     // shadows itself per pixel from the same layers)
     this.sunLight.intensity = L.sunIntensity * cloudShadowAt(shadowU, this.aircraftPos.x, this.aircraftPos.y, this.aircraftPos.z, this.sunDir[0], this.sunDir[1], this.sunDir[2]);
     this.sunLight.visible = L.sunIntensity > 1e-4;
-    this.sunLight.position.copy(this.aircraftPos).addScaledVector(L.sunDirThree, SUN_DISTANCE_M);
-    this.sunLight.target.position.copy(this.aircraftPos);
+    // centre the shadow box on the aircraft, moved only in whole shadow-map texels (in the light's own
+    // right/up axes), so the shadow edges do not crawl and shimmer as the aircraft moves
+    const centre = this.snapShadowCentre(this.aircraftPos, L.sunDirThree);
+    this.sunLight.position.copy(centre).addScaledVector(L.sunDirThree, SUN_DISTANCE_M);
+    this.sunLight.target.position.copy(centre);
     const shadowFar = sunShadowFar(SUN_DISTANCE_M, this.opts.shadowRadiusM, aircraft.altitudeAglM, L.sunDirThree.y);
     // grow at once (the ground must never fall beyond the far plane), shrink lazily
     if (shadowFar > this.lastShadowFar || shadowFar < 0.85 * this.lastShadowFar) {
@@ -753,6 +757,27 @@ export class SkySystem {
     // The baked dome is in the light units (the sun is calibrated against it); `update` balances it against
     // the skylight curve, which is brighter than the dome at twilight (`skylightBalance`).
     this.measureEnvironment();
+  }
+
+  private readonly shadowBasis = new THREE.Matrix4();
+  private readonly shadowX = new THREE.Vector3();
+  private readonly shadowY = new THREE.Vector3();
+  private readonly shadowCentre = new THREE.Vector3();
+  private readonly shadowEye = new THREE.Vector3();
+
+  /** `pos` moved to the nearest shadow-map texel centre in the sun camera's right/up axes. */
+  private snapShadowCentre(pos: THREE.Vector3, sunDir: THREE.Vector3): THREE.Vector3 {
+    const cam = this.sunLight.shadow.camera;
+    const texel = (cam.right - cam.left) / Math.max(this.sunLight.shadow.mapSize.x, 1);
+    this.shadowEye.copy(sunDir);
+    // the same basis three builds for the light camera (lookAt from the sun toward the target, camera up)
+    this.shadowBasis.lookAt(this.shadowEye, ZERO_V3, cam.up);
+    this.shadowX.setFromMatrixColumn(this.shadowBasis, 0);
+    this.shadowY.setFromMatrixColumn(this.shadowBasis, 1);
+    const ax = pos.dot(this.shadowX), ay = pos.dot(this.shadowY);
+    if (!(texel > 0) || !Number.isFinite(ax) || !Number.isFinite(ay)) return this.shadowCentre.copy(pos);
+    const dx = Math.round(ax / texel) * texel - ax, dy = Math.round(ay / texel) * texel - ay;
+    return this.shadowCentre.copy(pos).addScaledVector(this.shadowX, dx).addScaledVector(this.shadowY, dy);
   }
 
   dispose(): void {

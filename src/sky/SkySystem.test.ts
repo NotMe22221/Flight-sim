@@ -71,7 +71,9 @@ describe('SkySystem (stub renderer)', () => {
     expect(sky.sunLight.intensity).toBeGreaterThan(1);
     const toSun = sky.sunLight.position.clone().sub(sky.sunLight.target.position).normalize();
     expect(toSun.dot(L.sunDirThree)).toBeCloseTo(1, 9);
-    expect(sky.sunLight.target.position.distanceTo(new THREE.Vector3(0, 2, 0))).toBeLessThan(1e-9);
+    // centred on the aircraft to within half a shadow-map texel (snapped so the shadow edges do not shimmer)
+    const texel = (sky.sunLight.shadow.camera.right - sky.sunLight.shadow.camera.left) / sky.sunLight.shadow.mapSize.x;
+    expect(sky.sunLight.target.position.distanceTo(new THREE.Vector3(0, 2, 0))).toBeLessThanOrEqual(texel * Math.SQRT1_2 + 1e-9);
     // the shadow frustum is the configured ~200 m box
     const sc = sky.sunLight.shadow.camera;
     expect(sc.right - sc.left).toBe(400);

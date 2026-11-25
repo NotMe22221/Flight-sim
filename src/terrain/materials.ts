@@ -21,7 +21,7 @@
  * Depth: no custom depth math. With a reversed depth buffer three supplies the projection and
  * depth function; with a logarithmic depth buffer the logdepthbuf chunks below write gl_FragDepth.
  */
-import { Color, DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, SRGBColorSpace, ShaderMaterial, Texture, UnsignedByteType, Vector2, Vector3 } from 'three';
+import { Color, DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, SRGBColorSpace, ShaderMaterial, Texture, UniformsLib, UniformsUtils, UnsignedByteType, Vector2, Vector3 } from 'three';
 import { SKY_UNIFORMS, SKY_UNIFORMS_GLSL, type SkySharedUniforms } from '../sky/skyUniforms';
 import { HAZE_LOBE_GLSL } from '../sky/types';
 import { SEASON_GLSL } from '../sky/season';
@@ -208,6 +208,7 @@ vec4 applySnow(vec3 albedo, vec3 worldPos, vec3 n, vec3 up, float dist) {
 const TERRAIN_VERT = /* glsl */ `
 #include <common>
 #include <logdepthbuf_pars_vertex>
+#include <shadowmap_pars_vertex>
 uniform vec3 uUvTransform;
 varying vec2 vUv;
 varying vec3 vNormalW;
@@ -215,9 +216,14 @@ varying vec3 vWorldPos;
 void main() {
   vUv = uv * uUvTransform.z + uUvTransform.xy;
   vNormalW = normalize(mat3(modelMatrix) * normal);
-  vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+  vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+  vWorldPos = worldPosition.xyz;
   // modelViewMatrix is composed in float64 on the CPU: only small numbers reach float32 here
-  gl_Position = projectionMatrix * (modelViewMatrix * vec4(position, 1.0));
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  // the sun's shadow map (the aircraft, runway objects) falls on the ground too
+  vec3 transformedNormal = normalMatrix * normal;
+  #include <shadowmap_vertex>
   #include <logdepthbuf_vertex>
 }
 `;
@@ -244,6 +250,10 @@ ${SNOW_GLSL}
 ${SEASON_GLSL}
 uniform float uAutumn;
 uniform float uDormant;
+#include <packing>
+#include <lights_pars_begin>
+#include <shadowmap_pars_fragment>
+#include <shadowmask_pars_fragment>
 void main() {
   #include <logdepthbuf_fragment>
   vec3 toFrag = vWorldPos - cameraPosition;
@@ -265,6 +275,7 @@ void main() {
   albedo = snowed.rgb;
   float direct = mix(max(dot(up, uSunDir), 0.0), max(dot(n, uSunDir), 0.0), mix(uSlopeContrast, 0.9, snowed.a));
   direct *= skyCloudShadow(vWorldPos, uSunDir);
+  direct *= getShadowMask();
   vec3 ambient = uSkyLinked > 0.5 ? uSkyIrradiance : uAmbient;
   vec3 irradiance = uSunColor * (uSunIntensity * direct) + ambient * (0.75 + 0.25 * dot(n, up));
   vec3 col = albedo * irradiance * RECIPROCAL_PI;
@@ -377,7 +388,10 @@ export function createTerrainMaterial(shared: TerrainSharedUniforms, map: Textur
     vertexShader: TERRAIN_VERT,
     fragmentShader: TERRAIN_FRAG,
     defines: { ...SHADOW_DEFINES },
+    // three fills in the sun's shadow map (lights: true); the lighting itself is the shader's own
+    lights: true,
     uniforms: {
+      ...UniformsUtils.clone(UniformsLib.lights),
       ...shared,
       map: { value: map },
       uHasMap: { value: map ? 1 : 0 },
