@@ -75,6 +75,10 @@ export function runwayZone(f: Pick<TileFeatures, 'runwayLines' | 'runwayPolys'>,
   };
 }
 
+/** Drawn road half-widths by OpenMapTiles class (m; paths, tracks and rails are not drawn), and their lift. */
+export const ROAD_DRAW_HALF_WIDTH: Readonly<Record<string, number>> = { motorway: 11, trunk: 8, primary: 6, secondary: 5, tertiary: 4, minor: 3.2, service: 2.5 };
+const ROAD_LIFT_M = 0.18;
+
 /** Draped inland water: lift above the terrain (m), drape grid cell (m, coarse: water is flat), base colour (sRGB 0..1). */
 export const WATER_LIFT_M = 0.35;
 const WATER_CELL_M = 60;
@@ -191,6 +195,17 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
   // taxiways / taxilanes crossing an apron are lead-in lines painted on its concrete: no asphalt
   // strip there (triangles wholly on the apron are dropped), only the yellow line below
   for (const t of taxiLines) drapeRibbon(surfaces, t.line, t.width / 2, s.ribbonStepM, { ...asphalt(ribbonLift), drop: onApronOrEdge, dropMode: 'all' });
+  // roads: draped asphalt ribbons (sharper than the 8-10 m/px imagery up close); no tunnels, no bridges
+  // (draped, a bridge would lie on the water below), none on aprons or near runways
+  const roadLift = liftFn(ROAD_LIFT_M, NEAR_RUNWAY_LIFT_M);
+  for (let i = 0; i < f.roads.length; i++) {
+    const r = f.roads[i];
+    const hw = ROAD_DRAW_HALF_WIDTH[r.cls];
+    if (!hw || r.tunnel || r.bridge) continue;
+    const v = Math.min(0.55, PAVEMENT_SRGB.asphalt * (r.cls === 'motorway' || r.cls === 'trunk' ? 1.4 : 1.6) * (0.94 + 0.12 * hash01(seed, 7000 + i)));
+    const c = lin8(v);
+    drapeRibbon(surfaces, r.line, hw, s.ribbonStepM, { r: c, g: c, b: lin8(v * 0.98), lift: roadLift, drop: onApronOrEdge, dropMode: 'any' });
+  }
   result.surfaces = surfaces.finish();
 
   const markings = new DrapeBuilder(10, 1024);

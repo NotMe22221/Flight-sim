@@ -24,7 +24,7 @@ and warm streetlights at night. The simulator loads it through `createScenery()`
   taxiway / runway centre lines with optional `width`, `gate` and `parking_position` points
   with `ref`), `landcover` (`wood`, `grass` subclasses park / garden / golf_course …),
   `park`, `landuse` (residential → garden trees, cemetery), `transportation` (`class`,
-  `brunnel`, `ramp`), `water` (lakes, rivers and ponds draped as a rippled reflective surface, `TileBuildResult.water` with the shared `water` material; class `ocean` is left to the terrain; also keeps trees out of the water).
+  `brunnel`, `ramp`; drawn as draped asphalt ribbons, `ROAD_DRAW_HALF_WIDTH`, except paths, tracks, rails, tunnels and bridges), `water` (lakes, rivers and ponds draped as a rippled reflective surface, `TileBuildResult.water` with the shared `water` material; class `ocean` is left to the terrain; also keeps trees out of the water).
 
 ## Architecture
 
