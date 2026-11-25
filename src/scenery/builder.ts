@@ -75,6 +75,11 @@ export function runwayZone(f: Pick<TileFeatures, 'runwayLines' | 'runwayPolys'>,
   };
 }
 
+/** Draped inland water: lift above the terrain (m), drape grid cell (m, coarse: water is flat), base colour (sRGB 0..1). */
+export const WATER_LIFT_M = 0.35;
+const WATER_CELL_M = 60;
+const WATER_SRGB: readonly [number, number, number] = [0.2, 0.3, 0.33];
+
 /** Point test "on an apron" (holes excluded); with `margin`, points that close to an apron's outline count too. */
 function apronZone(f: TileFeatures, margin = 0): ZoneFn {
   const polys = f.aprons.map((p) => ({ p, b: ringBounds(p.outer) }));
@@ -158,7 +163,7 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
   }, { seed });
   const result: TileBuildResult = {
     key: sceneryTileKey(z, x, y), z, x, y,
-    buildings: null, surfaces: null, markings: null, trees: null, streetlights: null, airportLights: null, lightPools: null,
+    buildings: null, surfaces: null, markings: null, trees: null, streetlights: null, airportLights: null, lightPools: null, water: null,
     parking,
     pavement: pavementAreas(f, taxiLines, sceneryTileKey(z, x, y)),
     stats: { buildings: 0, trees: 0, lights: 0, triangles: 0 },
@@ -206,6 +211,15 @@ export function buildTile(bytes: Uint8Array, z: number, x: number, y: number, s:
     const pools = new DrapeBuilder(0, masts.length * 9);
     for (const m of masts) drapeDecal(pools, m.x + m.nx * 20, m.z + m.nz * 20, 26, POOL_LIFT_M, 255, 226, 180);
     result.lightPools = pools.finish();
+  }
+
+  // ── inland water (draped just above the terrain; the material makes it a reflective, rippled surface) ──
+  if (f.water.length) {
+    const wb = new DrapeBuilder(40, 2048);
+    const w8 = [lin8(WATER_SRGB[0]), lin8(WATER_SRGB[1]), lin8(WATER_SRGB[2])];
+    const waterStyle: DrapeStyle = { r: w8[0], g: w8[1], b: w8[2], lift: () => WATER_LIFT_M, drop: nearRunway, dropMode: 'all' };
+    for (const p of f.water) drapePolygon(wb, p.outer, p.holes, Math.max(s.drapeCellM, WATER_CELL_M), waterStyle);
+    if (wb.triangleCount > 0) result.water = wb.finish();
   }
 
   // ── buildings ──

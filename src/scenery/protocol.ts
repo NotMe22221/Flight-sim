@@ -99,6 +99,8 @@ export interface TileBuildResult {
   airportLights: PointsData | null;
   /** apron floodlight pools (night decals) */
   lightPools: DrapedData | null;
+  /** lakes, rivers and ponds (OSM water polygons except the ocean), draped */
+  water: DrapedData | null;
   parking: ParkingSpotLocal[];
   /** airport pavement in lon/lat for terrain flattening (also in parking-only builds) */
   pavement: PavementArea[];
@@ -138,7 +140,7 @@ export function transferables(r: TileBuildResult): ArrayBuffer[] {
     mesh(b.walls); mesh(b.plain); mesh(b.roofs);
     add(b.ranges); add(b.samples); add(b.sampleCount); add(b.centroids); add(b.bigIndexCount);
   }
-  for (const d of [r.surfaces, r.markings, r.lightPools]) if (d) { mesh(d.mesh); add(d.lift); }
+  for (const d of [r.surfaces, r.markings, r.lightPools, r.water]) if (d) { mesh(d.mesh); add(d.lift); }
   if (r.trees) { add(r.trees.conifer); add(r.trees.coniferColor); add(r.trees.broadleaf); add(r.trees.broadleafColor); }
   for (const p of [r.streetlights, r.airportLights]) if (p) { add(p.xz); add(p.height); add(p.color); }
   return [...out];

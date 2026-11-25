@@ -14,7 +14,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 /** Bloom tuning: only light sources and the sun are bright enough (white paint is ≈ 1 before exposure). */
-export const BLOOM = { strength: 0.32, radius: 0.35, threshold: 1.6 } as const;
+export const BLOOM = { strength: 0.32, radius: 0.35, threshold: 1.6, maxInput: 6 } as const;
 
 export class PostFx {
   /** on: scene → HDR target → bloom → tone-mapped screen; off: direct render */
@@ -58,6 +58,12 @@ export class PostFx {
       this.rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: this.samples, depthBuffer: true, depthTexture: depth });
       this.rt.texture.name = 'postfx-hdr';
       this.bloom = new UnrealBloomPass(new THREE.Vector2(w, h), BLOOM.strength, BLOOM.radius, BLOOM.threshold);
+      // the sky's sun disc and its aureole reach thousands in HDR: unclamped they bloomed into a white glare
+      // over a quarter of the screen. The bright pass caps what may bloom (lights still glow, the sun a little)
+      const hp = this.bloom.materialHighPassFilter;
+      hp.fragmentShader = hp.fragmentShader.replace('gl_FragColor = mix( outputColor, texel, alpha );',
+        `gl_FragColor = mix( outputColor, vec4( min( texel.rgb, vec3( ${BLOOM.maxInput.toFixed(1)} ) ), texel.a ), alpha );`);
+      hp.needsUpdate = true;
       this.output = new OutputPass();
       this.output.renderToScreen = true;
     } else {

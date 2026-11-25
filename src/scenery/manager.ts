@@ -154,6 +154,7 @@ export class SceneryManager implements SceneryLike {
       this.frameNo++;
       this.night = nightFactor(sunElevationRad);
       this.materials.setNight(this.night);
+      this.materials.animate(Number.isFinite(_dt) ? Math.min(Math.max(_dt, 0), 0.25) : 0);
       // airport surfaces come down near the camera only while it is near the ground
       const groundUnderCam = this.host.groundUp(-cam.z, cam.x);
       if (groundUnderCam !== null && Number.isFinite(groundUnderCam)) this.materials.nearDrop.value = nearDropForCameraHeight(cam.y - groundUnderCam);
@@ -387,7 +388,7 @@ export class SceneryManager implements SceneryLike {
       const res = r.result;
       this.parkingCache.set(e.key, res.parking);
       this.storePavement(e.key, res.pavement);
-      const hasContent = !!(res.buildings || res.surfaces || res.markings || res.trees || res.streetlights || res.airportLights || res.lightPools);
+      const hasContent = !!(res.buildings || res.surfaces || res.markings || res.trees || res.streetlights || res.airportLights || res.lightPools || res.water);
       if (!hasContent) { this.arrivals.shift(); e.state = 'empty'; continue; }
       // one tile object per frame (and none once the frame budget is spent)
       if (made >= 1 || this.now() - t0 > this.stream.frameBudgetMs * 0.6) break;

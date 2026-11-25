@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { applyIblScale } from '../sky/iblScale';
 import { SEASON_GLSL } from '../sky/season';
-import { makeFacadeImages, makePavementImage, makePlainImage, makePoolImage, makeRoofImage, makeSpriteImage, toTexture } from './textures';
+import { makeFacadeImages, makePavementImage, makePlainImage, makePoolImage, makeRoofImage, makeSpriteImage, makeWaterNormalImage, toTexture } from './textures';
 
 /**
  * Image-based lighting shares (relative to the sky's `scene.environmentIntensity`, applied with
@@ -135,6 +135,10 @@ export class SceneryMaterials {
   readonly streetlights: THREE.PointsMaterial;
   readonly airportLights: THREE.PointsMaterial;
   readonly pools: THREE.MeshBasicMaterial;
+  /** lakes and rivers: smooth, rippled, reflecting the sky (IBL) and the sun */
+  readonly water: THREE.MeshStandardMaterial;
+  private readonly waterNormal: THREE.DataTexture;
+  private waterT = 0;
   readonly textures: THREE.Texture[] = [];
   /** minimum light point size in pixels (shared uniform) */
   readonly minPointPx = { value: 3 };
@@ -158,6 +162,11 @@ export class SceneryMaterials {
     const roofMap = tex(toTexture(makeRoofImage(128), { srgb: true, repeat: true, anisotropy }));
     const paveMap = tex(toTexture(makePavementImage(256), { srgb: true, repeat: true, anisotropy: Math.max(anisotropy, 8) }));
     const sprite = tex(toTexture(makeSpriteImage(64), { srgb: false, repeat: false }));
+    this.waterNormal = tex(toTexture(makeWaterNormalImage(128), { srgb: false, repeat: true, anisotropy }));
+    this.water = new THREE.MeshStandardMaterial({
+      name: 'scenery-water', vertexColors: true, roughness: 0.1, metalness: 0, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.3, 0.3),
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    });
     const pool = tex(toTexture(makePoolImage(64), { srgb: false, repeat: false }));
 
     this.walls = new THREE.MeshStandardMaterial({
@@ -179,11 +188,13 @@ export class SceneryMaterials {
     patchMaterial(this.roofs, { ambientSat: this.ambientSat, snow: { uniform: this.snow, share: 0.85 } }, 'scenery-roofs-2');
     patchMaterial(this.surfaces, { depthBias: this.depthBias, nearDrop: this.nearDrop, ambientSat: this.ambientSat }, 'scenery-surfaces-2');
     patchMaterial(this.markings, { depthBias: this.depthBias, nearDrop: this.nearDrop, ambientSat: this.ambientSat }, 'scenery-markings-2');
+    patchMaterial(this.water, { depthBias: this.depthBias, ambientSat: this.ambientSat }, 'scenery-water-1');
     this.trees = new THREE.MeshLambertMaterial({ name: 'scenery-trees', vertexColors: true });
     patchMaterial(this.trees, { ambientSat: this.ambientSat, snow: { uniform: this.snow, share: 0.45 }, season: this.season }, 'scenery-trees-3');
     // after patchMaterial (it assigns the hooks applyIblScale chains onto)
     applyIblScale(this.walls, ENV_DIFFUSE, ENV_SPECULAR_GLASS);
     for (const m of [this.plain, this.roofs, this.surfaces, this.markings, this.trees]) applyIblScale(m, ENV_DIFFUSE, ENV_SPECULAR);
+    applyIblScale(this.water, ENV_DIFFUSE, ENV_SPECULAR);
     this.streetlights = this.pointsMaterial('scenery-streetlights', sprite, 16, false);
     // airport lights stand on draped pavement, which is depth-biased toward the camera: the
     // same bias keeps them in front of it (seen from 300 m up the bias is worth ~0.75 m)
@@ -219,6 +230,13 @@ export class SceneryMaterials {
     return m;
   }
 
+  /** Animate the water ripples (scrolls the normal map; one texture shared by every tile). */
+  animate(dt: number): void {
+    if (!(dt > 0)) return;
+    this.waterT = (this.waterT + dt) % 4000;
+    this.waterNormal.offset.set(this.waterT * 0.011, this.waterT * 0.007);
+  }
+
   /** Lying snow at the scenery's altitude, 0 (bare) … 1: whitens roofs and frosts tree crowns. */
   setSnow(amount: number): void { this.snow.value = Number.isFinite(amount) ? Math.max(0, Math.min(1, amount)) : 0; }
 
@@ -238,7 +256,7 @@ export class SceneryMaterials {
   get nightFactor(): number { return Math.max(0, this.night); }
 
   dispose(): void {
-    for (const m of [this.walls, this.plain, this.roofs, this.surfaces, this.markings, this.trees, this.streetlights, this.airportLights, this.pools]) m.dispose();
+    for (const m of [this.walls, this.plain, this.roofs, this.surfaces, this.markings, this.trees, this.streetlights, this.airportLights, this.pools, this.water]) m.dispose();
     for (const t of this.textures) t.dispose();
     this.textures.length = 0;
   }

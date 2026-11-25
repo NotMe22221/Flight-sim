@@ -50,6 +50,8 @@ export class TileObject {
   private surfaceMesh: THREE.Mesh | null = null;
   private markingMesh: THREE.Mesh | null = null;
   private poolMesh: THREE.Mesh | null = null;
+  private waterLayer: DrapeLayer | null = null;
+  private waterMesh: THREE.Mesh | null = null;
   private street: PointLayer | null = null;
   private airport: PointLayer | null = null;
   private streetPoints: THREE.Points | null = null;
@@ -123,6 +125,8 @@ export class TileObject {
     if (mk) [this.markingLayer, this.markingMesh] = mk;
     const pl = drape(result.lightPools, mats.pools, 'light-pools', 3, false);
     if (pl) [this.poolLayer, this.poolMesh] = pl;
+    const wt = drape(result.water, mats.water, 'water', -1);
+    if (wt) [this.waterLayer, this.waterMesh] = wt;
 
     const points = (d: TileBuildResult['streetlights'], mat: THREE.PointsMaterial, name: string): [PointLayer, THREE.Points] | null => {
       if (!d) return null;
@@ -288,6 +292,7 @@ export class TileObject {
   private refreshVisibility(): void {
     if (this.surfaceMesh && this.surfaceLayer) this.surfaceMesh.visible = this.surfaceLayer.firstPassDone;
     if (this.markingMesh && this.markingLayer) this.markingMesh.visible = this.markingLayer.firstPassDone;
+    if (this.waterMesh && this.waterLayer) this.waterMesh.visible = this.waterLayer.firstPassDone;
     let lo = Infinity, hi = -Infinity;
     const ls = this.layers;
     for (let i = 0; i < ls.length; i++) {
@@ -352,7 +357,7 @@ export class TileObject {
       const mesh = this.wallMeshes[m];
       if (mesh && mesh.visible) n += Math.min(mesh.geometry.drawRange.count, this.fullIndex[m]) / 3;
     }
-    for (const mesh of [this.surfaceMesh, this.markingMesh, this.poolMesh]) if (mesh && mesh.visible) n += (mesh.geometry.index?.count ?? 0) / 3;
+    for (const mesh of [this.surfaceMesh, this.markingMesh, this.poolMesh, this.waterMesh]) if (mesh && mesh.visible) n += (mesh.geometry.index?.count ?? 0) / 3;
     this.trees.forEach((t, i) => { if (t.mesh.visible) n += t.mesh.count * this.treeTris[i]; });
     return n;
   }

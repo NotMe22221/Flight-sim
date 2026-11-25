@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTile, runwayZone, MARKING_LIFT_M, NEAR_RUNWAY_LIFT_M, RIBBON_LIFT_M, RUNWAY_MARGIN_M, SURFACE_LIFT_M } from './builder';
+import { buildTile, runwayZone, WATER_LIFT_M, MARKING_LIFT_M, NEAR_RUNWAY_LIFT_M, RIBBON_LIFT_M, RUNWAY_MARGIN_M, SURFACE_LIFT_M } from './builder';
 import { qualityProfile } from './config';
 import { DrapeBuilder, drapePolygon, drapeRibbon, type DrapeStyle } from './drape';
 import { encodeTile, orientPolygon } from './dev/mvtEncoder';
@@ -218,6 +218,17 @@ describe('buildTile on synthetic OSM tiles', () => {
     expect(capped.trees!.count).toBeLessThanOrEqual(100);
     expect(t1.streetlights!.count).toBeLessThanOrEqual(settings.maxStreetlights);
     expect(t1.stats.buildings).toBeGreaterThan(100);
+  });
+
+  it('drapes lakes and rivers as water just above the ground, but not the ocean (the terrain draws the sea)', () => {
+    const square = orientPolygon([800, 800, 2400, 800, 2400, 2400, 800, 2400]);
+    const lake = encodeTile([{ name: 'water', features: [{ type: 3, properties: { class: 'lake' }, geometry: square }] }]);
+    const t = buildTile(lake, 14, 2621, 6341, settings);
+    expect(t.water).not.toBeNull();
+    expect(t.water!.mesh.index.length).toBeGreaterThan(0);
+    expect(Math.max(...Array.from(t.water!.lift))).toBeCloseTo(WATER_LIFT_M, 6);
+    const sea = encodeTile([{ name: 'water', features: [{ type: 3, properties: { class: 'ocean' }, geometry: square }] }]);
+    expect(buildTile(sea, 14, 2621, 6341, settings).water).toBeNull();
   });
 
   it('clips features at the tile edge (no double drawing in the buffer) and skips hide_3d parts', () => {

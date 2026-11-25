@@ -132,6 +132,26 @@ export function makePavementImage(size = 256): Rgba {
   return img;
 }
 
+/**
+ * Tileable ripple normal map for draped water (tangent space, linear): a few integer-wavenumber sine
+ * trains in different directions, so it wraps seamlessly; scrolled by the material to animate.
+ */
+export function makeWaterNormalImage(size = 128): Rgba {
+  const img: Rgba = { width: size, height: size, data: new Uint8Array(size * size * 4) };
+  const waves = [[3, 1, 0.9, 0.3], [-2, 5, 0.6, 1.7], [7, -4, 0.35, 2.9], [11, 6, 0.22, 4.1], [-13, 9, 0.15, 5.3]];
+  const k = (2 * Math.PI) / size;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let dx = 0, dy = 0;
+      for (const [kx, ky, a, ph] of waves) { const c = Math.cos(k * (kx * x + ky * y) + ph) * a; dx += c * kx * k * 6; dy += c * ky * k * 6; }
+      const nx = -dx, ny = -dy, nz = 1;
+      const l = Math.hypot(nx, ny, nz);
+      put(img, x, y, (nx / l * 0.5 + 0.5) * 255, (ny / l * 0.5 + 0.5) * 255, (nz / l * 0.5 + 0.5) * 255);
+    }
+  }
+  return img;
+}
+
 /** Radial light sprite: bright core and soft halo (alpha in A, colour white). */
 export function makeSpriteImage(size = 64): Rgba {
   const img: Rgba = { width: size, height: size, data: new Uint8Array(size * size * 4) };

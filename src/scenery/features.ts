@@ -249,6 +249,9 @@ export function extractFeatures(tile: VectorTile, z: number, x: number, y: numbe
     const c = ctxFor(water, cache, z, x, y);
     for (const feat of water.features) {
       if (feat.type !== GEOM_POLYGON) continue;
+      // the sea is drawn by the terrain's ocean (heights at sea level); lakes, reservoirs, rivers,
+      // ponds and docks are draped water surfaces
+      if (strProp(feat.properties, 'class') === 'ocean') continue;
       for (const p of classifyRings(feat.geometry)) {
         const r = polyToLocal(c, p.outer, p.holes, false);
         if (r) f.water.push(r.poly);
