@@ -438,13 +438,11 @@ depth, no GL errors, identical pixels. `npm run smoke` covers the integrated app
   night ≈ 1–2 / 255 (grass ≈ 38 / 17 / 8 in G) while white paint stays as calibrated; the old values (22 at dusk,
   9/12/25 at night) came from the ≈ 3 × too bright albedos. Lifting them needs a brighter night/dusk exposure
   (the spec's 6–10) or a tone curve with a softer toe, not brighter albedos.
-- **Cloud coverage is not the covered area** (pre-existing, `cloudMath.ts` `coverageMask`): the mask
-  thresholds fbm2 — distributed ≈ N(0.505, 0.145) with 3 octaves — at 1 − c·(1 + softness), so FEW (0.19)
-  draws ≈ 0 % cloud (mean mask 0.003), SCT (0.44) ≈ 33 %, BKN (0.75) a 93 %-solid deck with 0.1 % gaps (the
-  eroded planes) and no sunlit gaps on the ground (the review's CPU probe: no point of a 20 × 20 km area under
-  'broken' gets more than 41 % of the sun; it reads as an overcast and the look pass 2 floor (0.087 at its
-  0.79 cover) darkens all of it). Proposed: put the soft step's middle at the fbm quantile of 1 − c
-  (≈ 0.505 + 0.145 · probit(1 − c), e.g. Tukey's 4.91 · (p^0.14 − (1 − p)^0.14), in `coverageMask` and its GLSL twin).
+- **Cloud coverage = covered area** (fixed): `coverageMask` centres its soft step on `coverageThreshold(c)`, the fbm2
+  quantile of 1 − c (fbm2 ≈ N(0.505, 0.145); Tukey's probit approximation, mirrored in the GLSL twin), with a
+  narrow edge (`COVERAGE_EDGE`), so FEW covers ≈ 19 % of the sky, SCT ≈ 44 %, BKN ≈ 75 % (it used to draw
+  ≈ 0 / 33 / 93 %). Measured cloud-shadowed ground: FEW 25 %, SCT 54 %, BKN 81 %, mean light 0.86–0.96 of the
+  dimmed sun.
 
 - Tier A planes are 2-D slabs: weak look at the layer altitude, no cumulus towers, no earth curvature
   (≈ 0.8 km drop at the 100 km plane edge). Inside a cloud the fog is global, so rays leaving the cloud stay

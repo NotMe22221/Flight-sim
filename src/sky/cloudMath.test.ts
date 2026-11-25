@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CloudLayer } from '../core/types';
-import { CLOUD_NOISE_GLSL, cloudDensityAt, cloudLayerDensityAt, cloudTypeParams, coverageMask, fbm2, hash2, valueNoise2, verticalProfile } from './cloudMath';
+import { CLOUD_NOISE_GLSL, COVERAGE_EDGE, COVERAGE_SOFTNESS, coverageThreshold, cloudDensityAt, cloudLayerDensityAt, cloudTypeParams, coverageMask, fbm2, hash2, valueNoise2, verticalProfile } from './cloudMath';
 
 const layer = (o: Partial<CloudLayer> = {}): CloudLayer => ({ baseM: 1000, topM: 1800, coverage: 0.5, density: 1, type: 'cumulus', ...o });
 
@@ -60,7 +60,7 @@ describe('cloud density maths', () => {
 
   it('exports the GLSL twin with the same softness constant', () => {
     expect(CLOUD_NOISE_GLSL).toContain('cloudFbm');
-    expect(CLOUD_NOISE_GLSL).toContain('0.250');
+    expect(CLOUD_NOISE_GLSL).toContain((COVERAGE_SOFTNESS * COVERAGE_EDGE).toFixed(3));
     expect(CLOUD_NOISE_GLSL).toContain('CLOUD_OCTAVES');
   });
 
@@ -78,5 +78,17 @@ describe('cloud density maths', () => {
       expect(cloudLayerDensityAt(l, x, mid, z, dx, dz)).toBeCloseTo(eroded * verticalProfile(l, mid) * l.density, 12);
     }
     expect(edges).toBeGreaterThan(10); // the comparison exercised soft cloud edges, not just 0/1
+  });
+
+  it('covered area matches the coverage: FEW ≈ 19 %, SCT ≈ 44 %, BKN ≈ 75 % of the sky (not ≈ 0 / 33 / 93 %)', () => {
+    for (const c of [0.19, 0.44, 0.75, 0.9]) {
+      let covered = 0, n = 0;
+      for (let i = 0; i < 160; i++) for (let j = 0; j < 160; j++) { n++; if (coverageMask(fbm2(i * 0.37 + 0.11, j * 0.41 + 0.23), c) > 0.5) covered++; }
+      expect(covered / n, `coverage ${c}`).toBeGreaterThan(c - 0.07);
+      expect(covered / n, `coverage ${c}`).toBeLessThan(c + 0.07);
+    }
+    // the threshold falls as the coverage rises, and the median of fbm2 sits at 50 %
+    expect(coverageThreshold(0.5)).toBeCloseTo(0.505, 2);
+    expect(coverageThreshold(0.2)).toBeGreaterThan(coverageThreshold(0.8));
   });
 });

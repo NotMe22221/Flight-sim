@@ -72,8 +72,31 @@ export function fbm2(x: number, y: number, octaves = 3): number {
 export function coverageMask(shape: number, coverage: number, softness = COVERAGE_SOFTNESS): number {
   const c = clamp(coverage, 0, 1);
   if (c <= 0) return 0;
-  const th = 1 - c * (1 + softness);
-  return smoothstep(th, th + softness, shape);
+  if (c >= COVERAGE_FULL) return 1;
+  const mid = coverageThreshold(c);
+  return smoothstep(mid - softness * COVERAGE_EDGE, mid + softness * COVERAGE_EDGE, shape);
+}
+
+/**
+ * Half-width of the soft step around the coverage threshold, as a fraction of the softness: narrow, so
+ * the partly dense edge (whose cloud shadow is already dark) does not shade much more ground than the
+ * reported coverage.
+ */
+export const COVERAGE_EDGE = 0.3;
+/** Coverage at or above which the layer is solid (OVC): the quantile mapping is not used there. */
+export const COVERAGE_FULL = 0.995;
+/** fbm2 (3 octaves) is distributed ≈ N(FBM_MEAN, FBM_SIGMA) (measured; see cloudMath.test.ts). */
+const FBM_MEAN = 0.505, FBM_SIGMA = 0.145;
+
+/**
+ * The fbm value exceeded on a fraction `c` of the sky: the middle of the coverage mask's soft step,
+ * so the covered area matches the reported coverage (FEW ≈ 19 %, BKN ≈ 75 %). Tukey's lambda
+ * approximation of the normal quantile (probit), mirrored in the GLSL twin.
+ */
+export function coverageThreshold(c: number): number {
+  const p = clamp(1 - c, 1e-4, 1 - 1e-4);
+  const probit = 4.91 * (p ** 0.14 - (1 - p) ** 0.14);
+  return FBM_MEAN + FBM_SIGMA * probit;
 }
 
 /** 0..1 vertical profile: 1 in the body of the layer, feathering to 0 at base and top; 0 outside. */
@@ -132,7 +155,9 @@ float cloudFbm( vec2 p ) {
   return sum / norm;
 }
 float cloudCoverageMask( float shape, float coverage ) {
-  float th = 1.0 - coverage * ( 1.0 + ${COVERAGE_SOFTNESS.toFixed(3)} );
-  return smoothstep( th, th + ${COVERAGE_SOFTNESS.toFixed(3)}, shape ) * step( 0.001, coverage );
+  if ( coverage >= ${COVERAGE_FULL.toFixed(3)} ) return 1.0;
+  float p = clamp( 1.0 - coverage, 1e-4, 1.0 - 1e-4 );
+  float mid = 0.505 + 0.145 * 4.91 * ( pow( p, 0.14 ) - pow( 1.0 - p, 0.14 ) );
+  return smoothstep( mid - ${(COVERAGE_SOFTNESS * COVERAGE_EDGE).toFixed(3)}, mid + ${(COVERAGE_SOFTNESS * COVERAGE_EDGE).toFixed(3)}, shape ) * step( 0.001, coverage );
 }
 `;
