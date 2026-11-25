@@ -167,6 +167,8 @@ export class SimUiHost implements UiHost {
     this.sim.sky.setShadowMapSize(QUALITY[g.quality].shadowMapSize);
     this.sim.sky.clouds.group.visible = g.clouds;
     this.sim.setShadows(g.shadows);
+    this.sim.postFx.enabled = g.bloom !== false;
+    this.sim.postFx.setAntialias(QUALITY[g.quality].antialias);
     this.sim.plugins.scenery?.setQuality?.(g.quality);
     this.sim.traffic.setMaxAircraft(g.quality === 'low' ? 1 : 2);
   }

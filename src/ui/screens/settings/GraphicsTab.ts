@@ -13,6 +13,7 @@ export class GraphicsTab implements SettingsTabView {
   private qualityNote: Txt;
   private shadows: ToggleHandle;
   private clouds: ToggleHandle;
+  private bloom: ToggleHandle;
   private renderScale: SliderHandle;
   private autoRes: ReturnType<typeof toggle>;
   private terrain: SliderHandle;
@@ -25,6 +26,7 @@ export class GraphicsTab implements SettingsTabView {
       null, (quality) => d.dispatch({ type: 'graphicsQuality', quality }), 'stretch');
     this.qualityNote = new Txt(h('div', { class: 'effective' }), '');
     this.shadows = toggle('Shadows', g.shadows, (v) => d.dispatch({ type: 'graphics', patch: { shadows: v } }), 'Sun shadows from the aircraft and nearby terrain');
+    this.bloom = toggle('Bloom', g.bloom, (v) => d.dispatch({ type: 'graphics', patch: { bloom: v } }), 'HDR rendering with a glow around the sun and bright lights (runway, landing and strobe lights)');
     this.clouds = toggle('Clouds', g.clouds, (v) => d.dispatch({ type: 'graphics', patch: { clouds: v } }), 'Cloud layers in the sky and their shadows on the ground');
     // expensive to apply: commit on release, readout follows the drag
     this.renderScale = slider({ min: 50, max: 200, step: 5, value: Math.round(g.renderScale * 100), label: 'Render scale', format: (v) => `${v}%`,
@@ -39,7 +41,7 @@ export class GraphicsTab implements SettingsTabView {
       g.imagery, (imagery) => d.dispatch({ type: 'graphics', patch: { imagery } }), 'stretch');
 
     this.el = h('div', { class: 'settings-grid' },
-      group('Quality', this.quality.el, this.qualityNote.el, this.shadows.el, this.clouds.el, this.renderScale.el, this.autoRes.el, this.terrain.el),
+      group('Quality', this.quality.el, this.qualityNote.el, this.shadows.el, this.clouds.el, this.bloom.el, this.renderScale.el, this.autoRes.el, this.terrain.el),
       group('Camera', this.fov.el, h('div', { class: 'muted', style: 'font-size:.85em', text: 'Cockpit and external views. Mouse wheel zooms in flight.' })),
       group('Ground imagery', this.imagery.el,
         h('div', { class: 'muted', style: 'font-size:.85em', text: 'Satellite streams EOX Sentinel-2 cloudless tiles (needs a connection). Procedural colours the terrain from height and slope and works offline.' })));
@@ -53,6 +55,7 @@ export class GraphicsTab implements SettingsTabView {
     this.qualityNote.set(label.startsWith('Custom') ? label : '');
     if (this.shadows.get() !== g.shadows) this.shadows.set(g.shadows);
     if (this.clouds.get() !== g.clouds) this.clouds.set(g.clouds);
+    if (this.bloom.get() !== g.bloom) this.bloom.set(g.bloom);
     this.renderScale.set(Math.round(g.renderScale * 100));
     if (this.autoRes.get() !== (g.autoResolution !== false)) this.autoRes.set(g.autoResolution !== false);
     this.terrain.set(g.terrainDetail);

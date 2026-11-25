@@ -32,10 +32,10 @@ export interface PersistedSettings {
 }
 
 export const GRAPHICS_QUALITY_PRESETS: Record<GraphicsSettings['quality'], Omit<GraphicsSettings, 'quality' | 'fov' | 'imagery'>> = {
-  low: { renderScale: 0.75, shadows: false, clouds: false, terrainDetail: 0.5 },
-  medium: { renderScale: 1, shadows: true, clouds: true, terrainDetail: 1 },
-  high: { renderScale: 1, shadows: true, clouds: true, terrainDetail: 1.5 },
-  ultra: { renderScale: 1.25, shadows: true, clouds: true, terrainDetail: 2 },
+  low: { renderScale: 0.75, shadows: false, clouds: false, bloom: false, terrainDetail: 0.5 },
+  medium: { renderScale: 1, shadows: true, clouds: true, bloom: true, terrainDetail: 1 },
+  high: { renderScale: 1, shadows: true, clouds: true, bloom: true, terrainDetail: 1.5 },
+  ultra: { renderScale: 1.25, shadows: true, clouds: true, bloom: true, terrainDetail: 2 },
 };
 
 /** MSFS's default cockpit field of view; 75° made the C172's A-pillars look heavy. */
@@ -61,7 +61,7 @@ export function applyGraphicsQuality(g: GraphicsSettings, quality: GraphicsSetti
 export function detectGraphicsQuality(g: GraphicsSettings): GraphicsSettings['quality'] | 'custom' {
   for (const q of Object.keys(GRAPHICS_QUALITY_PRESETS) as GraphicsSettings['quality'][]) {
     const p = GRAPHICS_QUALITY_PRESETS[q];
-    if (p.renderScale === g.renderScale && p.shadows === g.shadows && p.clouds === g.clouds && p.terrainDetail === g.terrainDetail) return q;
+    if (p.renderScale === g.renderScale && p.shadows === g.shadows && p.clouds === g.clouds && p.bloom === g.bloom && p.terrainDetail === g.terrainDetail) return q;
   }
   return 'custom';
 }
@@ -108,6 +108,7 @@ export function sanitizeSettings(raw: unknown): PersistedSettings {
       renderScale: num(g.renderScale, d.graphics.renderScale, 0.5, 2),
       shadows: bool(g.shadows, d.graphics.shadows),
       clouds: bool(g.clouds, d.graphics.clouds),
+      bloom: bool(g.bloom, d.graphics.bloom),
       terrainDetail: num(g.terrainDetail, d.graphics.terrainDetail, 0.25, 4),
       imagery: oneOf(g.imagery, ['satellite', 'procedural'] as const, d.graphics.imagery),
       fov: legacy && fov === LEGACY_DEFAULT_FOV ? DEFAULT_FOV : fov,

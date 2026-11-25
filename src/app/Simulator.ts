@@ -43,7 +43,8 @@ import { CockpitInteraction } from './cockpitInteraction';
 import { SlewController, SLEW_THROTTLE_CENTRE } from './slew';
 import { StressMonitor, crashIsRecoverable } from './damage';
 import type { RebaseTransform } from '../world/rebase';
-import { createRenderer, type RendererBundle } from './renderer';
+import { QUALITY, createRenderer, type RendererBundle } from './renderer';
+import { PostFx } from './postFx';
 import { DynamicResolution } from './dynamicResolution';
 import { CarbIce } from './carbIce';
 import { TrafficManager, rankRunways } from '../traffic/TrafficManager';
@@ -195,6 +196,8 @@ export class Simulator {
   readonly terrain: TerrainSystem | null;
   readonly scene = new THREE.Scene();
   readonly gfx: RendererBundle;
+  /** HDR + bloom post-processing (Settings > Graphics > Bloom) */
+  readonly postFx: PostFx;
   /** lowers the render resolution while the frame rate is below target (Settings › Graphics › Dynamic resolution) */
   readonly dynRes = new DynamicResolution();
   readonly sky: SkySystem;
@@ -287,6 +290,7 @@ export class Simulator {
 
   constructor(readonly opts: SimulatorOptions) {
     this.gfx = createRenderer(opts.container, opts.quality ?? 'high');
+    this.postFx = new PostFx(this.gfx.renderer, QUALITY[opts.quality ?? 'high'].antialias);
     this.nav = new NavDb(fetchLoader(opts.baseUrl));
     this.fdm = new Fdm(this.config, { seed: 1 });
     this.fdm.setFuelFraction(1);
@@ -1077,7 +1081,7 @@ export class Simulator {
     if ((this.frameCount & 15) === 0) this.events.emit('terrain:progress', { ready: snap.terrainReady });
     tn = performance.now(); this.mark('instruments', tn - tm); tm = tn;
     // behind an opaque menu, draw the scene only at ~4 Hz (keeps shaders warm, saves the GPU)
-    if (!this.plugins.ui?.coversView?.() || (this.frameCount & 15) === 0) this.gfx.renderer.render(this.scene, this.cameras.camera);
+    if (!this.plugins.ui?.coversView?.() || (this.frameCount & 15) === 0) this.postFx.render(this.scene, this.cameras.camera);
     if (this.screenshotPending) { this.screenshotPending = false; this.saveScreenshot(); }
     this.mark('render', performance.now() - tm);
   }

@@ -138,9 +138,9 @@ export class AirportsLayer {
     patchRunwayNearDrop(this.asphalt, this.nearDrop, RUNWAY_NEAR_DROP_M.slab);
     patchRunwayNearDrop(this.markings, this.nearDrop, RUNWAY_NEAR_DROP_M.markings);
     this.lightSprite = makeLightSprite();
-    this.lightMaterial = new THREE.PointsMaterial({ size: 3.2, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true, alphaTest: 0.01 });
-    this.reilMaterial = new THREE.PointsMaterial({ size: 7, map: this.lightSprite, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
-    this.rabbitMaterial = new THREE.PointsMaterial({ size: 8, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+    this.lightMaterial = capPointSize(new THREE.PointsMaterial({ size: 3.2, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true, alphaTest: 0.01 }));
+    this.reilMaterial = capPointSize(new THREE.PointsMaterial({ size: 7, map: this.lightSprite, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }));
+    this.rabbitMaterial = capPointSize(new THREE.PointsMaterial({ size: 8, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }));
   }
 
   /** Runway centreline segments for terrain flattening (threshold → end, with pavement width). */
@@ -518,7 +518,7 @@ export class AirportsLayer {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    const mat = new THREE.PointsMaterial({ size: 4, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+    const mat = capPointSize(new THREE.PointsMaterial({ size: 4, map: this.lightSprite, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }));
     const points = new THREE.Points(geo, mat);
     points.name = 'papi';
     return points;
@@ -627,3 +627,22 @@ function distanceNm(a: Geodetic, b: Geodetic): number {
   const y = (b.lat - a.lat) * d2r;
   return (Math.sqrt(x * x + y * y) * 6371000) / 1852;
 }
+
+/**
+ * Largest on-screen size of a light sprite, CSS px (× the device pixel ratio). The sprites are sized in
+ * metres so a light reads at a distance; without a cap one beside the camera (an in-pavement or edge
+ * light under the cockpit) filled a quarter of the screen as a glowing half-disc.
+ */
+export const LIGHT_SPRITE_MAX_PX = 28;
+
+function capPointSize<M extends THREE.PointsMaterial>(m: M): M {
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uLightMaxPx = { value: LIGHT_SPRITE_MAX_PX * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1) };
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', 'uniform float uLightMaxPx;\nvoid main() {')
+      .replace('#include <fog_vertex>', '#include <fog_vertex>\n\tgl_PointSize = min( gl_PointSize, uLightMaxPx );');
+  };
+  m.customProgramCacheKey = () => 'light-sprite-cap';
+  return m;
+}
+

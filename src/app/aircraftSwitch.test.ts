@@ -17,7 +17,8 @@ import type { Simulator as SimulatorT } from './Simulator';
 
 const fakes = vi.hoisted(() => ({ models: [] as { config: { id: string }; disposed: number }[] }));
 
-vi.mock('./renderer', () => ({
+vi.mock('./renderer', async (orig) => ({
+  QUALITY: (await orig<typeof import('./renderer')>()).QUALITY,
   createRenderer: () => ({
     renderer: { domElement: { addEventListener() {}, removeEventListener() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }) }, shadowMap: { enabled: false }, render() {}, info: { render: {}, memory: {} } },
     depthMode: 'standard', maxAnisotropy: 8, resize() {}, setQuality() {}, dispose() {},
