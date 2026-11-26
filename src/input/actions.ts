@@ -49,6 +49,7 @@ export const SIM_ACTION_META: Record<SimAction, ActionMeta> = {
   toggleAtc: m('ATC', 'ATC window'),
   toggleWeatherPanel: m('Interface', 'Weather panel'),
   toggleHelp: m('Interface', 'Help / key list'),
+  toggleTablet: m('Interface', 'EFB tablet (map, flight plan, weight & fuel)'),
   cameraCockpit: m('Camera', 'Cockpit view'),
   cameraChase: m('Camera', 'Chase view'),
   cameraExternal: m('Camera', 'External view'),

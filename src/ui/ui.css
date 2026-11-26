@@ -497,6 +497,38 @@
 .fs-ui .navlog-total { display: flex; justify-content: space-between; font-size: 0.85em; color: var(--fg-dim); padding-top: 6px; }
 
 /* ─── responsive (≥ 1024×600) ──────────────────────────────────────────── */
+/* ── EFB tablet (Tab) ───────────────────────────────────────────── */
+.fs-ui .tablet { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(0.98); width: min(980px, 94vw); height: min(640px, 86vh); display: none; z-index: 30; pointer-events: auto; opacity: 0; transition: opacity var(--t), transform var(--t); }
+.fs-ui .tablet.visible { display: block; opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.fs-ui .tablet-bezel { width: 100%; height: 100%; box-sizing: border-box; padding: 14px; border-radius: 26px; background: linear-gradient(160deg, #1d232c, #0d1117); border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 24px 70px rgba(0,0,0,0.55), inset 0 0 0 2px rgba(0,0,0,0.6); display: flex; gap: 12px; }
+.fs-ui .tablet-tabs { display: flex; flex-direction: column; gap: 4px; width: 150px; flex: none; }
+.fs-ui .tablet-tab { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm); border: 0; background: transparent; color: var(--fg-dim); font: inherit; font-size: .92em; cursor: pointer; text-align: left; }
+.fs-ui .tablet-tab:hover { background: var(--ui-bg-hover); color: var(--fg); }
+.fs-ui .tablet-tab.active { background: var(--accent-dim); color: var(--accent); }
+.fs-ui .tablet-screen { flex: 1; min-width: 0; border-radius: 14px; background: var(--ui-bg-strong); border: 1px solid var(--ui-border); overflow: hidden; position: relative; }
+.fs-ui .tablet-pane { position: absolute; inset: 0; overflow: auto; }
+.fs-ui .tablet-map { display: flex; }
+.fs-ui .tablet-map > * { flex: 1; }
+.fs-ui .tablet-page { padding: 16px 18px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; }
+.fs-ui .tablet-h { margin: 0; font-weight: 400; letter-spacing: .12em; text-transform: uppercase; font-size: .95em; color: var(--fg-dim); }
+.fs-ui .tablet-field { display: flex; flex-direction: column; gap: 6px; position: relative; font-size: .9em; color: var(--fg-dim); }
+.fs-ui .tablet-results { display: flex; flex-direction: column; }
+.fs-ui .tablet-result { text-align: left; padding: 7px 10px; border: 0; border-bottom: 1px solid var(--ui-border); background: var(--ui-bg); color: var(--fg); font: inherit; cursor: pointer; }
+.fs-ui .tablet-result:hover { background: var(--ui-bg-hover); }
+.fs-ui .tablet-summary { font-size: 1.05em; color: var(--fg); min-height: 1.4em; }
+.fs-ui .tablet-note { font-size: .85em; }
+.fs-ui .tablet-stations { display: flex; flex-direction: column; gap: 6px; }
+.fs-ui .tablet-weight { font-size: 1.05em; }
+.fs-ui .tablet-weight.over { color: var(--err); }
+.fs-ui .tablet-cg-bar { position: relative; height: 26px; border-radius: 6px; background: linear-gradient(90deg, rgba(102,214,138,0.18), rgba(102,214,138,0.32), rgba(102,214,138,0.18)); border: 1px solid var(--ui-border-strong); display: flex; justify-content: space-between; align-items: center; padding: 0 8px; font-size: .75em; color: var(--fg-faint); }
+.fs-ui .tablet-cg-marker { position: absolute; top: -4px; bottom: -4px; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.fs-ui .tablet-cg-marker.over { background: var(--err); box-shadow: 0 0 6px var(--err); }
+@media (max-width: 760px) {
+  .fs-ui .tablet-bezel { flex-direction: column; padding: 10px; }
+  .fs-ui .tablet-tabs { flex-direction: row; width: auto; overflow-x: auto; }
+  .fs-ui .tablet-tab span { display: none; }
+}
+
 @media (max-width: 1200px) {
   .fs-ui .screen-body { padding: 6px 16px 14px; gap: 12px; }
   .fs-ui .screen-header { padding: 12px 16px 6px; }

@@ -76,6 +76,8 @@ export const CUB_MASS: AircraftConfig['mass'] = {
     { name: 'Right', pos: [-0.2, 0.8, -1.0], capacityKg: FUEL_TANK_GAL * AVGAS_KG_PER_GAL, usableKg: FUEL_USABLE_GAL * AVGAS_KG_PER_GAL, contentsKg: FUEL_TANK_GAL * AVGAS_KG_PER_GAL, selector: 'right' },
   ],
   maxTakeoffKg: 1750 * LB, // 793.8 kg
+  // TCDS 1A2: +7 … +20 in aft of the datum (at 1,750 lb)
+  cgLimitsM: [cubArm(7), cubArm(20)],
 };
 
 /**

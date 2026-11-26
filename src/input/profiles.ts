@@ -95,7 +95,7 @@ const LAPTOP_BINDINGS: Binding[] = [
   key('Shift+PageUp', 'apAltInc'), key('Shift+PageDown', 'apAltDec'),
   key('Shift+Period', 'headingBugInc'), key('Shift+Comma', 'headingBugDec'),
   key('Shift+Equal', 'timeFaster'), key('Shift+Minus', 'timeSlower'), // not Ctrl+=/−: browser zoom
-  key('KeyV', 'toggleMap'), key('Shift+Slash', 'toggleHelp'), key('Backquote', 'toggleAtc'),
+  key('KeyV', 'toggleMap'), key('Shift+Slash', 'toggleHelp'), key('Tab', 'toggleTablet'), key('Backquote', 'toggleAtc'),
   key('Alt+KeyM', 'mouseYokeToggle'), key('KeyF', 'freeLookToggle'),
   ...MOUSE,
 ];

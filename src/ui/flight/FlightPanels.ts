@@ -27,6 +27,7 @@ export interface FlightPanelsDeps {
   units: () => UnitsSettings;
   /** toolbar "Controls" button */ onHelp: () => void;
   /** toolbar "Menu" button */ onMenu: () => void;
+  /** toolbar "Tablet" button (EFB) */ onTablet?: () => void;
 }
 
 const ATC_INTERVAL_MS = 1000;
@@ -94,6 +95,7 @@ export class FlightPanels {
     this.failures = new FailuresPanel(failP.body, d.host);
 
     this.toolbar = new Toolbar(d.layer, [
+      { id: 'tablet', label: 'Tablet', icon: 'tablet', onClick: () => d.onTablet?.(), title: 'EFB tablet: map, flight plan, weather, checklist, weight & fuel (Tab)' },
       { id: 'camera', label: 'Camera', icon: 'camera', onClick: () => { /* menu handled by the toolbar */ }, title: 'Camera views' },
       { id: 'objectives', label: 'Objectives', icon: 'target', onClick: () => this.toggle('objectives'), title: 'Activity objectives' },
       { id: 'atc', label: 'ATC', icon: 'headset', onClick: () => this.toggle('atc'), title: 'ATC (Scroll Lock)' },

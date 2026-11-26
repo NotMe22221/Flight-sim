@@ -58,6 +58,22 @@ export interface LogbookView {
   totals: { flights: number; airTimeS: number; nightS: number; landings: number; distanceNm: number };
 }
 
+/** EFB Weight & fuel: the loaded aircraft as the tablet shows and edits it (kg, body-x metres, x forward). */
+export interface MassState {
+  stations: { name: string; kg: number; maxKg: number }[];
+  /** fuel on board and tank capacity, kg; `fuelKgPerGal` converts to gallons */
+  fuelKg: number;
+  fuelCapKg: number;
+  fuelKgPerGal: number;
+  emptyKg: number;
+  mtowKg: number;
+  /** centre of gravity and its (forward, aft) limits, body x m (null: no published envelope) */
+  cgM: number;
+  cgLimitsM: [number, number] | null;
+  /** loading is allowed on the ground and stopped only */
+  canLoad: boolean;
+}
+
 export interface UiHost {
   readonly events: EventBus;
   readonly nav: NavDatabase;
@@ -127,6 +143,10 @@ export interface UiHost {
    * actions, for the help sheet: plain-language title and every input bound to it. Optional.
    */
   flyingControls?(): { title: string; keys: string[] }[];
+  /** EFB Weight & fuel (optional): the current load, the weight and CG of a proposed one, and loading it. */
+  massState?(): MassState | null;
+  previewMass?(stationKg: number[], fuelFraction: number): { totalKg: number; cgM: number } | null;
+  setLoad?(stationKg: number[], fuelFraction: number): boolean;
   /** Settings > Controls: arrow up / stick forward raises the nose (game style) */
   setInvertPitch?(on: boolean): void;
 

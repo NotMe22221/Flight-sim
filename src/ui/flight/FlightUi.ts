@@ -12,6 +12,7 @@ import { ASSIST_ITEMS } from '../assistPresets';
 import { autopilotToast } from '../apAnnunciator';
 import { Cls, Txt, h } from '../dom';
 import { releasesFocusAfter } from '../routing';
+import { Tablet } from './Tablet';
 import { FlightPanels, type PanelId } from './FlightPanels';
 import type { LayoutStore } from './FloatingPanel';
 import { HelpOverlay } from './HelpOverlay';
@@ -50,6 +51,8 @@ interface ActivityInfo { id: string; title: string; kind: 'lesson' | 'bushTrip' 
 
 export class FlightUi {
   readonly panels: FlightPanels;
+  /** the EFB tablet (Tab) */
+  readonly tablet: Tablet;
   readonly pause: PauseMenu;
   readonly help: HelpOverlay;
   readonly report: LandingReport;
@@ -95,7 +98,8 @@ export class FlightUi {
     this.subVisible = new Cls(this.subtitle, 'visible');
     d.hudLayer.appendChild(this.subtitle);
     this.hudShift = new Cls(this.hud.el, 'shifted');
-    this.panels = new FlightPanels({ host: d.host, ctx: d.ctx, layer: d.flightLayer, layout: d.layout, units: d.units, onHelp: () => this.toggleHelp(), onMenu: () => this.openPause() });
+    this.panels = new FlightPanels({ host: d.host, ctx: d.ctx, layer: d.flightLayer, layout: d.layout, units: d.units, onHelp: () => this.toggleHelp(), onMenu: () => this.openPause(), onTablet: () => this.tablet.toggle() });
+    this.tablet = new Tablet({ host: d.host, ctx: d.ctx, layer: d.flightLayer, units: d.units, onVisibility: (v) => this.panels.toolbar.setActive('tablet', v) });
     // in the flight layer, above the floating panels: an open checklist or VFR map must not hide the instructor
     this.instructor = new InstructorSubtitle(d.flightLayer);
     this.pause = new PauseMenu(d.modalLayer, {
@@ -168,7 +172,7 @@ export class FlightUi {
       // a debrief left for a menu keeps the simulator paused, as the pause menu does (back in the
       // flight the pause menu shows)
       if (this.debrief.visible && this.debriefPaused) { this.debriefPaused = false; this.pausedByMenu = true; this.resumePaused = false; }
-      this.help.hide(); this.report.hide(); this.debrief.hide(); if (this.pause.visible) this.pause.hide();
+      this.help.hide(); this.tablet.hide(); this.report.hide(); this.debrief.hide(); if (this.pause.visible) this.pause.hide();
     }
     this.d.onOverlayChange();
   }
@@ -176,6 +180,7 @@ export class FlightUi {
   /** Esc in flight: close the topmost overlay, otherwise toggle the pause menu. */
   escape(): void {
     if (this.help.visible) this.help.hide();
+    else if (this.tablet.visible) this.tablet.hide();
     else if (this.debrief.visible) this.debrief.hide();
     else if (this.report.visible) this.report.hide();
     else if (this.pause.visible) this.closePause(true);
@@ -218,6 +223,7 @@ export class FlightUi {
     const panel = PANEL_ACTIONS[a];
     if (panel) { this.panels.toggle(panel); return true; }
     if (a === 'toggleHelp') { this.toggleHelp(); return true; }
+    if (a === 'toggleTablet') { this.tablet.toggle(); return true; }
     if (a === 'toggleHud') { this.hudToggle = !this.hudToggle; return false; } // the simulator toggles its HUD too
     const assist = ASSIST_ACTIONS[a];
     if (assist) this.pendingAssist = assist; // toast once the simulator has flipped it
@@ -232,6 +238,7 @@ export class FlightUi {
     this.hud.update(s, this.d.units(), nowMs);
     this.hudShift.set(this.panels.toolbar.el.classList.contains('visible'));
     this.panels.update(s, nowMs);
+    this.tablet.update(s, nowMs);
     this.instructor.setTop(s.camera?.mode === 'cockpit');
     this.instructor.update(nowMs, s.paused);
     if (this.subUntil && nowMs > this.subUntil) { this.subUntil = 0; this.subVisible.set(false); }
@@ -296,6 +303,7 @@ export class FlightUi {
     this.pause.setTitle('Paused');
     this.report.hide();
     this.panels.reset();
+    this.tablet.reset();
     this.subUntil = 0; this.subVisible.set(false);
     // the runner sees the reset first: a respawn at the activity's start restarted it (its first
     // instruction is already queued), a spawn for a new activity is 'starting'; anything else

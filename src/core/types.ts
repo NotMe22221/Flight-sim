@@ -241,6 +241,8 @@ export interface AircraftConfig {
     stations: { name: string; pos: Vec3; massKg: number; maxKg: number }[];
     tanks: { name: string; pos: Vec3; capacityKg: number; usableKg: number; contentsKg: number; selector: 'left' | 'right' | 'center' }[];
     maxTakeoffKg: number;
+    /** CG range (forward, aft limit), body x m in the same frame as the stations (x forward), at MTOW */
+    cgLimitsM?: [number, number];
   };
   aero: {
     /** CL vs alpha (rad): rows = alpha, cols = [normal, post-stall branch] */
@@ -660,7 +662,7 @@ export interface CameraState {
 // ───────────────────────────────── Discrete actions (input → sim) ─────────────────────────────────
 
 export type SimAction =
-  | 'pause' | 'toggleMenu' | 'toggleMap' | 'toggleHud' | 'toggleCheckList' | 'toggleAtc' | 'toggleWeatherPanel' | 'toggleHelp'
+  | 'pause' | 'toggleMenu' | 'toggleMap' | 'toggleHud' | 'toggleCheckList' | 'toggleAtc' | 'toggleWeatherPanel' | 'toggleHelp' | 'toggleTablet'
   | 'cameraCockpit' | 'cameraChase' | 'cameraExternal' | 'cameraDrone' | 'cameraTower' | 'cameraNext' | 'cameraReset'
   | 'zoomIn' | 'zoomOut'
   | 'flapsUp' | 'flapsDown' | 'flapsFull' | 'flapsRetract'

@@ -193,6 +193,9 @@ export class Fdm implements FlightModel {
     this.recomputeMass();
   }
 
+  /** Current payload per station and fuel per tank, kg (copies). */
+  loads(): { stationKg: number[]; tankKg: number[] } { return { stationKg: Array.from(this.stationKg), tankKg: Array.from(this.tankKg) }; }
+
   /** Fill every tank to the given fraction of capacity. */
   setFuelFraction(f: number): void {
     this.setLoad(undefined, this.config.mass.tanks.map((t) => t.capacityKg * clamp(f, 0, 1)));

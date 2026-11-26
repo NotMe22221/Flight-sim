@@ -120,6 +120,8 @@ export const C172S: AircraftConfig = {
       { name: 'Right', pos: fromStructural(56, 80, 59.4), capacityKg: 28 * 3.785411784 * 0.72, usableKg: 26.5 * 3.785411784 * 0.72, contentsKg: 28 * 3.785411784 * 0.72, selector: 'right' },
     ],
     maxTakeoffKg: 2550 * LB,
+    // POH normal category: 35.0 in (to 1,950 lb; 41.0 in at 2,550 lb) … 47.3 in aft of the datum
+    cgLimitsM: [fromStructural(35, 0, 0)[0], fromStructural(47.3, 0, 0)[0]],
   },
   aero: {
     CL: {

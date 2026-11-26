@@ -5,7 +5,9 @@
 import type { AircraftConfig, AssistanceOptions, FailureId, CameraMode, SimAction, SimSnapshot, Waypoint, WeatherPresetId, WeatherState } from '../core/types';
 import { AIRCRAFT, aircraftById, aircraftForActivity } from './aircraftCatalog';
 import { fetchOpenMeteo, OPEN_METEO_ATTRIBUTION, weatherFromPreset } from '../sky';
-import type { AudioSettings, BindingInfo, GraphicsSettings, LogbookView, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
+import type { AudioSettings, BindingInfo, GraphicsSettings, LogbookView, MassState, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
+import { computeMassProperties } from '../fdm/massProps';
+import { AVGAS_KG_PER_GAL } from '../core/units';
 import type { Simulator } from './Simulator';
 import { QUALITY } from './renderer';
 import { SAVED_FLIGHT_KEY, readSavedFlight, savedFlightLabel } from './savedFlight';
@@ -193,6 +195,34 @@ export class SimUiHost implements UiHost {
     const rows = this.sim.input.controlsList().filter((r) => r.labels.length > 0 && !/^action:(propeller|spoilers)/.test(r.id));
     rows.sort((a, b) => { const i = order.indexOf(a.id), j = order.indexOf(b.id); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); });
     return rows.map((r) => ({ title: titles[r.id] ?? r.title, keys: r.labels }));
+  }
+
+  massState(): MassState | null {
+    const cfg = this.sim.config, st = this.sim.fdm.state, l = this.sim.fdm.loads();
+    const fuelCap = cfg.mass.tanks.reduce((a, t) => a + t.capacityKg, 0);
+    return {
+      stations: cfg.mass.stations.map((s, i) => ({ name: s.name, kg: l.stationKg[i] ?? 0, maxKg: s.maxKg })),
+      fuelKg: l.tankKg.reduce((a, b) => a + b, 0), fuelCapKg: fuelCap, fuelKgPerGal: AVGAS_KG_PER_GAL,
+      emptyKg: cfg.mass.emptyMassKg, mtowKg: cfg.mass.maxTakeoffKg,
+      cgM: computeMassProperties(cfg, l.stationKg, l.tankKg).cg[0],
+      cgLimitsM: cfg.mass.cgLimitsM ?? null,
+      canLoad: this.sim.inFlight && st.onGround && st.groundSpeedMs < 0.5 && !st.crashed,
+    };
+  }
+
+  previewMass(stationKg: number[], fuelFraction: number): { totalKg: number; cgM: number } | null {
+    const cfg = this.sim.config;
+    const f = Math.min(Math.max(fuelFraction, 0), 1);
+    const mp = computeMassProperties(cfg, stationKg, cfg.mass.tanks.map((t) => t.capacityKg * f));
+    return { totalKg: mp.mass, cgM: mp.cg[0] };
+  }
+
+  setLoad(stationKg: number[], fuelFraction: number): boolean {
+    const st = this.sim.fdm.state;
+    if (!this.sim.inFlight || !st.onGround || st.groundSpeedMs >= 0.5 || st.crashed) return false;
+    this.sim.fdm.setLoad(stationKg);
+    this.sim.fdm.setFuelFraction(fuelFraction);
+    return true;
   }
 
   bindings(): BindingInfo[] {
