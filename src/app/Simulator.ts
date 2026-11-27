@@ -26,7 +26,7 @@ import { seasonFor } from '../sky/season';
 import { AircraftModel, bodyQuatToThree } from '../aircraft3d';
 import { CameraController } from '../camera';
 import { InputManager } from '../input/InputManager';
-import { FlightAssists, GfcAutopilot, assistsConfigFor, type NavInputs } from '../autopilot';
+import { AIRLINER_AUTOPILOT, AutoThrust, FlightAssists, GfcAutopilot, assistsConfigFor, fbwFor, type FlyByWire, type NavInputs } from '../autopilot';
 import { SteamPanel, type PanelLayout } from '../instruments/SteamPanel';
 import { hasAutopilot, panelSpecFor, steamLayoutFor } from '../instruments/panels';
 import { C172S_G1000, aircraftById, aircraftForActivity, radioCallsign, sameAirframe } from './aircraftCatalog';
@@ -171,7 +171,7 @@ const LANDING_CHALLENGE_AIRCRAFT = 'c172';
 const AP_ACTIONS: ReadonlySet<SimAction> = new Set<SimAction>([
   'apToggle', 'apHdg', 'apNav', 'apApr', 'apAlt', 'apVs', 'apFlc', 'apLvl', 'fdToggle', 'yawDamper',
   'apHdgInc', 'apHdgDec', 'apAltInc', 'apAltDec', 'apVsInc', 'apVsDec', 'apIasInc', 'apIasDec', 'apHdgSync', 'apAltSync',
-  'headingBugInc', 'headingBugDec',
+  'headingBugInc', 'headingBugDec', 'autothrustToggle',
 ]);
 const NO_ROTATION: [number, number, number, number] = [1, 0, 0, 0];
 
@@ -210,6 +210,12 @@ export class Simulator {
   readonly autopilot: GfcAutopilot;
   /** auto-rudder, assisted take-off heading hold and anti-stall (MSFS assistance options), tuned for the aircraft */
   flightAssists: FlightAssists;
+  /** fly-by-wire control law (airliner), null for conventional controls */
+  fbw: FlyByWire | null = null;
+  /** autothrust (jets) */
+  readonly autothrust = new AutoThrust();
+  /** "throttle decrease" held this frame (reverse thrust at idle) */
+  private heldThrottleDec = false;
   private readonly navIn: NavInputs;
   readonly radios: RadioStack;
   readonly planner = new FlightPlanner();
@@ -316,7 +322,8 @@ export class Simulator {
     const aspect = (opts.container.clientWidth || 1) / (opts.container.clientHeight || 1);
     this.cameras = new CameraController(aspect);
     this.input = new InputManager(this.gfx.renderer.domElement, { flapDetents: this.config.controls.flaps.detentsDeg.length });
-    this.autopilot = new GfcAutopilot({ events: this.events });
+    this.autopilot = new GfcAutopilot({ events: this.events, config: this.config.controls.flyByWire ? AIRLINER_AUTOPILOT : undefined });
+    this.fbw = fbwFor(this.config);
     this.radios = new RadioStack(this.nav);
     this.flightAssists = new FlightAssists(assistsConfigFor(this.config));
     this.navIn = { nav1: this.radios.nav1, nav2: this.radios.nav2, plan: null };
@@ -480,7 +487,9 @@ export class Simulator {
     this.panelVariant = 'steam';
     this.input.setFlapDetents(next.controls.flaps.detentsDeg.length);
     this.flightAssists = new FlightAssists(assistsConfigFor(next));
-    this.autopilot.reset();
+    this.autopilot.reconfigure(next.controls.flyByWire ? AIRLINER_AUTOPILOT : undefined);
+    this.fbw = fbwFor(next);
+    this.autothrust.engage(false, 0);
     this.stress.reset();
     this.crashReported = false;
     this.touchdown.reset(true);
@@ -511,6 +520,7 @@ export class Simulator {
 
     const t0 = performance.now();
     const inp = this.input.poll(dt);
+    this.heldThrottleDec = inp.held.has('throttleDec');
     for (let i = 0; i < inp.actions.length; i++) this.handleAction(inp.actions[i]);
     const running = this.inFlight && !this.paused && !this.replayer.active && !this.slew;
     const scale = running ? this.time.timeScale : 0;
@@ -583,8 +593,19 @@ export class Simulator {
       // the trim would snap back to the pilot's old setting when the autopilot disconnects
       if (this.autopilot.state.engaged) this.input.controls.pitchTrim = this.autopilot.state.trimCommand;
     }
-    // assists act on what the flight model flies, after the autopilot (auto-rudder sees its aileron)
-    this.flightAssists.apply(this.effective, s, simDt, this.assists);
+    const fbw = this.fbw;
+    if (fbw) {
+      // fly-by-wire: the law flies the pilot's stick; under the autopilot it only coordinates the rudder
+      if (this.hasAutopilot && this.autopilot.state.engaged) fbw.coordinate(this.effective, s);
+      else fbw.apply(this.effective, s, simDt);
+      const thr = this.autothrust.update(simDt, s, this.autopilot.state, fbw.alphaFloor, this.effective.gearDown);
+      if (thr !== null) this.effective.throttle = thr;
+      // thrust reversers: hold "throttle decrease" (F2) with the levers at idle, on the ground
+      this.effective.reverse = s.onGround && this.input.controls.throttle <= 0.001 && this.heldThrottleDec;
+    } else {
+      // assists act on what the flight model flies, after the autopilot (auto-rudder sees its aileron)
+      this.flightAssists.apply(this.effective, s, simDt, this.assists);
+    }
     // system failures act on what the aircraft can actually do
     const f = this.failures;
     if (f.engine) this.effective.mixture = 0; // fuel starvation: the engine stops and will not restart
@@ -854,6 +875,7 @@ export class Simulator {
       // the rigging balances the roll at cruise power only: trim the ailerons for this power and speed
       if (tr?.ok) this.trimLateral(c);
     }
+    this.fbw?.reset(onGround ? 0 : (this.fdm.trimResult?.pitchStick ?? 0), !onGround);
     this.fdm.setAltimeter(qnh);
     copyPose(this.fdm.state, this.prev);
     this.loop.reset();
@@ -1134,6 +1156,15 @@ export class Simulator {
       case 'apToggle': ap.engage(!aps.engaged); break;
       case 'fdToggle': ap.press('FD'); break;
       case 'yawDamper': ap.press('YD'); break;
+      case 'autothrustToggle': {
+        if (this.config.propulsion.engine.type !== 'turbofan') break;
+        const at = this.autothrust;
+        if (!at.engaged && aps.iasTargetMs <= 0) ap.setIasTarget(s.aero.ias);
+        // disconnecting leaves the levers where the autothrust had them
+        if (at.engaged) this.input.controls.throttle = at.throttle;
+        at.toggle(this.input.controls.throttle);
+        break;
+      }
       // GFC 700 panel semantics: toggle back to ROL/PIT, sync targets, disarm an armed mode
       case 'apHdg': ap.press('HDG'); this.ensureAp(); break;
       case 'apNav': ap.press('NAV'); this.ensureAp(); break;
@@ -1474,6 +1505,11 @@ export class Simulator {
     // the ground-shift reference is the ground the aircraft was just placed on (not a stale sample from
     // before the spawn), so a reload in the frame before the first physics step is not missed
     this.world.groundShift(this.fdm.state.posNED[0], this.fdm.state.posNED[1]);
+    if (!spawn.onGround && this.config.gear.some((w) => w.retractable)) {
+      // retractable gear: clean in the air, gear down on an approach (flaps set)
+      c.gearDown = (opts.flapsIndex ?? 0) > 0;
+      this.fdm.setGearDown(c.gearDown);
+    }
     if (!spawn.onGround) {
       // trim with the approach flaps already set (not a flap motor that has barely started moving)
       // trim with the mixture the engine will actually run on: the auto-mixture assist leans to peak power
@@ -1498,6 +1534,8 @@ export class Simulator {
     // power-on state (FD/YD off, modes and trim cleared) without a disconnect tone
     this.autopilot.reset();
     this.flightAssists.reset();
+    this.fbw?.reset(spawn.onGround ? 0 : (this.fdm.trimResult?.pitchStick ?? 0), !spawn.onGround);
+    this.autothrust.engage(false, 0);
     this.autopilot.setHeadingBug(Math.round(this.fdm.state.headingMagRad * RAD));
     this.autopilot.setAltitudeTarget(Math.round((this.fdm.state.altitudeMslM + 3000 * FT) / (100 * FT)) * 100 * FT);
     this.touchdown.reset(spawn.onGround);

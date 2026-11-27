@@ -45,7 +45,7 @@ const MSFS_BINDINGS: Binding[] = [
   key('NumpadDecimal', 'brakesHold'), key('Ctrl+NumpadDecimal', 'parkingBrakeToggle'),
   keyAxis('NumpadMultiply', 'brakeLeft', 1), keyAxis('NumpadSubtract', 'brakeRight', 1),
   // engine
-  key('Ctrl+KeyE', 'engineAutoStart'), key('Ctrl+Shift+KeyE', 'engineShutdown'),
+  key('Ctrl+KeyE', 'engineAutoStart'), key('Ctrl+Shift+KeyE', 'engineShutdown'), key('Alt+KeyA', 'autothrustToggle'),
   key('KeyM', 'magnetosNext'), key('Shift+KeyM', 'magnetosPrev'), key('Shift+Alt+KeyG', 'starter'),
   key('KeyH', 'carbHeat'), key('Shift+KeyH', 'pitotHeat'),
   // lights
@@ -86,7 +86,7 @@ const LAPTOP_BINDINGS: Binding[] = [
   key('F5', 'flapsRetract'), key('F6', 'flapsUp'), key('F7', 'flapsDown'), key('F8', 'flapsFull'),
   key('KeyG', 'gearToggle'),
   key('Period', 'brakesHold'), key('Ctrl+Period', 'parkingBrakeToggle'),
-  key('Ctrl+KeyE', 'engineAutoStart'), key('Ctrl+Shift+KeyE', 'engineShutdown'),
+  key('Ctrl+KeyE', 'engineAutoStart'), key('Ctrl+Shift+KeyE', 'engineShutdown'), key('Alt+KeyA', 'autothrustToggle'),
   key('KeyP', 'pause'), key('Escape', 'toggleMenu'),
   key('KeyC', 'cameraNext'), key('Ctrl+Space', 'cameraReset'),
   key('Equal', 'zoomIn'), key('Minus', 'zoomOut'),

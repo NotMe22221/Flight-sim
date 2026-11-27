@@ -41,3 +41,6 @@ export { LowPass, Washout, Differentiator, RateLimiter, slew } from './filters';
 export { bankForTurnRate, effectiveBankLimit, headingToBank, gpsInterceptTrack, vorInterceptTrack, locInterceptTrack, cdiToDots } from './lateral';
 export { altitudeToVs, altCaptureDistance, glideslopeVs, levelFlightPitch } from './vertical';
 export { loadFactorPitchRate, alphaLimitedPitch, wingsFirst } from './level';
+export { FlyByWire, fbwFor, type FbwLimits } from './fbw';
+export { AutoThrust, CLB_THRUST, type AutoThrustMode } from './autothrust';
+export { AIRLINER_AUTOPILOT } from './airliner';

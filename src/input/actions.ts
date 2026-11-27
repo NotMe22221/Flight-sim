@@ -113,6 +113,7 @@ export const SIM_ACTION_META: Record<SimAction, ActionMeta> = {
   apLvl: m('Autopilot', 'Wing leveller'),
   fdToggle: m('Autopilot', 'Flight director'),
   yawDamper: m('Autopilot', 'Yaw damper'),
+  autothrustToggle: m('Autopilot', 'Autothrust (A/THR, jets)'),
   apHdgInc: m('Autopilot', 'AP heading +', 'knob'),
   apHdgDec: m('Autopilot', 'AP heading −', 'knob'),
   apAltInc: m('Autopilot', 'AP altitude +', 'knob'),

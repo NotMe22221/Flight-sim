@@ -88,19 +88,19 @@ export class GfcAutopilot implements Autopilot {
     fdPitchRad: 0, fdRollRad: 0, outPitch: 0, outRoll: 0, outYaw: 0, yawDamper: false, trimCommand: 0,
     disconnectReason: null, modeChangeT: 0, disconnectT: Number.NEGATIVE_INFINITY, t: 0, altAlert: 'none', lvl: false,
   };
-  readonly config: AutopilotConfig;
+  config: AutopilotConfig;
   navSource: NavSource = 'auto';
 
   private readonly events: EventBus | undefined;
-  private readonly rollPid: Pid;
-  private readonly pitchPid: Pid;
-  private readonly vsPid: Pid;
-  private readonly flcPid: Pid;
-  private readonly rollCmd: RateLimiter;
-  private readonly pitchCmd: RateLimiter;
-  private readonly rollServo: RateLimiter;
-  private readonly pitchServo: RateLimiter;
-  private readonly ydWashout: Washout;
+  private rollPid: Pid;
+  private pitchPid: Pid;
+  private vsPid: Pid;
+  private flcPid: Pid;
+  private rollCmd: RateLimiter;
+  private pitchCmd: RateLimiter;
+  private rollServo: RateLimiter;
+  private pitchServo: RateLimiter;
+  private ydWashout: Washout;
   private readonly lateralDotsRate = new Differentiator(1.0);
   private readonly blended: ControlInputs;
   private readonly src: ResolvedSource = { kind: 'none', radio: null, plan: null };
@@ -142,17 +142,7 @@ export class GfcAutopilot implements Autopilot {
   constructor(opts: GfcAutopilotOptions = {}) {
     this.config = mergeConfig(defaultAutopilotConfig(), opts.config);
     this.events = opts.events;
-    const { limits: L, gains: g } = this.config;
-    this.rollPid = new Pid({ ...g.roll, outMin: -L.servoAuthority, outMax: L.servoAuthority });
-    this.pitchPid = new Pid({ ...g.pitch, outMin: -L.servoAuthority, outMax: L.servoAuthority });
-    this.vsPid = new Pid({ kp: g.vsToPitchKp, ki: g.vsToPitchKi, kd: 0, outMin: L.pitchMinRad, outMax: L.pitchMaxRad, iLim: L.pitchMaxRad, tt: 2 });
-    // FLC: negative gains — faster than target → nose up; derivative on IAS = acceleration damping
-    this.flcPid = new Pid({ kp: -g.flcKp, ki: -g.flcKi, kd: -g.flcKd, tauD: g.flcTauD, outMin: L.pitchMinRad, outMax: L.pitchMaxRad, iLim: L.pitchMaxRad, tt: 2 });
-    this.rollCmd = new RateLimiter(L.rollCmdRateRadS);
-    this.pitchCmd = new RateLimiter(L.pitchCmdRateRadS);
-    this.rollServo = new RateLimiter(L.servoRatePerS);
-    this.pitchServo = new RateLimiter(L.servoRatePerS);
-    this.ydWashout = new Washout(g.ydWashoutS);
+    [this.rollPid, this.pitchPid, this.vsPid, this.flcPid, this.rollCmd, this.pitchCmd, this.rollServo, this.pitchServo, this.ydWashout] = this.buildLoops();
     this.blended = {
       pitch: 0, roll: 0, yaw: 0, pitchTrim: 0, rudderTrim: 0, aileronTrim: 0, flapsIndex: 0, throttle: 0, mixture: 1, propeller: 1,
       brakeLeft: 0, brakeRight: 0, parkingBrake: false, magnetos: 3, starter: false, fuelSelector: 'both', gearDown: true, speedbrake: 0,
@@ -160,6 +150,28 @@ export class GfcAutopilot implements Autopilot {
       masterBattery: true, masterAlternator: true, avionicsMaster: true, fuelPump: false,
     };
     this.changedPayload = { state: this.state };
+  }
+
+  private buildLoops(): [Pid, Pid, Pid, Pid, RateLimiter, RateLimiter, RateLimiter, RateLimiter, Washout] {
+    const { limits: L, gains: g } = this.config;
+    const rollPid = new Pid({ ...g.roll, outMin: -L.servoAuthority, outMax: L.servoAuthority });
+    const pitchPid = new Pid({ ...g.pitch, outMin: -L.servoAuthority, outMax: L.servoAuthority });
+    const vsPid = new Pid({ kp: g.vsToPitchKp, ki: g.vsToPitchKi, kd: 0, outMin: L.pitchMinRad, outMax: L.pitchMaxRad, iLim: L.pitchMaxRad, tt: 2 });
+    // FLC: negative gains — faster than target → nose up; derivative on IAS = acceleration damping
+    const flcPid = new Pid({ kp: -g.flcKp, ki: -g.flcKi, kd: -g.flcKd, tauD: g.flcTauD, outMin: L.pitchMinRad, outMax: L.pitchMaxRad, iLim: L.pitchMaxRad, tt: 2 });
+    const rollCmd = new RateLimiter(L.rollCmdRateRadS);
+    const pitchCmd = new RateLimiter(L.pitchCmdRateRadS);
+    const rollServo = new RateLimiter(L.servoRatePerS);
+    const pitchServo = new RateLimiter(L.servoRatePerS);
+    const ydWashout = new Washout(g.ydWashoutS);
+    return [rollPid, pitchPid, vsPid, flcPid, rollCmd, pitchCmd, rollServo, pitchServo, ydWashout];
+  }
+
+  /** New aircraft: replace the limits and gains (defaults merged with `config`) and reset. */
+  reconfigure(config?: DeepPartial<AutopilotConfig>): void {
+    this.config = mergeConfig(defaultAutopilotConfig(), config);
+    [this.rollPid, this.pitchPid, this.vsPid, this.flcPid, this.rollCmd, this.pitchCmd, this.rollServo, this.pitchServo, this.ydWashout] = this.buildLoops();
+    this.reset();
   }
 
   // ───────────────────────────── diagnostics ─────────────────────────────
