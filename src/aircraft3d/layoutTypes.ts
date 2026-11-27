@@ -20,6 +20,8 @@ export interface AircraftModelConfig {
   airframe?: AirframeKind;
   /** fuel tanks: the Cub's wing-root sight gauges read `AircraftState.fuelKg[i] / capacityKg` */
   tanks?: { name: string; pos: Vec3; capacityKg: number }[];
+  /** jet engine positions, body frame (the airliner's nacelles) */
+  engines?: Vec3[];
 }
 
 /** Narrow a full AircraftConfig (or pass a model config through). */
@@ -28,6 +30,7 @@ export function toModelConfig(config: AircraftConfig | AircraftModelConfig): Air
     return {
       geometry: config.geometry, propeller: config.propulsion.propeller, gear: config.gear,
       airframe: config.airframe, tanks: config.mass.tanks.map((t) => ({ name: t.name, pos: t.pos, capacityKg: t.capacityKg })),
+      engines: config.propulsion.engine.type === 'turbofan' ? config.propulsion.enginePositions : undefined,
     };
   }
   return config;

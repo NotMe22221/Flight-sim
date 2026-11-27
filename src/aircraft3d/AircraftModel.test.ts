@@ -36,7 +36,8 @@ describe('AircraftModel (Node build, no DOM)', () => {
     const pm = model.panelMesh, eyeY = model.eyePointLocal.y;
     expect(pm.position.z).toBeCloseTo(-0.8, 2);
     const top = pm.position.y + (0.48 / 2) * Math.cos(pm.rotation.x);
-    expect(top).toBeLessThan(model.layout.glareshield.lipY);
+    expect(model.layout.airframe).toBe('c172');
+    if (model.layout.airframe === 'c172') expect(top).toBeLessThan(model.layout.glareshield.lipY);
     expect(eyeY - top).toBeGreaterThan(0.15);
     expect(eyeY - top).toBeLessThan(0.22);
     expect(eyeY - pm.position.y).toBeGreaterThan(0.38);

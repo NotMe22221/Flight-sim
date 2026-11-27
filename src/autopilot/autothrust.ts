@@ -25,6 +25,9 @@ export class AutoThrust {
   private integ = 0;
   private lastIas = NaN;
   private accel = 0;
+  /** A.FLOOR came on with the autothrust off: it disconnects again once the angle of attack is back */
+  private floorFromOff = false;
+  private floorClearS = 0;
 
   engage(on: boolean, currentThrottle: number): void {
     this.engaged = on;
@@ -37,12 +40,27 @@ export class AutoThrust {
   toggle(currentThrottle: number): void { this.engage(!this.engaged, currentThrottle); }
 
   /** One step: returns the lever position to fly, or null when disengaged. */
-  update(dt: number, s: AircraftState, ap: AutopilotState, alphaFloor: boolean, gearDown: boolean): number | null {
+  update(dt: number, s: AircraftState, ap: AutopilotState, alphaFloor: boolean, gearDown: boolean, pilotThrottle = 0): number | null {
     if (!(dt > 0)) return this.engaged ? this.throttle : null;
     const ias = s.aero.ias;
     if (Number.isFinite(this.lastIas)) this.accel += ((ias - this.lastIas) / dt - this.accel) * (1 - Math.exp(-dt / 1.5));
     this.lastIas = ias;
-    if (alphaFloor && !s.onGround) { this.engaged = true; this.mode = 'A.FLOOR'; return this.slew(1, dt); }
+    // α-floor: TOGA thrust, never less than the pilot's lever; it starts from the thrust being flown
+    if (alphaFloor && !s.onGround) {
+      if (this.mode !== 'A.FLOOR') {
+        this.floorFromOff = !this.engaged;
+        this.throttle = Math.max(this.engaged ? this.throttle : 0, clamp(pilotThrottle, 0, 1));
+      }
+      this.engaged = true; this.mode = 'A.FLOOR'; this.floorClearS = 0;
+      return Math.max(this.slew(1, dt, 0.5), pilotThrottle);
+    }
+    if (this.mode === 'A.FLOOR') {
+      // hold TOGA 3 s after the angle of attack is back, then return to what was flying before
+      this.floorClearS += dt;
+      if (this.floorClearS < 3) return Math.max(this.slew(1, dt, 0.5), pilotThrottle);
+      if (this.floorFromOff) { this.engage(false, 0); return null; }
+      this.mode = 'SPEED'; this.integ = this.throttle;
+    }
     if (!this.engaged) return null;
     if (s.onGround && this.mode === 'RETARD') { this.engage(false, 0); return null; }
     if (!s.onGround && gearDown && s.altitudeAglM < 20 * FT && s.verticalSpeedMs < 0) { this.mode = 'RETARD'; return this.slew(0, dt, 0.5); }

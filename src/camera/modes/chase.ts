@@ -28,6 +28,9 @@ export class ChaseMode implements CameraModeHandler {
     this.dist = clamp(opts.chaseDistanceM, opts.orbitMinM, opts.orbitMaxM);
   }
 
+  /** Back to the default distance (a different aircraft size). */
+  resetDistance(): void { this.dist = clamp(this.opts.chaseDistanceM, this.opts.orbitMinM, this.opts.orbitMaxM); }
+
   enter(frame: CameraFrame, camera: THREE.PerspectiveCamera): void {
     // start from wherever the previous mode left the camera for a smooth transition
     this.offset.reset(this.tmp.subVectors(camera.position, frame.pos));

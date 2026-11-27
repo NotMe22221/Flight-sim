@@ -28,13 +28,24 @@ import { CubGear } from './cubGear';
 import { AircraftLights, type LightOptions } from './lights';
 import { CockpitInterior, type CockpitAssembly, type PanelMesh, type PanelVariant } from './interior';
 import { CubCockpit } from './cubInterior';
+import { A320Cockpit, A320Gear, A320_PAINT, TurbofanFans, buildA320Airframe, resolveA320Layout, type A320Layout } from './a320Model';
 import { createModelMaterials, type MaterialOptions, type ModelMaterials } from './materials';
 import { finiteOr, safeDt } from './finite';
 import { LoftProfile, type LoftStation } from './loft';
 import type { FuselageLayout } from './layoutTypes';
 
 /** The resolved placement of the airframe that was built (narrow with `layout.airframe`). */
-export type AirframeLayout = C172Layout | CubLayout;
+export type AirframeLayout = C172Layout | CubLayout | A320Layout;
+
+/** The spinning part an airframe drives from `engine.rpm`: a propeller, or the airliner's fans. */
+export interface Rotor {
+  readonly group: THREE.Group;
+  readonly angle: number;
+  readonly bladesVisible: boolean;
+  readonly discVisible: boolean;
+  update(rpm: number, dt: number, fromCockpit?: boolean): void;
+  dispose(): void;
+}
 
 const D2R = Math.PI / 180;
 
@@ -69,10 +80,12 @@ interface Airframe {
   fuselage: FuselageAssembly;
   wings: WingAssembly;
   tail: TailAssembly;
-  propeller: Propeller;
+  propeller: Rotor;
   gear: GearAssembly;
   lights: AircraftLights;
   cockpit: CockpitAssembly;
+  /** extra per-frame animation (the airliner's second elevator half and spoilers) */
+  animate?: (state: AircraftState) => void;
 }
 
 /** Material options with the registration placed on the fuselage between stations regZ. */
@@ -117,6 +130,35 @@ function buildCub(cfg: AircraftModelConfig, options: AircraftModelOptions, light
   const lights = new AircraftLights(layout.lights, materials, lightOpts);
   const cockpit = new CubCockpit(layout, fuselage.cabinProfile, materials);
   return { layout, materials, fuselage, wings, tail, propeller, gear, lights, cockpit };
+}
+
+function buildA320(cfg: AircraftModelConfig, options: AircraftModelOptions, lightOpts: LightOptions): Airframe {
+  const layout = resolveA320Layout(cfg);
+  const len = layout.zTail - layout.zNose;
+  const profile = new LoftProfile(layout.fuselage.stations);
+  const sec = { z: 0, width: 0, height: 0, yCenter: 0, n: 2 } as LoftStation;
+  const materials = createModelMaterials({
+    scheme: A320_PAINT, registration: options.registration ?? 'N320FS',
+    regU: [layout.regZ[0] / len, layout.regZ[1] / len],
+    liveryScale: { uM: len / 2048, vM: 3.2 / 512 },
+    liverySection: (u) => { profile.sectionAt(layout.zNose + u * len, sec); return { bottom: sec.yCenter - sec.height / 2, height: sec.height, zFromNose: u * len }; },
+  });
+  const parts = buildA320Airframe(layout, materials);
+  const fuselage: FuselageAssembly = { group: parts.fuselage, cowl: parts.fuselage.children[0] as THREE.Mesh, cabinShell: parts.cabinShell, cabinProfile: parts.profile, windows: [] };
+  const w = parts.wings;
+  const wings: WingAssembly = { group: w.group, aileronLeft: w.aileronLeft, aileronRight: w.aileronRight, flapLeft: w.flapLeft, flapRight: w.flapRight };
+  const tail: TailAssembly = { group: parts.tail.group, elevator: parts.tail.elevator, rudder: parts.tail.rudder };
+  const propeller = new TurbofanFans(layout, materials);
+  const gear = new A320Gear(layout, materials);
+  const lights = new AircraftLights(layout.lights, materials, lightOpts);
+  const cockpit = new A320Cockpit(layout, parts.profile, materials);
+  const elevL = parts.tail.elevatorLeft, elevR = parts.tail.elevator, spoilers = w.spoilers;
+  const animate = (state: AircraftState) => {
+    elevL.rotation.x = elevR.rotation.x;
+    const sb = -finiteOr(state.surfaces.speedbrake) * 45 * D2R;
+    for (const sp of spoilers) sp.rotation.x = sb;
+  };
+  return { layout, materials, fuselage, wings, tail, propeller, gear, lights, cockpit, animate };
 }
 
 /** Cub-only skin details: the carburettor air box under the nose and the door handle. */
@@ -165,7 +207,8 @@ export class AircraftModel {
   readonly airframe: AirframeLayout['airframe'];
   readonly layout: AirframeLayout;
   readonly materials: ModelMaterials;
-  readonly propeller: Propeller;
+  readonly propeller: Rotor;
+  private readonly animate: ((state: AircraftState) => void) | null;
   readonly gear: GearAssembly;
   readonly lights: AircraftLights;
   readonly cockpit: CockpitAssembly;
@@ -192,7 +235,8 @@ export class AircraftModel {
       taxiIntensity: options.taxiLightIntensity,
       spotShadows: options.spotShadows,
     };
-    const a = cfg.airframe === 'cub' ? buildCub(cfg, options, lightOpts) : buildC172(cfg, options, lightOpts);
+    const a = cfg.airframe === 'cub' ? buildCub(cfg, options, lightOpts) : cfg.airframe === 'a320' ? buildA320(cfg, options, lightOpts) : buildC172(cfg, options, lightOpts);
+    this.animate = a.animate ?? null;
     this.layout = a.layout;
     this.airframe = a.layout.airframe;
     const L = this.layout;
@@ -277,6 +321,7 @@ export class AircraftModel {
     sf.rudder.rotation.y = -finiteOr(s.rudderRad);
 
     this.propeller.update(finiteOr(state.engine.rpm), step, cameraIsCockpit);
+    this.animate?.(state);
     this.gear.update(state.gear, step);
     this.lights.update(step, inputs.lights, !cameraIsCockpit || this.night, this.nightLights);
     this.cockpit.update(inputs, state);

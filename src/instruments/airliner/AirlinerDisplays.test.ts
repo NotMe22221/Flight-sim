@@ -18,7 +18,7 @@ describe('airliner displays (PFD / ND / E-WD / FCU)', () => {
     expect([d.canvas.width, d.canvas.height]).toEqual([AIRLINER_W, AIRLINER_H]);
     const snap = makeSampleSnapshot({ iasKt: 250, altFt: 10_000 });
     snap.autopilot.iasTargetMs = 250 * KT;
-    snap.aircraft.engine.n1 = 0.82;
+    snap.aircraft.engine.n1 = 82;
     snap.plan = makeFlightPlan();
     d.update(snap, 1 / 30, { athrEngaged: true, athrMode: 'SPEED', athrLever: 0.7 });
     d.draw(snap);

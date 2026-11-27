@@ -6,6 +6,7 @@
 import type { AircraftConfig } from '../core/types';
 import { C172_CHECKLISTS, type ChecklistSection } from './data/c172Checklists';
 import { CUB_CHECKLISTS } from './data/cubChecklists';
+import { A320_CHECKLISTS } from './data/a320Checklists';
 
 /** Tail-wheel when a steerable or castering wheel sits behind the CG (body x < 0), else tricycle. */
 export function gearKind(a: Pick<AircraftConfig, 'gear'>): 'Tail-wheel' | 'Tricycle' {
@@ -27,6 +28,7 @@ export function seatCount(a: Pick<AircraftConfig, 'mass'>): number {
 
 /** One sentence for the aircraft picker. */
 export function aircraftBlurb(a: AircraftConfig): string {
+  if (a.panel === 'airliner-pfd') return 'A twin-jet airliner with fly-by-wire controls, glass displays (PFD, ND, engine display), autopilot and autothrust. Needs a long runway: about 2,000 m for take-off.';
   if (a.panel === 'cub-steam') return 'Fabric-covered tail-dragger for bush flying: short take-offs and landings on grass, tandem seats, a simple VFR panel and no autopilot. Keep your feet busy on the rudder.';
   if (a.panel === 'c172-g1000') return 'The Skyhawk with a G1000 glass cockpit (PFD and MFD) and a GFC 700 autopilot.';
   if (a.panel === 'c172-steam') return 'The classic four-seat trainer: stable and forgiving, with the six-pack steam gauges and a KAP 140-style autopilot.';
@@ -35,5 +37,6 @@ export function aircraftBlurb(a: AircraftConfig): string {
 
 /** Checklists for the aircraft being flown (the 172's when unknown). */
 export function checklistsFor(a: Pick<AircraftConfig, 'airframe'> | null | undefined): ChecklistSection[] {
+  if (a?.airframe === 'a320') return A320_CHECKLISTS;
   return a?.airframe === 'cub' ? CUB_CHECKLISTS : C172_CHECKLISTS;
 }

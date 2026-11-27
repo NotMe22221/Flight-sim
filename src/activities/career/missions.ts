@@ -52,6 +52,7 @@ const NM = 1852, FT = 0.3048;
 export interface FieldNeeds { minRunwayM: number; unpavedOk: boolean; cruiseKt: number }
 export const C172_FIELDS: FieldNeeds = { minRunwayM: 2000 * FT, unpavedOk: false, cruiseKt: 115 };
 export const CUB_FIELDS: FieldNeeds = { minRunwayM: 800 * FT, unpavedOk: true, cruiseKt: 95 };
+export const A320_FIELDS: FieldNeeds = { minRunwayM: 6000 * FT, unpavedOk: false, cruiseKt: 300 };
 
 /** The longest runway the aircraft can use at `a`, or null. */
 export function usableRunway(a: Airport, needs: FieldNeeds): Airport['runways'][number] | null {

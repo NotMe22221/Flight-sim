@@ -6,9 +6,10 @@
 import type { AircraftConfig } from '../core/types';
 import { C172S } from '../fdm/aircraft/c172';
 import { PA18_150 } from '../fdm/aircraft/cub';
+import { A320 } from '../fdm/aircraft/a320';
 
 export const C172S_G1000: AircraftConfig = { ...C172S, id: 'c172s-g1000', name: 'Cessna 172S Skyhawk G1000', panel: 'c172-g1000' };
-export const AIRCRAFT: readonly AircraftConfig[] = [C172S, C172S_G1000, PA18_150];
+export const AIRCRAFT: readonly AircraftConfig[] = [C172S, C172S_G1000, PA18_150, A320];
 
 /**
  * Catalog entry for an id: exact match, else the first entry whose id starts with it (activities name
@@ -40,5 +41,6 @@ export function aircraftForActivity(family: string | undefined, current: Aircraf
 
 /** ATC callsign and spoken type for an aircraft (registrations match the 3D liveries). */
 export function radioCallsign(cfg: AircraftConfig): { callsign: string; aircraftType: string } {
+  if (cfg.airframe === 'a320') return { callsign: 'N320FS', aircraftType: 'Airbus' };
   return cfg.airframe === 'cub' ? { callsign: 'N18FS', aircraftType: 'Super Cub' } : { callsign: 'N172FS', aircraftType: 'Cessna' };
 }

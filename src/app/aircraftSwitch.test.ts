@@ -83,8 +83,8 @@ function makeSim(): SimulatorT {
 const model = (s: SimulatorT) => s.model as unknown as FakeModelT;
 
 describe('aircraft catalog', () => {
-  it('lists the 172S, the 172S G1000 and the Super Cub; ids and families resolve', () => {
-    expect(AIRCRAFT.map((a) => a.id)).toEqual(['c172s', 'c172s-g1000', 'pa18-150']);
+  it('lists the 172S, the 172S G1000, the Super Cub and the A320; ids and families resolve', () => {
+    expect(AIRCRAFT.map((a) => a.id)).toEqual(['c172s', 'c172s-g1000', 'pa18-150', 'a320']);
     expect(aircraftById('pa18-150')).toBe(PA18_150);
     expect(aircraftById('pa18')).toBe(PA18_150);
     expect(aircraftById('c172')).toBe(C172S);

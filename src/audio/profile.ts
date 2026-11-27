@@ -31,6 +31,8 @@ export interface AudioProfile {
   alphaStallRad: number;
   /** jets have an overspeed clacker; the C172 has none */
   overspeedClacker: boolean;
+  /** turbofan: the turbine voice replaces the piston engine and propeller */
+  turbine?: boolean;
 }
 
 /** C172S defaults. */
@@ -70,6 +72,7 @@ export function audioProfileFromConfig(cfg: AircraftConfig): AudioProfile {
     p.refThrustN = Math.max(500, eng.ratedPowerW * 0.02);
   } else {
     p.refThrustN = eng.ratedThrustN;
+    p.turbine = true;
   }
   const prop = cfg.propulsion.propeller;
   if (prop) { p.propBlades = prop.blades; p.propDiameterM = prop.diameterM; }

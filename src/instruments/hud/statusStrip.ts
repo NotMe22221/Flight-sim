@@ -37,9 +37,16 @@ export function drawControls(ctx: Ctx2D, widthCss: number, heightCss: number, k:
   label(ctx, 'THR', x + col * 0.5, top, 11 * k, C.dim, 'center');
   vbar(ctx, x + 10 * k, y + 22 * k, 7 * k, h - 30 * k, v.throttle, C.text);
   value(ctx, pct.get(v.throttle * 100), x + col - 6 * k, mid, 15 * k, C.text);
-  label(ctx, 'MIX', x + col * 1.5, top, 11 * k, C.dim, 'center');
-  vbar(ctx, x + col + 10 * k, y + 22 * k, 7 * k, h - 30 * k, v.mixture, C.red);
-  value(ctx, pct.get(v.mixture * 100), x + col * 2 - 6 * k, mid, 15 * k, C.text);
+  if (v.n1Pct !== null) {
+    // jets: N1 instead of the mixture
+    label(ctx, 'N1', x + col * 1.5, top, 11 * k, C.dim, 'center');
+    vbar(ctx, x + col + 10 * k, y + 22 * k, 7 * k, h - 30 * k, Math.min(1, v.n1Pct / 100), C.green);
+    value(ctx, pct.get(v.n1Pct), x + col * 2 - 6 * k, mid, 15 * k, C.text);
+  } else {
+    label(ctx, 'MIX', x + col * 1.5, top, 11 * k, C.dim, 'center');
+    vbar(ctx, x + col + 10 * k, y + 22 * k, 7 * k, h - 30 * k, v.mixture, C.red);
+    value(ctx, pct.get(v.mixture * 100), x + col * 2 - 6 * k, mid, 15 * k, C.text);
+  }
   // flaps
   label(ctx, 'FLAPS', x + col * 2.5, top, 11 * k, C.dim, 'center');
   label(ctx, flapsText(v.flapsDeg), x + col * 2.5, mid, 16 * k, v.flapOverspeed ? C.amber : C.text, 'center', true);

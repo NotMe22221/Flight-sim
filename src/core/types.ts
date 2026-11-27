@@ -349,7 +349,7 @@ export interface EngineState {
   thrustN: number;
   torqueNm: number;
   /** 0..1 of rated */ pctPower: number;
-  /** turbofan only */ n1?: number; n2?: number;
+  /** turbofan only, percent */ n1?: number; n2?: number;
 }
 
 /** Signs (JSBSim): elevator + = trailing edge down; each aileron + = its trailing edge down; rudder + = trailing edge left. */

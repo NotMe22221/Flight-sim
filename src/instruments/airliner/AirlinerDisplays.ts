@@ -481,7 +481,7 @@ export class AirlinerDisplays {
 
   private drawEwd(g: Ctx2D, s: SimSnapshot): void {
     const ac = s.aircraft, en = ac.engine;
-    const n1 = (en.n1 ?? 0) * 100;
+    const n1 = en.n1 ?? 0; // percent
     for (const cx of [128, 384]) {
       const cy = 110, r = 72;
       // dial: 0..110 % over 210°

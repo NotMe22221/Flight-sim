@@ -8,7 +8,7 @@ import { fetchOpenMeteo, OPEN_METEO_ATTRIBUTION, weatherFromPreset } from '../sk
 import type { AudioSettings, BindingInfo, CareerJobView, CareerView, GraphicsSettings, LogbookView, MassState, SpawnChoice, UiHost, UnitsSettings } from '../ui/UiHost';
 import { CAREER_HOME, type Licence } from '../activities/career/careerStore';
 import { LICENCES, examActivity, missingFor } from '../activities/career/licences';
-import { C172_FIELDS, CUB_FIELDS, JOB_LABEL, generateJobs, jobActivity, type CareerJob } from '../activities/career/missions';
+import { A320_FIELDS, C172_FIELDS, CUB_FIELDS, JOB_LABEL, generateJobs, jobActivity, type CareerJob } from '../activities/career/missions';
 import { computeMassProperties } from '../fdm/massProps';
 import { AVGAS_KG_PER_GAL } from '../core/units';
 import type { Simulator } from './Simulator';
@@ -104,7 +104,7 @@ export class SimUiHost implements UiHost {
     await this.sim.nav.load();
     const origin = this.sim.nav.getAirport(c.location) ?? this.sim.nav.getAirport(CAREER_HOME);
     if (!origin) return [];
-    const needs = this.sim.config.airframe === 'cub' ? CUB_FIELDS : C172_FIELDS;
+    const needs = this.sim.config.airframe === 'cub' ? CUB_FIELDS : this.sim.config.airframe === 'a320' ? A320_FIELDS : C172_FIELDS;
     const key = `${origin.icao}|${c.seed}|${c.licences.join(',')}|${this.sim.config.airframe ?? 'c172'}`;
     if (this.careerBoard?.key !== key) {
       await this.sim.nav.loadRegion(origin.position, 90);

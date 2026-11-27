@@ -46,6 +46,8 @@ export interface SimAutomation {
   panelPoint(id: string): { x: number; y: number } | null;
   /** set the cockpit free-look offsets (rad) for screenshots */
   look(yawRad: number, pitchRad: number): void;
+  /** external-orbit camera: yaw / pitch around the aircraft (rad) and distance (m) */
+  orbit(yawRad: number, pitchRad: number, distanceM?: number): void;
   stats(): unknown;
   /** the Simulator itself, for debugging and look-development experiments in a headless browser */
   readonly sim: Simulator;
@@ -107,6 +109,7 @@ export function installAutomation(sim: Simulator): SimAutomation {
     startBushLeg: async (tripId, i) => { const t = tripById(tripId); if (!t) throw new Error(`unknown trip ${tripId}`); await sim.activities.start(bushLegActivity(t, i)); },
     terrainReady: () => sim.snapshot.terrainReady,
     look: (y, p) => { sim.cameras.state.lookYaw = y; sim.cameras.state.lookPitch = p; },
+    orbit: (y, p, d) => { const c = sim.cameras.state; c.orbitYaw = y; c.orbitPitch = p; if (d) c.orbitDistanceM = d; },
     panelPoint: (id) => {
       const L = sim.panelLayout;
       const it = L.items.find((i) => i.id === id);

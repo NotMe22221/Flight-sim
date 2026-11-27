@@ -164,6 +164,8 @@ export const FAILURE_LABELS: Readonly<Record<FailureId, string>> = {
 const SPAWN_ROLL_OFFSET_M = 40;
 /** an air start is raised to at least this height above the terrain under it, m */
 const AIR_SPAWN_MIN_AGL_M = 150;
+/** shortest runway an airliner is spawned on when a longer one exists at the airport, m */
+const AIRLINER_MIN_RUNWAY_M = 1800;
 
 /** Aircraft family the landing challenges are written for (approach speeds, flaps 2 of 4). */
 const LANDING_CHALLENGE_AIRCRAFT = 'c172';
@@ -516,6 +518,7 @@ export class Simulator {
     this.crashReported = false;
     this.touchdown.reset(true);
     this.plugins.audio?.setAircraft?.(next);
+    this.cameras.setAircraftLength(next.geometry.lengthM ?? 8.28);
   }
 
   start(): void {
@@ -620,7 +623,7 @@ export class Simulator {
       // fly-by-wire: the law flies the pilot's stick; under the autopilot it only coordinates the rudder
       if (this.hasAutopilot && this.autopilot.state.engaged) fbw.coordinate(this.effective, s);
       else fbw.apply(this.effective, s, simDt);
-      const thr = this.autothrust.update(simDt, s, this.autopilot.state, fbw.alphaFloor, this.effective.gearDown);
+      const thr = this.autothrust.update(simDt, s, this.autopilot.state, fbw.alphaFloor, this.effective.gearDown, this.effective.throttle);
       if (thr !== null) this.effective.throttle = thr;
       // thrust reversers: hold "throttle decrease" (F2) with the levers at idle, on the ground
       this.effective.reverse = s.onGround && this.input.controls.throttle <= 0.001 && this.heldThrottleDec;
@@ -1184,7 +1187,8 @@ export class Simulator {
       case 'autothrustToggle': {
         if (this.config.propulsion.engine.type !== 'turbofan') break;
         const at = this.autothrust;
-        if (!at.engaged && aps.iasTargetMs <= 0) ap.setIasTarget(s.aero.ias);
+        // a target below the minimum manoeuvring speed (or none) is replaced by the current speed
+        if (!at.engaged && aps.iasTargetMs < this.config.limits.Vs1Kt * 1.25 * KT) ap.setIasTarget(Math.max(s.aero.ias, this.config.limits.Vs1Kt * 1.3 * KT));
         // disconnecting leaves the levers where the autothrust had them
         if (at.engaged) this.input.controls.throttle = at.throttle;
         at.toggle(this.input.controls.throttle);
@@ -1293,7 +1297,13 @@ export class Simulator {
 
   /** Spawn on a runway (lined up, past the threshold markings) or cold & dark. */
   async spawnAtRunway(airport: Airport, endIdent: string | null, opts: { coldAndDark?: boolean; fuelFraction?: number; payloadKg?: number } = {}): Promise<void> {
-    const end = this.runwayEndFor(airport, endIdent ?? undefined);
+    let end = this.runwayEndFor(airport, endIdent ?? undefined);
+    // an airliner needs a long runway: the longest one when the chosen one is too short, and a warning
+    if (end && this.config.category === 'airliner' && end.lengthM < AIRLINER_MIN_RUNWAY_M) {
+      const longest = airport.runways.flatMap((r) => runwayEnds(airport, r)).sort((a, b) => b.lengthM - a.lengthM)[0];
+      if (longest && longest.lengthM > end.lengthM) end = longest;
+      if (end.lengthM < AIRLINER_MIN_RUNWAY_M) this.events.emit('ui:toast', { text: `Runway ${end.ident} is only ${Math.round(end.lengthM)} m long: the ${this.config.manufacturer} needs about ${AIRLINER_MIN_RUNWAY_M} m to take off.`, kind: 'warn', durationMs: 9000 });
+    }
     const thr = end ? end.threshold : airport.position;
     const hdg = end ? end.headingDeg : 0;
     const pos = World.offset({ lat: thr.lat, lon: thr.lon, alt: end ? thr.alt : airport.elevationM }, hdg, (end?.displacedM ?? 0) + SPAWN_ROLL_OFFSET_M);

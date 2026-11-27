@@ -14,6 +14,7 @@ import type {
   AircraftConfig, AircraftState, AudioMixer, AutopilotState, CameraState, ControlInputs, SimSnapshot, Vec3, WeatherState,
 } from '../core/types';
 import { EngineSynth, type EngineSynthInput } from './EngineSynth';
+import { TurbineSynth } from './TurbineSynth';
 import { EnvironmentSynth } from './Environment';
 import type { SurfaceKind } from './environmentLaws';
 import { AudioGraph, type AudioContextFactory, type BusName, defaultContextFactory } from './graph';
@@ -41,7 +42,7 @@ export interface AudioSystemOptions {
 interface Voices {
   generation: number;
   stage: ViewStage;
-  engine: EngineSynth;
+  engine: EngineSynth | TurbineSynth;
   env: EnvironmentSynth;
   warnings: Warnings;
 }
@@ -91,7 +92,9 @@ export class AudioSystem implements AudioMixer {
   /** The underlying graph (advanced use: analysers, recording). */
   get audioGraph(): AudioGraph { return this.graph; }
   /** Engine voice, once built (diagnostics / tests). */
-  get engine(): EngineSynth | null { return this.voices?.engine ?? null; }
+  get engine(): EngineSynth | null { const e = this.voices?.engine; return e instanceof EngineSynth ? e : null; }
+  /** The turbofan voice when a jet is loaded. */
+  get turbine(): TurbineSynth | null { const e = this.voices?.engine; return e instanceof TurbineSynth ? e : null; }
   /** Environment voice, once built. */
   get environment(): EnvironmentSynth | null { return this.voices?.env ?? null; }
   /** Warning voice, once built. */
@@ -230,7 +233,7 @@ export class AudioSystem implements AudioMixer {
     this.disposeVoices();
     try {
       const stage = new ViewStage(ctx, b.bus.engine, b.bus.environment, b.master, b.cabin);
-      const engine = new EngineSynth(ctx, n, this.profile);
+      const engine = this.profile.turbine ? new TurbineSynth(ctx, n) : new EngineSynth(ctx, n, this.profile);
       engine.output.connect(b.bus.engine);
       const env = new EnvironmentSynth(ctx, n, b.bus.environment, b.bus.cockpit, this.profile);
       const warnings = new Warnings(ctx, n, b.bus.cockpit, b.bus.ui, this.profile);

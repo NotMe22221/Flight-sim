@@ -79,6 +79,16 @@ export class CameraController {
       pointerActive: false, zoomAxis: 0, zoomSteps: 0,
     };
   }
+  /** A different aircraft: the chase and orbit distances follow its length (2 × length). */
+  setAircraftLength(lengthM: number): void {
+    if (!(lengthM > 0)) return;
+    const o = this.options as { -readonly [K in keyof ResolvedCameraOptions]: ResolvedCameraOptions[K] };
+    o.aircraftLengthM = lengthM;
+    o.chaseDistanceM = 2 * lengthM;
+    this.state.orbitDistanceM = Math.min(o.orbitMaxM, Math.max(o.orbitMinM, o.chaseDistanceM));
+    this.chase.resetDistance();
+  }
+
 
   /** Current mode. */
   get mode(): CameraMode { return this.state.mode; }

@@ -12,8 +12,10 @@
  *           overspeed (nose-up demand above VMO + 6 kt). `alphaFloor` reports α above α-floor, for
  *           the autothrust to add take-off thrust.
  *
- * On the ground (and below 50 ft in a descent: the flare) the law blends to direct control, so the
- * pilot rotates and flares with the stick as in the real aircraft's ground and flare modes.
+ * On the ground and in the flare (below 50 ft in a descent) the law blends to a pitch-rate law: the
+ * stick commands up to 3.5 °/s of pitch rate and neutral holds the attitude, so a held key rotates
+ * smoothly instead of slamming the elevator (the pitch stops at 12.5° on the ground: no tail strike).
+ * Below 70 kt the stick drives the elevator directly.
  */
 import type { AircraftState, ControlInputs } from '../core/types';
 import { clamp } from '../core/math';
@@ -29,6 +31,8 @@ export interface FbwLimits {
 
 const MAX_BANK = 67 * DEG, HOLD_BANK = 33 * DEG, MAX_PITCH = 30 * DEG, MIN_PITCH = -15 * DEG;
 const ROLL_RATE = 15 * DEG;
+/** rotation / flare law: pitch rate at full stick, pitch limit on the ground */
+const ROT_RATE = 3.5 * DEG, ROT_MAX_PITCH = 12.5 * DEG;
 
 export class FlyByWire {
   /** nz integrator (the auto-trim), stick units */
@@ -42,11 +46,13 @@ export class FlyByWire {
   alphaFloor = false;
   /** last load-factor demand, g (diagnostics) */
   nzCmd = 1;
+  /** rotation / flare law integrator, stick units */
+  private rotInteg = 0;
 
   constructor(private readonly lim: FbwLimits) {}
 
   /** `stick`: the trim stick the aircraft starts with (an air spawn starts in normal law, trimmed). */
-  reset(stick = 0, airborne = false): void { this.integ = clamp(stick, -1, 1); this.bankHold = 0; this.holding = false; this.blend = airborne ? 1 : 0; this.alphaFloor = false; }
+  reset(stick = 0, airborne = false): void { this.integ = clamp(stick, -1, 1); this.rotInteg = 0; this.bankHold = 0; this.holding = false; this.blend = airborne ? 1 : 0; this.alphaFloor = false; }
 
   /** Turn coordination / yaw damping only (the autopilot flies pitch and roll; the rudder stays coordinated). */
   coordinate(u: ControlInputs, s: AircraftState): void {
@@ -64,18 +70,34 @@ export class FlyByWire {
     const ias = s.aero.ias;
     const flare = !s.onGround && s.altitudeAglM < 50 * FT && s.verticalSpeedMs < 0;
     const normal = !s.onGround && !flare && ias > 60 * KT;
-    this.blend = clamp(this.blend + (normal ? dt / 2 : -dt / 1.5), 0, 1);
+    // the flight law blends in over 5 s after lift-off (and out over 1.5 s into the flare)
+    this.blend = clamp(this.blend + (normal ? dt / 5 : -dt / 1.5), 0, 1);
     const stickP = clamp(u.pitch, -1, 1), stickR = clamp(u.roll, -1, 1);
+    // ground / flare pitch: rate law above 70 kt, direct below
+    let direct = stickP;
+    if (ias > 70 * KT) {
+      let qCmd = stickP * ROT_RATE;
+      if (s.onGround && theta > ROT_MAX_PITCH - 2 * DEG) qCmd = Math.min(qCmd, ROT_RATE * clamp((ROT_MAX_PITCH - theta) / (2 * DEG), -1, 1));
+      const kr = clamp(Math.pow(128.6 / Math.max(ias, 50), 1.6), 0.5, 3);
+      this.rotInteg = clamp(this.rotInteg + 5 * kr * (qCmd - q) * dt, -1, 1);
+      direct = clamp(this.rotInteg + 7 * kr * (qCmd - q), -1, 1);
+    } else {
+      this.rotInteg = 0;
+    }
     if (this.blend <= 0) {
-      // direct law: the stick moves the surfaces; the integrator follows so the switch is smooth
-      this.integ = 0; this.bankHold = phi; this.holding = false;
+      // ground / flare law alone; the normal law's integrator starts from this elevator when it blends in
+      u.pitch = direct;
+      this.integ = direct; this.bankHold = phi; this.holding = false;
       this.alphaFloor = false;
       return;
     }
+    if (this.blend >= 1) this.rotInteg = this.integ;
 
     // ── pitch: C*-like load-factor law ──
     const cphi = Math.cos(clamp(phi, -HOLD_BANK, HOLD_BANK));
-    let nz = Math.cos(theta) / Math.max(cphi, 0.5) + (stickP >= 0 ? 1.5 : 2.0) * stickP;
+    // +2.5 g clean, +2 g with flaps out; −1 g / 0 g
+    const nzUp = u.flapsIndex > 0 ? 1.0 : 1.5;
+    let nz = Math.cos(theta) / Math.max(cphi, 0.5) + (stickP >= 0 ? nzUp : 2.0) * stickP;
     // pitch-attitude protection: the demand fades out approaching the limits
     if (theta > MAX_PITCH - 5 * DEG && nz > 1) nz = 1 + (nz - 1) * clamp((MAX_PITCH - theta) / (5 * DEG), 0, 1) - 0.5 * clamp((theta - MAX_PITCH) / (5 * DEG), 0, 1);
     // nose-down: the pitch rate is anticipated (1.5 s), so the attitude stops at the limit rather than past it
@@ -114,7 +136,7 @@ export class FlyByWire {
     const yaw = clamp(u.yaw + 3.0 * s.aero.beta - 0.8 * r, -1, 1);
 
     const b = this.blend;
-    u.pitch = b * pitch + (1 - b) * stickP;
+    u.pitch = b * pitch + (1 - b) * direct;
     u.roll = b * roll + (1 - b) * stickR;
     u.yaw = b * yaw + (1 - b) * u.yaw;
   }

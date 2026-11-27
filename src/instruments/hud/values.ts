@@ -15,6 +15,8 @@ export interface HudValues {
   aglFt: number; vsFpm: number;
   /** magnetic heading and heading bug, deg */ hdgDeg: number; bugDeg: number;
   throttle: number; mixture: number;
+  /** jets: N1 percent (shown instead of the mixture); null for piston engines */
+  n1Pct: number | null;
   flapsDeg: number; flapsIndex: number;
   /** mean gear extension 0 (up) .. 1 (down) */ gearExt: number;
   /** pitch trim −1 (nose down) .. +1 (nose up) */ trim: number;
@@ -27,7 +29,7 @@ export interface HudValues {
 
 export function createHudValues(): HudValues {
   return {
-    iasKt: 0, gsKt: 0, tasKt: 0, altFt: 0, aglFt: 0, vsFpm: 0, hdgDeg: 0, bugDeg: 0, throttle: 0, mixture: 1,
+    iasKt: 0, gsKt: 0, tasKt: 0, altFt: 0, aglFt: 0, vsFpm: 0, hdgDeg: 0, bugDeg: 0, throttle: 0, mixture: 1, n1Pct: null,
     flapsDeg: 0, flapsIndex: 0, gearExt: 1, trim: 0, parkingBrake: false, braking: false,
     stall: false, overspeed: false, overG: false, flapOverspeed: false, gearOverspeed: false, lowFuel: false, crashed: false,
     paused: false, slew: false, onGround: true, terrainReady: 1, cockpit: false,
@@ -57,6 +59,8 @@ export class HudSmoothing {
     out.bugDeg = wrap360(fin(s.autopilot.headingBugDeg));
     out.throttle = clamp(fin(inp.throttle), 0, 1);
     out.mixture = clamp(fin(inp.mixture, 1), 0, 1);
+    const n1 = s.aircraft.engine.n1;
+    out.n1Pct = typeof n1 === 'number' && Number.isFinite(n1) ? n1 : null;
     out.flapsDeg = fin(ac.surfaces.flapDeg);
     out.flapsIndex = inp.flapsIndex;
     let ext = 0;

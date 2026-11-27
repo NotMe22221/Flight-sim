@@ -67,6 +67,37 @@ describe('fly-by-wire normal law (A320)', () => {
   });
 });
 
+describe('fly-by-wire take-off (A320)', () => {
+  it('full stick held at 145 kt rotates at ≈ 3 °/s, stops short of a tail strike, and climbs away hands off', () => {
+    const f = new Fdm(A320, { seed: 3 });
+    f.reset({ geo: { lat: KSFO.lat, lon: KSFO.lon, alt: KSFO.elev }, headingRad: 0, speedMs: 0, onGround: true, engineRunning: true }, env);
+    const fbw = new FlyByWire({ vmoKt: 350, alphaProtRad: 0.2, alphaFloorRad: 0.23 });
+    fbw.reset(0, false);
+    const u = defaultControlInputs();
+    u.parkingBrake = false; u.flapsIndex = 1; u.magnetos = 3; u.mixture = 1; u.throttle = 1;
+    let maxPitchGround = 0, maxRate = 0, airborneT = -1, t = 0;
+    for (; t < 80; t += DT) {
+      const kias = f.state.aero.ias / KT;
+      u.pitch = kias > 145 && (airborneT < 0 || t - airborneT < 1) ? 1 : 0;
+      u.roll = 0; u.yaw = 0;
+      fbw.apply(u, f.state, DT);
+      f.step(DT, u, env);
+      expect(f.state.crashed).toBe(false);
+      if (f.state.onGround) maxPitchGround = Math.max(maxPitchGround, f.state.euler[1]);
+      if (kias > 145) maxRate = Math.max(maxRate, f.state.rates[1]);
+      if (airborneT < 0 && !f.state.onGround && f.state.altitudeAglM > 5) airborneT = t;
+      if (airborneT > 0 && t - airborneT > 20) break;
+    }
+    expect(airborneT).toBeGreaterThan(0);
+    expect(maxPitchGround / DEG).toBeLessThan(12);
+    expect(maxRate / DEG).toBeLessThan(8);
+    // released 1 s after lift-off: the normal law holds the climb
+    expect(f.state.verticalSpeedMs).toBeGreaterThan(5);
+    expect(f.state.euler[1] / DEG).toBeGreaterThan(5); expect(f.state.euler[1] / DEG).toBeLessThan(22);
+    expect(f.state.altitudeAglM / FT).toBeGreaterThan(300);
+  });
+});
+
 describe('autothrust (A320)', () => {
   it('SPEED: accelerates from 250 to 280 kt and holds it within ± 5 kt; slows back to 250', async () => {
     const { AutoThrust } = await import('./autothrust');

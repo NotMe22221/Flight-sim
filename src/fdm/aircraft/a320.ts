@@ -63,7 +63,7 @@ export const A320: AircraftConfig = {
     macHeightOnGround: 2.9,
     lengthM: 37.57, heightM: 11.76,
     // captain's eye: left seat, about 2.5 m behind the nose tip, near the top of the windscreen band
-    eyePoint: [14.6, -0.55, -0.45],
+    eyePoint: [14.6, -0.55, -0.9],
   },
   mass: {
     emptyMassKg: 42_600,

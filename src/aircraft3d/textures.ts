@@ -23,7 +23,12 @@ export interface LiveryScheme {
    * rising `slope` m per m toward the tail. Needs the `section` callback of
    * {@link createLiveryTexture}; ignored without it.
    */
-  lines?: { y0: number; y1: number; slope: number; color: string; /** start this far behind the nose (m) */ from?: number }[];
+  lines?: { y0: number; y1: number; slope: number; color: string; /** start this far behind the nose (m) */ from?: number; /** end this far behind the nose (m) */ to?: number }[];
+  /**
+   * rows of rounded windows (airliner cabin) at absolute model heights: centre height `y` (m),
+   * size `w` × `h` (m), every `pitch` m from `from` to `to` m behind the nose. Needs `section`.
+   */
+  windows?: { y: number; w: number; h: number; pitch: number; from: number; to: number; color: string; /** gaps (door positions), m behind the nose */ skip?: [number, number][] }[];
   /** registration colour, centre height and cap height (fractions of the section height) */
   regColor: string; regF: number; capF: number;
 }
@@ -97,13 +102,38 @@ export function createLiveryTexture(
       const { bottom, height, zFromNose } = section(u);
       if (!(height > 1e-3)) continue;
       for (const l of scheme.lines) {
-        if (zFromNose < (l.from ?? 0)) continue;
+        if (zFromNose < (l.from ?? 0) || zFromNose > (l.to ?? Infinity)) continue;
         const f0 = (l.y0 + l.slope * zFromNose - bottom) / height, f1 = (l.y1 + l.slope * zFromNose - bottom) / height;
         if (f1 <= 0 || f0 >= 1) continue;
         ctx.fillStyle = l.color;
         for (const v of [[0.5 * f0, 0.5 * f1], [1 - 0.5 * f1, 1 - 0.5 * f0]]) {
           const y0 = yOf(Math.max(v[0], v[1])), y1 = yOf(Math.min(v[0], v[1]));
           ctx.fillRect(i * colW - 0.5, y0, colW + 1, y1 - y0);
+        }
+      }
+    }
+  }
+  // airliner window rows (rounded rectangles on both sides)
+  if (section && scheme.windows?.length) {
+    const len = section(1).zFromNose || 1;
+    for (const row of scheme.windows) {
+      ctx.fillStyle = row.color;
+      for (let z = row.from; z <= row.to + 1e-6; z += row.pitch) {
+        if (row.skip?.some(([a, b]) => z >= a && z <= b)) continue;
+        const u = z / len;
+        const { bottom, height } = section(u);
+        if (!(height > 1e-3)) continue;
+        const f0 = (row.y - row.h / 2 - bottom) / height, f1 = (row.y + row.h / 2 - bottom) / height;
+        const xw = (row.w / len) * W;
+        for (const v of [[0.5 * f0, 0.5 * f1], [1 - 0.5 * f1, 1 - 0.5 * f0]]) {
+          const y0 = yOf(Math.max(v[0], v[1])), y1 = yOf(Math.min(v[0], v[1]));
+          const x = u * W - xw / 2, r = Math.min(xw, y1 - y0) * 0.35;
+          ctx.beginPath();
+          ctx.moveTo(x + r, y0); ctx.lineTo(x + xw - r, y0); ctx.quadraticCurveTo(x + xw, y0, x + xw, y0 + r);
+          ctx.lineTo(x + xw, y1 - r); ctx.quadraticCurveTo(x + xw, y1, x + xw - r, y1);
+          ctx.lineTo(x + r, y1); ctx.quadraticCurveTo(x, y1, x, y1 - r);
+          ctx.lineTo(x, y0 + r); ctx.quadraticCurveTo(x, y0, x + r, y0);
+          ctx.fill();
         }
       }
     }
