@@ -28,6 +28,7 @@ import { CameraController } from '../camera';
 import { InputManager } from '../input/InputManager';
 import { AIRLINER_AUTOPILOT, AutoThrust, FlightAssists, GfcAutopilot, assistsConfigFor, fbwFor, type FlyByWire, type NavInputs } from '../autopilot';
 import { SteamPanel, type PanelLayout } from '../instruments/SteamPanel';
+import { AirlinerDisplays } from '../instruments/airliner/AirlinerDisplays';
 import { hasAutopilot, panelSpecFor, steamLayoutFor } from '../instruments/panels';
 import { C172S_G1000, aircraftById, aircraftForActivity, radioCallsign, sameAirframe } from './aircraftCatalog';
 import { TouchdownDetector } from '../activities/TouchdownDetector';
@@ -246,7 +247,10 @@ export class Simulator {
   invertPitch = false;
   lastSpawn: { airport: Airport | null; spawn: SpawnState; end: RunwayEndRef | null } | null = null;
   currentAirport: Airport | null = null;
-  panelVariant: 'steam' | 'g1000' = 'steam';
+  panelVariant: 'steam' | 'g1000' | 'airliner' = 'steam';
+  /** airliner glass cockpit (PFD / ND / E-WD / FCU), for `panel: 'airliner-pfd'` aircraft */
+  private airliner: AirlinerDisplays | null = null;
+  private airlinerTex: THREE.CanvasTexture | null = null;
   weatherPreset: WeatherPresetId = 'few';
 
   private readonly loop = new FixedStepLoop(PHYSICS_DT);
@@ -364,6 +368,7 @@ export class Simulator {
     const snap = this.refreshSnapshot();
     this.steam.reset(snap);
     this.plugins.g1000?.reset?.(snap);
+    this.airliner?.reset(snap);
     this.plugins.hud?.reset?.();
   }
 
@@ -380,6 +385,7 @@ export class Simulator {
    * the panel shown (`config` becomes the 172S G1000 with the glass panel, the 172S without).
    */
   setPanel(variant: 'steam' | 'g1000'): void {
+    if (this.airliner) { this.panelVariant = 'airliner'; this.airliner.reset(this.refreshSnapshot()); return; }
     const glass = variant === 'g1000' && !!this.g1000Tex && this.model.airframe === 'c172';
     const next = glass ? 'g1000' : 'steam';
     // the newly shown panel has not been stepped while hidden: start it from the current state
@@ -463,6 +469,21 @@ export class Simulator {
     return tex;
   }
 
+  /** Build (or drop) the airliner displays for `cfg`, and show them on the panel. */
+  private setupAirlinerDisplays(cfg: AircraftConfig): void {
+    this.airliner?.dispose(); this.airliner = null;
+    this.airlinerTex?.dispose(); this.airlinerTex = null;
+    if (cfg.panel !== 'airliner-pfd') return;
+    this.airliner = new AirlinerDisplays(cfg);
+    const tex = new THREE.CanvasTexture(this.airliner.canvas as HTMLCanvasElement);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = Math.min(8, this.gfx.maxAnisotropy);
+    this.airlinerTex = tex;
+    this.model.panelMesh.material.map = tex;
+    this.model.panelMesh.material.needsUpdate = true;
+    this.panelVariant = 'airliner';
+  }
+
   /** New airframe: rebuild everything that is built from the aircraft configuration. */
   private rebuildAirframe(next: AircraftConfig): void {
     // replayed frames, the slew pose and an engine start belong to the old airframe
@@ -483,8 +504,9 @@ export class Simulator {
     this.steamTex.dispose();
     this.steam = new SteamPanel({ layout: steamLayoutFor(next), spec: panelSpecFor(next) });
     this.steamTex = this.makeSteamTexture();
+    this.setupAirlinerDisplays(next);
     // the new model's G1000 plane (C172) gets the glass texture again in setPanel
-    this.panelVariant = 'steam';
+    if (!this.airliner) this.panelVariant = 'steam';
     this.input.setFlapDetents(next.controls.flaps.detentsDeg.length);
     this.flightAssists = new FlightAssists(assistsConfigFor(next));
     this.autopilot.reconfigure(next.controls.flyByWire ? AIRLINER_AUTOPILOT : undefined);
@@ -1104,7 +1126,10 @@ export class Simulator {
 
     const snap = this.refreshSnapshot();
     // only the panel on display is stepped and redrawn (each has its own instrument model)
-    if (this.panelVariant === 'steam') {
+    if (this.airliner) {
+      const at = this.autothrust;
+      if (this.airliner.update(snap, dt, { athrEngaged: at.engaged, athrMode: at.mode, athrLever: at.throttle }) && this.airlinerTex) this.airlinerTex.needsUpdate = true;
+    } else if (this.panelVariant === 'steam') {
       // the steam panel's COM1 windows show the radio stack ATC uses (the G1000 syncs its own box)
       const com = this.radios.state.com1, box = this.steam.com1;
       box.activeKHz = Math.round(com.activeMHz * 1000); box.standbyKHz = Math.round(com.standbyMHz * 1000);
@@ -1671,6 +1696,7 @@ export class Simulator {
     this.sky.dispose();
     this.model.dispose();
     this.steamTex.dispose();
+    this.airliner?.dispose(); this.airlinerTex?.dispose();
     this.g1000Tex?.dispose();
     this.gfx.dispose();
   }
