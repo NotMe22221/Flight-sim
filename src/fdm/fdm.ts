@@ -17,6 +17,7 @@ import { AirspeedCalibration, atmosphere, casFromTas, easFromTas, iasFromCas, in
 import { GearModel } from './gear';
 import { computeMassProperties, type MassProperties } from './massProps';
 import { PistonPropulsion, newPropulsionOutput, type PropulsionControls } from './propulsion';
+import { TurbofanPropulsion } from './turbofan';
 import { createAircraftState } from './state';
 import { DrydenTurbulence, Rng } from './turbulence';
 import { C172S_ELECTRICAL, ElectricalSystem, type ElectricalLoads, type ElectricalSwitches } from './electrical';
@@ -75,11 +76,14 @@ export class Fdm implements FlightModel {
   private readonly yGood = new Float64Array(NS);
 
   private readonly aero: AeroModel;
-  private readonly prop: PistonPropulsion;
+  /** piston engine + propeller (C172, Cub), or null for jets */
+  private readonly prop: PistonPropulsion | null;
+  /** turbofans (airliner), or null for pistons */
+  private readonly jet: TurbofanPropulsion | null;
   private readonly gear: GearModel;
   private readonly turb: DrydenTurbulence;
   private readonly rng: Rng;
-  private readonly engineSpec: PistonEngineSpec;
+  private readonly engineSpec: PistonEngineSpec | null;
   private readonly magvar = new MagVarCache();
   private utcMs: number;
 
@@ -158,10 +162,18 @@ export class Fdm implements FlightModel {
 
   constructor(readonly config: AircraftConfig, opts: FdmOptions = {}) {
     const eng = config.propulsion.engine;
-    if (eng.type !== 'piston' || !config.propulsion.propeller) throw new Error(`Fdm: unsupported propulsion ${eng.type}`);
-    this.engineSpec = eng;
+    if (eng.type === 'piston') {
+      if (!config.propulsion.propeller) throw new Error('Fdm: a piston engine needs a propeller');
+      this.engineSpec = eng;
+      this.prop = new PistonPropulsion(eng, config.propulsion.propeller);
+      this.jet = null;
+    } else if (eng.type === 'turbofan') {
+      if (!config.propulsion.enginePositions.length) throw new Error('Fdm: turbofans need engine positions');
+      this.engineSpec = null;
+      this.prop = null;
+      this.jet = new TurbofanPropulsion(eng, config.propulsion.enginePositions);
+    } else throw new Error(`Fdm: unsupported propulsion ${(eng as { type: string }).type}`);
     this.aero = new AeroModel(config);
-    this.prop = new PistonPropulsion(eng, config.propulsion.propeller);
     this.gear = new GearModel(config.gear);
     this.gearOut = this.gear.newOutput();
     this.rng = new Rng(opts.seed ?? 0x5eed);
@@ -208,9 +220,18 @@ export class Fdm implements FlightModel {
   setUtc(ms: number): void { this.utcMs = ms; }
 
   /** Best-power mixture lever position for the current ambient pressure (auto-mixture assist). */
-  bestPowerMixture(): number { return this.prop.bestPowerMixture(this.atm.pressurePa); }
+  bestPowerMixture(): number { return this.prop ? this.prop.bestPowerMixture(this.atm.pressurePa) : 1; }
   /** Auto-mixture assist target: the lever position of this engine model's peak power. */
-  peakPowerMixture(): number { return this.prop.peakPowerMixture(this.atm.pressurePa); }
+  peakPowerMixture(): number { return this.prop ? this.prop.peakPowerMixture(this.atm.pressurePa) : 1; }
+
+  /** Thrust reversers deployed (turbofans; set from the inputs each step). */
+  private reverseOn = false;
+
+  /** Speed the electrical system's generator sees: crank rpm (piston), or a running jet's generator. */
+  private generatorRpm(): number {
+    if (this.jet) return this.jet.lit ? 2400 : this.y[13] * 3000;
+    return (this.y[13] * 60) / TWO_PI;
+  }
 
   /** End the flight with a structural failure detected outside the model (stress-damage assist). */
   failStructure(reason: string): void { this.crash(reason); }
@@ -259,11 +280,12 @@ export class Fdm implements FlightModel {
     const air = { rho: this.atm.densityKgM3, pAmb: this.atm.pressurePa, tAmb: this.atm.temperatureK, u: 0, v: 0, w: 0 };
     if (spawn.engineRunning) {
       const c: PropulsionControls = { throttle: 0, mixture: 1, magnetos: 3, starter: false, fuelAvailable: true };
-      const eq = this.prop.equilibrium(air, c, 700 * TWO_PI / 60, 0.3 * this.atm.pressurePa);
+      const eq = this.jet ? this.jet.equilibrium(air, c, 0) : this.prop!.equilibrium(air, c, 700 * TWO_PI / 60, 0.3 * this.atm.pressurePa);
       y[13] = eq.omega; y[14] = eq.map;
-      this.egt = F2K(1100); this.cht = F2K(250); this.oilT = F2K(140); this.oilP = 30 * 6894.76;
+      this.egt = this.jet ? eq.map : F2K(1100); this.cht = F2K(250); this.oilT = F2K(140); this.oilP = 30 * 6894.76;
     } else {
-      y[13] = 0; y[14] = this.atm.pressurePa;
+      if (this.jet) this.jet.lit = false;
+      y[13] = 0; y[14] = this.jet ? this.atm.temperatureK : this.atm.pressurePa;
       this.egt = this.cht = this.oilT = this.atm.temperatureK; this.oilP = 0;
     }
     if (spawn.onGround) {
@@ -280,7 +302,7 @@ export class Fdm implements FlightModel {
       this.trim(cas, spawn.gammaRad ?? 0, env);
     }
     // publish the electrical state right away (air spawns take no settling steps)
-    this.electrical.step(0, this.elecSw, this.elecLoads, (y[13] * 60) / TWO_PI);
+    this.electrical.step(0, this.elecSw, this.elecLoads, this.generatorRpm());
   }
 
   step(dt: number, rawInputs: ControlInputs, env: Environment): void {
@@ -309,7 +331,7 @@ export class Fdm implements FlightModel {
     const qn = Math.sqrt(y[6] * y[6] + y[7] * y[7] + y[8] * y[8] + y[9] * y[9]) || 1; // not Math.hypot: its varargs can allocate
     y[6] /= qn; y[7] /= qn; y[8] /= qn; y[9] /= qn;
     if (y[13] < 0) y[13] = 0;
-    if (y[14] < 1000) y[14] = 1000;
+    if (this.jet) { if (y[14] < 150) y[14] = 150; } else if (y[14] < 1000) y[14] = 1000;
     for (let i = 0; i < NS; i++) {
       if (Number.isFinite(y[i])) continue;
       // back to the last finite state, so the crashed aircraft (and everything reading its pose) stays valid
@@ -343,7 +365,7 @@ export class Fdm implements FlightModel {
     this.daL = this.ailCmdL; this.daR = this.ailCmdR;
     this.dr = -(rc.rudder.rigNorm ?? 0) * rc.rudder.maxDeg * DEG;
     this.steer = 0; this.brakeL = this.brakeR = 0;
-    let omega = 2300 * TWO_PI / 60, map = this.atm.pressurePa * 0.8;
+    let omega = this.jet ? 0.6 : 2300 * TWO_PI / 60, map = this.jet ? this.atm.temperatureK + 600 : this.atm.pressurePa * 0.8;
     const x = [0.05, 0, 0.6];
     const res = [0, 0, 0];
     const evalRes = (xx: number[], out: number[]): void => {
@@ -358,7 +380,8 @@ export class Fdm implements FlightModel {
       const wb = qRotate(this.qnb, this.windNED, this.windB);
       y[3] = V * Math.cos(a) + wb[0]; y[4] = wb[1]; y[5] = V * Math.sin(a) + wb[2];
       y[10] = y[11] = y[12] = 0;
-      const eq = this.prop.equilibrium({ rho: this.atm.densityKgM3, pAmb: this.atm.pressurePa, tAmb: this.atm.temperatureK, u: V * Math.cos(a), v: 0, w: V * Math.sin(a) }, ctl, omega, map);
+      const trimAir = { rho: this.atm.densityKgM3, pAmb: this.atm.pressurePa, tAmb: this.atm.temperatureK, u: V * Math.cos(a), v: 0, w: V * Math.sin(a) };
+      const eq = this.jet ? this.jet.equilibrium(trimAir, ctl, V / this.atm.speedOfSound) : this.prop!.equilibrium(trimAir, ctl, omega, map);
       omega = eq.omega; map = eq.map;
       y[13] = eq.omega; y[14] = eq.map;
       this.deriv(y, this.k1);
@@ -638,7 +661,7 @@ export class Fdm implements FlightModel {
     el.battery = u.masterBattery ?? true; el.alternator = u.masterAlternator ?? true; el.avionics = u.avionicsMaster ?? true;
     ld.nav = u.lights.nav; ld.beacon = u.lights.beacon; ld.strobe = u.lights.strobe; ld.landing = u.lights.landing; ld.taxi = u.lights.taxi;
     ld.panel = u.lights.panel; ld.pitotHeat = u.pitotHeat; ld.fuelPump = u.fuelPump ?? false; ld.starter = u.starter;
-    this.electrical.step(dt, el, ld, (this.y[13] * 60) / TWO_PI);
+    this.electrical.step(dt, el, ld, this.generatorRpm());
     this.ctl.starter = u.starter && el.battery;
     this.ctl.starterFactor = this.electrical.starterFactor();
   }
@@ -711,11 +734,16 @@ export class Fdm implements FlightModel {
     const qbar = 0.5 * rho * V * V;
 
     // propulsion
-    const pr = cfg.propulsion.propeller!;
-    this.hub[0] = pr.position[0] - cg[0]; this.hub[1] = pr.position[1] - cg[1]; this.hub[2] = pr.position[2] - cg[2];
+    const pr = cfg.propulsion.propeller;
     const pa = this.propAir;
     pa.rho = rho; pa.pAmb = this.atm.pressurePa; pa.tAmb = this.atm.temperatureK; pa.u = ua; pa.v = va; pa.w = wa;
-    const po = this.prop.evaluate(s[13], s[14], pa, this.ctl, this.hub, this.propOut);
+    let po;
+    if (this.jet) {
+      po = this.jet.evaluate(s[13], s[14], pa, this.ctl, cg, this.state.altitudeMslM, V / this.atm.speedOfSound, this.reverseOn, this.propOut);
+    } else {
+      this.hub[0] = pr!.position[0] - cg[0]; this.hub[1] = pr!.position[1] - cg[1]; this.hub[2] = pr!.position[2] - cg[2];
+      po = this.prop!.evaluate(s[13], s[14], pa, this.ctl, this.hub, this.propOut);
+    }
 
     // aerodynamics
     const arp = this.arp;
@@ -727,7 +755,7 @@ export class Fdm implements FlightModel {
     ai.qbarUW = 0.5 * rho * (ua * ua + wa * wa);
     ai.qbarTail = Math.max(po.qbarTail, 0.5 * rho * Math.max(ua, 0) ** 2);
     ai.qbarInduced = po.qbarInduced;
-    ai.propSense = pr.sense;
+    ai.propSense = pr ? pr.sense : 1;
     const tp = this.turb.out.pqr;
     ai.p = p - tp[0]; ai.q = qq - tp[1]; ai.r = r - tp[2];
     ai.alphaDot = this.alphaDot;
@@ -808,6 +836,17 @@ export class Fdm implements FlightModel {
     const amb = this.atm.temperatureK;
     const po = this.propOut;
     const run = po.combusting;
+    if (!this.engineSpec) {
+      // turbofan: EGT is its own state (slot 14); oil follows N1
+      const n1 = y[13];
+      this.egt = y[14];
+      this.oilT = lag1(this.oilT, run ? amb + 90 * (0.5 + 0.5 * n1) : amb, 120, dt);
+      this.oilP = lag1(this.oilP, run ? (25 + 40 * clamp(n1, 0, 1)) * 6894.76 : 0, 0.5, dt);
+      this.cht = amb;
+      if (this.gearOut.crash) this.crash(this.gearOut.crash);
+      else if (this.env.surface === 'water' && this.gearOut.wheelsOnGround > 0) this.crash('water landing');
+      return;
+    }
     const pct = clamp(po.brakePowerW / this.engineSpec.ratedPowerW, 0, 1.2);
     const fa = po.fuelAir;
     const egtF = run ? 1000 + 500 * clamp(1 - Math.abs(fa - 0.068) / 0.02, 0, 1) * (0.6 + 0.4 * pct) + 250 * pct : 0;
@@ -914,14 +953,22 @@ export class Fdm implements FlightModel {
     // engine
     const po = this.propOut, en = st.engine;
     en.running = po.combusting;
-    en.rpm = (y[13] * 60) / TWO_PI;
-    en.manifoldPressureInHg = y[14] / INHG;
+    if (this.jet) {
+      // N1 as a fan rpm (CFM56-class: 100 % ≈ 5,175 rpm), N2 core speed from N1
+      en.n1 = y[13] * 100;
+      en.n2 = po.combusting ? 58 + 42 * clamp(y[13], 0, 1.05) : y[13] * 60;
+      en.rpm = y[13] * 5175;
+      en.manifoldPressureInHg = 0;
+    } else {
+      en.rpm = (y[13] * 60) / TWO_PI;
+      en.manifoldPressureInHg = y[14] / INHG;
+    }
     en.fuelFlowKgS = po.fuelFlowKgS;
     en.egtK = this.egt; en.chtK = this.cht; en.oilTempK = this.oilT; en.oilPressurePa = this.oilP;
     en.powerW = Math.max(0, po.brakePowerW);
     en.thrustN = po.thrustN;
     en.torqueNm = po.propTorqueNm;
-    en.pctPower = en.powerW / this.engineSpec.ratedPowerW;
+    en.pctPower = this.engineSpec ? en.powerW / this.engineSpec.ratedPowerW : Math.max(0, po.thrustN) / (this.jet!.spec.ratedThrustN * this.jet!.engineCount);
 
     // surfaces
     const sf = st.surfaces;
