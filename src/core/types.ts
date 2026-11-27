@@ -800,7 +800,7 @@ export interface SimEvents {
   'autopilot:changed': { state: AutopilotState };
   'landing:scored': { score: number; details: Record<string, number | string> };
   /** an activity (lesson, bush trip leg) started */
-  'activity:started': { id: string; title: string; kind: 'lesson' | 'bushTrip' };
+  'activity:started': { id: string; title: string; kind: 'lesson' | 'bushTrip' | 'mission' | 'exam' };
   /** instructor / briefing line: shown as subtitle, optionally spoken */
   'activity:instruction': { text: string; speech?: string; important?: boolean };
   /** objective list changed: the current step and every objective's status */

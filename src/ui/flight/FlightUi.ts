@@ -47,7 +47,7 @@ const AP_EVENT_GRACE_MS = 1500;
 const DEBRIEF_DELAY_MS = 1800;
 
 /** The activity the flight belongs to (from 'activity:started'). */
-interface ActivityInfo { id: string; title: string; kind: 'lesson' | 'bushTrip' }
+interface ActivityInfo { id: string; title: string; kind: 'lesson' | 'bushTrip' | 'mission' | 'exam' }
 
 export class FlightUi {
   readonly panels: FlightPanels;

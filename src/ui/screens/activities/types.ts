@@ -2,9 +2,10 @@
 import type { ScreenContext } from '../Screen';
 import type { UiHost } from '../../UiHost';
 
-export type ActivitiesTab = 'challenges' | 'training' | 'bush' | 'discovery';
+export type ActivitiesTab = 'career' | 'challenges' | 'training' | 'bush' | 'discovery';
 /** `short`: the phone label (three tabs share a 360 px wide bar). */
-export const ACTIVITY_TABS: readonly { id: ActivitiesTab; label: string; short: string; icon: 'trophy' | 'school' | 'route' | 'globe'; subtitle: string }[] = [
+export const ACTIVITY_TABS: readonly { id: ActivitiesTab; label: string; short: string; icon: 'trophy' | 'school' | 'route' | 'globe' | 'plane'; subtitle: string }[] = [
+  { id: 'career', label: 'Career', short: 'Career', icon: 'plane', subtitle: 'Earn licences, fly paid jobs, build your reputation' },
   { id: 'challenges', label: 'Landing challenges', short: 'Challenges', icon: 'trophy', subtitle: 'Start on final, land, get scored' },
   { id: 'training', label: 'Flight training', short: 'Training', icon: 'school', subtitle: 'Lessons with an instructor, step by step' },
   { id: 'bush', label: 'Bush trips', short: 'Bush trips', icon: 'route', subtitle: 'Multi-leg VFR journeys, navigating by landmarks' },
@@ -12,7 +13,7 @@ export const ACTIVITY_TABS: readonly { id: ActivitiesTab; label: string; short: 
 ];
 
 export function parseActivitiesTab(v: unknown): ActivitiesTab {
-  return ACTIVITY_TABS.some((t) => t.id === v) ? (v as ActivitiesTab) : 'challenges';
+  return ACTIVITY_TABS.some((t) => t.id === v) ? (v as ActivitiesTab) : 'career';
 }
 
 /** One tab: its own `.screen-body` element, shown below the tab bar. */

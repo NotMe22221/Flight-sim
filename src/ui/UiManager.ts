@@ -103,6 +103,14 @@ export class UiManager {
         const start = host.startBushLeg;
         if (start) void this.launcher.startActivity(() => start.call(host, tripId, legIndex), `Could not start leg ${legIndex + 1}`);
       },
+      startCareerJob: (id) => {
+        const start = host.startCareerJob;
+        if (start) void this.launcher.startActivity(() => start.call(host, id), 'Could not start the job');
+      },
+      startCareerExam: (licence) => {
+        const start = host.startCareerExam;
+        if (start) void this.launcher.startActivity(() => start.call(host, licence), 'Could not start the check-ride');
+      },
       restartActivity: () => {
         const restart = host.restartActivity;
         if (restart) void this.launcher.startActivity(() => restart.call(host), 'Could not restart the activity');

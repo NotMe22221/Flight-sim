@@ -45,6 +45,8 @@ import { StressMonitor, crashIsRecoverable } from './damage';
 import type { RebaseTransform } from '../world/rebase';
 import { QUALITY, createRenderer, type RendererBundle } from './renderer';
 import { PostFx } from './postFx';
+import { CareerStore } from '../activities/career/careerStore';
+import { LICENCES } from '../activities/career/licences';
 import { DynamicResolution } from './dynamicResolution';
 import { CarbIce } from './carbIce';
 import { TrafficManager, rankRunways } from '../traffic/TrafficManager';
@@ -320,7 +322,20 @@ export class Simulator {
     this.navIn = { nav1: this.radios.nav1, nav2: this.radios.nav2, plan: null };
     this.touchdown = new TouchdownDetector(this.events, { airports: () => this.nearbyAirports });
     this.activities = new ActivityRunner({ host: makeActivityHost(this, (t) => this.speakInstructor?.(t)), events: this.events, progress: this.activityProgress });
-    this.steam = new SteamPanel({ layout: steamLayoutFor(this.config), spec: panelSpecFor(this.config) });
+    // career: a job or check-ride is settled when its activity ends (pay, reputation, licence, location)
+    this.events.on('activity:finished', (p) => {
+      if (!p.id.startsWith('career:')) return;
+      const r = this.career.finish(p.success, p.score ?? 0);
+      if (!r) return;
+      const money = (n: number) => '$' + n.toLocaleString('en-US');
+      let text: string;
+      if (r.licence) text = 'Licence issued: ' + (LICENCES.find((l) => l.id === r.licence)?.title ?? r.licence);
+      else if (p.id.startsWith('career:exam')) text = 'Check-ride not passed.';
+      else if (p.success) text = `Job complete: +${money(r.pay)}, reputation +${r.reputation}. You are now at ${r.location}.`;
+      else text = `Job failed: no pay, reputation ${r.reputation}.`;
+      this.events.emit('ui:toast', { text, kind: r.licence || (p.success && !p.id.startsWith('career:exam')) ? 'success' : 'warn', durationMs: 8000 });
+    });
+    this.steam =new SteamPanel({ layout: steamLayoutFor(this.config), spec: panelSpecFor(this.config) });
     this.steamTex = this.makeSteamTexture();
     this.prev = structuredClone(this.fdm.state);
     this.interp = structuredClone(this.fdm.state);
@@ -582,6 +597,8 @@ export class Simulator {
 
   /** Pilot logbook (Main menu › Logbook): one entry per flight, newest first. */
   readonly logbook = new Logbook(safeLocalStorage());
+  /** career progress (money, reputation, licences, location) */
+  readonly career = new CareerStore(safeLocalStorage());
   private readonly logRecorder = new LogbookRecorder();
   private logNearest: string | null = null;
   private logLastT = 0;

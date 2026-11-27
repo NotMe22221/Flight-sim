@@ -31,6 +31,9 @@ export interface ScreenContext {
   startBushLeg?(tripId: string, legIndex: number): void;
   /** Activities › Discovery flights: loading screen, host.startDiscovery(id), then the flight view. */
   startDiscovery?(id: string): void;
+  /** Activities › Career: loading screen, host.startCareerJob / startCareerExam, then the flight view. */
+  startCareerJob?(id: string): void;
+  startCareerExam?(licence: string): void;
   /** Debrief "Retry" / pause menu "Restart activity": loading screen, host.restartActivity(), then the flight view. */
   restartActivity?(): void;
   /** Main menu "Resume flight": back to the flight and out of the pause menu (Esc/back keeps it open). */

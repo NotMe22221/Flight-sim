@@ -356,7 +356,7 @@ export function subtitleDurationMs(text: string, important = false): number {
 }
 
 /** Who speaks the activity lines. */
-export const speakerFor = (kind: string | null | undefined): string => (kind === 'bushTrip' ? 'Co-pilot' : 'Instructor');
+export const speakerFor = (kind: string | null | undefined): string => (kind === 'bushTrip' ? 'Co-pilot' : kind === 'mission' ? 'Dispatcher' : kind === 'exam' ? 'Examiner' : 'Instructor');
 
 // ─── Debrief ──────────────────────────────────────────────────────────────────
 

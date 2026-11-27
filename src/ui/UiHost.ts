@@ -74,6 +74,21 @@ export interface MassState {
   canLoad: boolean;
 }
 
+/** Career mode as the Activities › Career tab shows it. */
+export interface CareerView {
+  money: number;
+  reputation: number;
+  location: { icao: string; name: string };
+  jobsDone: number;
+  logbookHours: number;
+  ladder: { id: string; title: string; unlocks: string; needs: string[]; held: boolean; missing: string[]; exam: boolean }[];
+  history: { type: string; from: string; to: string; pay: number; success: boolean }[];
+}
+export interface CareerJobView {
+  id: string; type: string; typeLabel: string; title: string; brief: string; from: string; to: string;
+  distanceNm: number; payloadKg: number; pay: number; licence: string; locked: string | null; timeLimitMin?: number;
+}
+
 export interface UiHost {
   readonly events: EventBus;
   readonly nav: NavDatabase;
@@ -143,6 +158,12 @@ export interface UiHost {
    * actions, for the help sheet: plain-language title and every input bound to it. Optional.
    */
   flyingControls?(): { title: string; keys: string[] }[];
+  /** Career (optional): progress, the job board at the pilot's location (loads the region), starting a job or check-ride. */
+  career?(): CareerView;
+  careerJobs?(): Promise<CareerJobView[]>;
+  startCareerJob?(id: string): Promise<void>;
+  startCareerExam?(licence: string): Promise<void>;
+  resetCareer?(): void;
   /** EFB Weight & fuel (optional): the current load, the weight and CG of a proposed one, and loading it. */
   massState?(): MassState | null;
   previewMass?(stationKg: number[], fuelFraction: number): { totalKg: number; cgM: number } | null;

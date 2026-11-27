@@ -193,13 +193,14 @@ export class ProgressStore {
 
   /** Record a finished activity (what ActivityRunner calls). Failed attempts only count as attempts. */
   recordResult(def: ActivityDef, result: ActivityResult): void {
-    if (!result.success) return;
+    if (!result.success || def.kind === 'mission') return;
     if (def.trip) this.completeLeg(def.trip.tripId, def.trip.legIndex, { score: result.score, fuelKg: result.fuelKg, landingScore: result.landingScore });
     else this.completeLesson(def.id, result.score);
   }
 
   /** Record that an activity started. */
   recordStart(def: ActivityDef): void {
+    if (def.kind === 'mission') return;
     if (def.trip) this.recordLegAttempt(def.trip.tripId, def.trip.legIndex);
     else this.recordLessonAttempt(def.id);
   }

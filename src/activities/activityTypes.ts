@@ -58,6 +58,8 @@ export type ActivitySetup =
   | {
     spawn: 'runway'; icao: string; runway: string;
     coldAndDark?: boolean; fuelFraction?: number; parkingBrake?: boolean;
+    /** payload in the seats and baggage, kg (career jobs) */
+    payloadKg?: number;
     weather?: WeatherPresetId; time?: TimePreset; route?: Waypoint[];
     /** a point at the field (deg): a 'flight:reset' near it restarts the activity instead of aborting it */
     anchor?: { lat: number; lon: number };
@@ -95,7 +97,7 @@ export interface StepDef {
 
 export interface ActivityDef {
   id: string;
-  kind: 'lesson' | 'bushTrip';
+  kind: 'lesson' | 'bushTrip' | 'mission' | 'exam';
   title: string;
   /** one or two sentences for the Activities screen */
   description: string;

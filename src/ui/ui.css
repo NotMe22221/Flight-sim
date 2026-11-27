@@ -497,6 +497,26 @@
 .fs-ui .navlog-total { display: flex; justify-content: space-between; font-size: 0.85em; color: var(--fg-dim); padding-top: 6px; }
 
 /* ─── responsive (≥ 1024×600) ──────────────────────────────────────────── */
+/* ── Activities › Career ─────────────────────────────────────────── */
+.fs-ui .career-body { display: flex; flex-direction: column; gap: 10px; padding-bottom: 20px; }
+.fs-ui .career-header { display: flex; flex-wrap: wrap; gap: 10px; }
+.fs-ui .career-stat { flex: 1 1 150px; display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: var(--radius); background: var(--ui-bg); border: 1px solid var(--ui-border); }
+.fs-ui .career-big { font-size: 1.3em; color: var(--fg); }
+.fs-ui .career-board { display: flex; flex-direction: column; gap: 8px; }
+.fs-ui .career-job { display: flex; align-items: center; gap: 14px; padding: 12px 14px; }
+.fs-ui .career-job > .icon { color: var(--accent); flex: none; }
+.fs-ui .career-job.locked { opacity: 0.55; }
+.fs-ui .career-job-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.fs-ui .career-pay { color: var(--ok); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fs-ui .career-fail { color: var(--err); }
+.fs-ui .career-need { font-size: .85em; }
+.fs-ui .career-ladder { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.fs-ui .career-licence { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.fs-ui .career-licence.held { border-color: rgba(95, 214, 138, 0.45); }
+.fs-ui .career-licence.held .icon { color: var(--ok); }
+.fs-ui .career-history { display: flex; flex-direction: column; gap: 4px; }
+.fs-ui .career-row { display: flex; justify-content: space-between; gap: 10px; font-size: .9em; padding: 4px 2px; border-bottom: 1px solid var(--ui-border); }
+
 /* ── EFB tablet (Tab) ───────────────────────────────────────────── */
 .fs-ui .tablet { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(0.98); width: min(980px, 94vw); height: min(640px, 86vh); display: none; z-index: 30; pointer-events: auto; opacity: 0; transition: opacity var(--t), transform var(--t); }
 .fs-ui .tablet.visible { display: block; opacity: 1; transform: translate(-50%, -50%) scale(1); }
