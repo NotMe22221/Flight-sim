@@ -46,6 +46,12 @@ export interface AeroInput {
   hOverB: number;
   /** stall hysteresis branch: 0 normal, 1 post-stall */
   hyst: number;
+  /** retractable gear extension 0..1 (0 for fixed gear: its drag is in CD0) */
+  gearDrag?: number;
+  /** speedbrake / spoiler deflection 0..1 */
+  spoiler?: number;
+  /** flight Mach number (drag rise) */
+  mach?: number;
 }
 
 export interface AeroOutput {
@@ -79,6 +85,7 @@ export class AeroModel {
   private readonly cmFlap: Table1D;
   private readonly cmAlphaScale: Table1D;
   private readonly cmDeScale: Table1D;
+  private readonly cdMach: Table1D | null;
   private readonly kCL: Table1D;
   private readonly kCD: Table1D;
   private readonly alphaMin: number;
@@ -103,6 +110,7 @@ export class AeroModel {
     this.cmFlap = new Table1D(a.Cm.dFlap.xs, a.Cm.dFlap.ys);
     this.cmAlphaScale = new Table1D(a.Cm.highAlphaScale.xs, a.Cm.highAlphaScale.ys);
     this.cmDeScale = new Table1D(a.Cm.deHighAlphaScale.xs, a.Cm.deHighAlphaScale.ys);
+    this.cdMach = a.CD.mach ? new Table1D(a.CD.mach.xs, a.CD.mach.ys) : null;
     this.kCL = new Table1D(a.groundEffect.hOverB, a.groundEffect.kCL);
     this.kCD = new Table1D(a.groundEffect.hOverB, a.groundEffect.kCD);
     this.alphaMin = a.CL.table.rows[0];
@@ -151,12 +159,14 @@ export class AeroModel {
     const cn90 = a.CL.CD90;
     const clFlat = cn90 * sinA * cosA;
     const deScale = this.cmDeScale.at(absA);
-    const CL = (1 - w) * clWing + w * clFlat + a.CL.dElev * i.de * deScale + a.CL.q * qh + a.CL.adot * adh * uwRatio;
+    const sp = i.spoiler ?? 0;
+    const CL = (1 - w) * clWing + w * clFlat + a.CL.dElev * i.de * deScale + a.CL.q * qh + a.CL.adot * adh * uwRatio + (a.CL.spoiler ?? 0) * sp * (1 - w);
 
     // ── Drag ────────────────────────────────────────────────────────────────
     const cdTab = a.CD.CD0 + kCD * (this.cdTable.at(ac, flap) + this.cdFlap.at(flap));
     const cdFlat = a.CD.CD0 + cn90 * sinA * sinA;
-    const CD = (1 - w) * cdTab + w * cdFlat + a.CD.dElevAbs * Math.abs(i.de) + a.CD.betaAbs * Math.abs(sinB);
+    const CD = (1 - w) * cdTab + w * cdFlat + a.CD.dElevAbs * Math.abs(i.de) + a.CD.betaAbs * Math.abs(sinB)
+      + a.CD.gearDown * (i.gearDrag ?? 0) + a.CD.speedbrake * sp + (this.cdMach ? this.cdMach.at(i.mach ?? 0) : 0);
 
     // ── Side force ──────────────────────────────────────────────────────────
     // JSBSim tabulates these lateral terms at α = 0 and 0.094 rad only and clamps outside

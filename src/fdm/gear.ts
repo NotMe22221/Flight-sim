@@ -40,6 +40,8 @@ export interface GearInputs {
   brakeRight: number;
   /** steering command, rad (+ = turn right; a wheel behind the CG is turned the other way) */
   steerRad: number;
+  /** retractable gear extension 0..1 (default 1): a retractable wheel touches nothing unless down and locked */
+  extension?: number;
 }
 
 export interface GearOutput {
@@ -143,6 +145,7 @@ export class GearModel {
       out.normalForce[i] = 0;
       out.anchorSaturated[i] = 0;
       out.sideForce[i] = 0;
+      if (g.retractable && (ctl.extension ?? 1) < 0.95) continue;
       // steering: the turn command, mirrored for a wheel behind the CG; a castering wheel keeps its swivel angle
       const sgn = this.steerSign[i];
       const steer = this.castering[i] ? this.casterAngle[i] : sgn !== 0 ? sgn * ctl.steerRad : 0;

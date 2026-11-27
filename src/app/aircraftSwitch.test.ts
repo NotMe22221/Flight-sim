@@ -46,7 +46,7 @@ vi.mock('../aircraft3d', async (orig) => {
     readonly panelMesh = new T.Mesh(new T.PlaneGeometry(0.6, 0.3), new T.MeshBasicMaterial());
     readonly panelMeshG1000 = new T.Mesh(new T.PlaneGeometry(0.96, 0.35), new T.MeshBasicMaterial());
     readonly eyePointLocal = new T.Vector3();
-    readonly airframe: 'c172' | 'cub';
+    readonly airframe: NonNullable<AircraftConfig['airframe']>;
     variant = 'steam';
     disposed = 0;
     constructor(readonly config: AircraftConfig) { this.airframe = config.airframe ?? 'c172'; fakes.models.push(this); }

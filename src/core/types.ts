@@ -66,6 +66,8 @@ export interface ControlInputs {
   starter: boolean;
   fuelSelector: FuelSelector;
   gearDown: boolean;
+  /** thrust reversers (held: deploy with the throttle at idle) */
+  reverse?: boolean;
   /** 0..1 */
   speedbrake: number;
   lights: { nav: boolean; beacon: boolean; strobe: boolean; landing: boolean; taxi: boolean; panel: number };
@@ -246,9 +248,9 @@ export interface AircraftConfig {
   };
   aero: {
     /** CL vs alpha (rad): rows = alpha, cols = [normal, post-stall branch] */
-    CL: { table: Table2DSpec; hystOnRad: number; hystOffRad: number; dFlap: Table1DSpec; dElev: number; q: number; adot: number; CD90: number };
+    CL: { table: Table2DSpec; hystOnRad: number; hystOffRad: number; dFlap: Table1DSpec; dElev: number; q: number; adot: number; CD90: number; /** lift change at full spoiler (negative) */ spoiler?: number };
     /** CD: table rows = alpha rad, cols = flap detents deg; plus CD0 added */
-    CD: { CD0: number; alphaFlapTable: Table2DSpec; dFlap: Table1DSpec; dElevAbs: number; betaAbs: number; gearDown: number; speedbrake: number };
+    CD: { CD0: number; alphaFlapTable: Table2DSpec; dFlap: Table1DSpec; dElevAbs: number; betaAbs: number; gearDown: number; speedbrake: number; /** drag rise vs Mach (added) */ mach?: Table1DSpec };
     CY: { beta: number; p: number; r: number; da: number; dr: number };
     Cl: { beta: number; p: number; r: number; da: number; dr: number };
     Cm: { Cm0: number; alpha: number; q: number; adot: number; de: number; dFlap: Table1DSpec; highAlphaScale: Table1DSpec; deHighAlphaScale: Table1DSpec };
@@ -288,6 +290,12 @@ export interface AircraftConfig {
     flaps: { detentsDeg: number[]; transitS: number[] };
     trim: { elevatorFraction: [number, number]; rateNormPerS: number };
     nosewheelSteerDeg: number;
+    /** retractable gear transit time, s (default 8) */
+    gearTransitS?: number;
+    /** spoilers deploy on their own on the ground at idle (airliners) */
+    groundSpoilers?: boolean;
+    /** fly-by-wire control laws (airliner normal law) */
+    flyByWire?: boolean;
   };
   limits: {
     VneKt: number; VnoKt: number; VaKt: number; VfeKt: number[]; VsoKt: number; Vs1Kt: number;
@@ -297,7 +305,7 @@ export interface AircraftConfig {
   /** instrument panel / avionics descriptor used by the instruments module */
   panel: 'c172-steam' | 'c172-g1000' | 'cub-steam' | 'airliner-pfd';
   /** which 3D airframe and cockpit src/aircraft3d builds (default 'c172') */
-  airframe?: 'c172' | 'cub';
+  airframe?: 'c172' | 'cub' | 'a320';
   /** electrical system the flight model simulates. Undefined = the C172S 28 V system (C172S_ELECTRICAL) */
   electrical?: ElectricalSpec;
   /**

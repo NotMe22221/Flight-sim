@@ -14,7 +14,7 @@ import { LocalFrame } from '../geo/wgs84';
 import { MagVarCache } from '../geo/magvar';
 import { AeroModel, newAeroOutput, type AeroInput } from './aero';
 import { AirspeedCalibration, atmosphere, casFromTas, easFromTas, iasFromCas, indicatedAltitude, tasFromCas, P0 } from './atmosphere';
-import { GearModel } from './gear';
+import { GearModel, type GearInputs } from './gear';
 import { computeMassProperties, type MassProperties } from './massProps';
 import { PistonPropulsion, newPropulsionOutput, type PropulsionControls } from './propulsion';
 import { TurbofanPropulsion } from './turbofan';
@@ -143,7 +143,7 @@ export class Fdm implements FlightModel {
   /** largest wheel contact z (body, relative to the empty CG): gear height for AGL */
   private readonly wheelZ: number;
   private air = { u: 0, v: 0, w: 0, V: 0, alpha: 0, beta: 0 };
-  private readonly gearCtl = { brakeLeft: 0, brakeRight: 0, steerRad: 0 };
+  private readonly gearCtl: GearInputs = { brakeLeft: 0, brakeRight: 0, steerRad: 0, extension: 1 };
   private readonly propAir = { rho: 1.225, pAmb: P0, tAmb: 288.15, u: 0, v: 0, w: 0 };
   /** sanitised copy of the current step's inputs */
   private readonly uSafe: ControlInputs = defaultControlInputs();
@@ -174,6 +174,7 @@ export class Fdm implements FlightModel {
       this.jet = new TurbofanPropulsion(eng, config.propulsion.enginePositions);
     } else throw new Error(`Fdm: unsupported propulsion ${(eng as { type: string }).type}`);
     this.aero = new AeroModel(config);
+    this.hasRetractGear = config.gear.some((g) => g.retractable);
     this.gear = new GearModel(config.gear);
     this.gearOut = this.gear.newOutput();
     this.rng = new Rng(opts.seed ?? 0x5eed);
@@ -205,6 +206,11 @@ export class Fdm implements FlightModel {
     this.recomputeMass();
   }
 
+  /** Put retractable gear straight down or up (spawns: an air start of an airliner begins clean). */
+  setGearDown(down: boolean): void { if (this.hasRetractGear) this.gearExt = down ? 1 : 0; }
+  /** Retractable gear extension 0..1 (1 for fixed gear). */
+  get gearExtension(): number { return this.hasRetractGear ? this.gearExt : 1; }
+
   /** Current payload per station and fuel per tank, kg (copies). */
   loads(): { stationKg: number[]; tankKg: number[] } { return { stationKg: Array.from(this.stationKg), tankKg: Array.from(this.tankKg) }; }
 
@@ -226,6 +232,11 @@ export class Fdm implements FlightModel {
 
   /** Thrust reversers deployed (turbofans; set from the inputs each step). */
   private reverseOn = false;
+  /** retractable gear extension 0..1, and whether the aircraft has any */
+  private gearExt = 1;
+  private hasRetractGear = false;
+  /** speedbrake / spoiler deflection 0..1 */
+  private spoiler = 0;
 
   /** Speed the electrical system's generator sees: crank rpm (piston), or a running jet's generator. */
   private generatorRpm(): number {
@@ -470,6 +481,7 @@ export class Fdm implements FlightModel {
       eng: [this.egt, this.cht, this.oilT, this.oilP],
       hyst: this.hyst, alphaDot: this.alphaDot, alphaPrev: this.alphaPrev, alphaPrevValid: this.alphaPrevValid,
       stations: Array.from(this.stationKg), tanks: Array.from(this.tankKg),
+      sys: [this.gearExt, this.spoiler, this.reverseOn ? 1 : 0, this.jet?.lit ? 1 : 0],
       anchors: { a: Array.from(this.gear.anchored), n: Array.from(this.gear.anchorN), e: Array.from(this.gear.anchorE) },
       swivel: { c: Array.from(this.gear.castering), a: Array.from(this.gear.casterAngle) },
       turb: Array.from(this.turb.x), turbVel: this.turb.out.velNED.slice(), turbPqr: this.turb.out.pqr.slice(), rng: this.rng.state,
@@ -483,7 +495,7 @@ export class Fdm implements FlightModel {
   deserialize(json: string): void {
     const s = JSON.parse(json) as {
       y: number[]; t: number; act: number[]; eng: number[]; hyst: number; alphaDot: number; alphaPrev: number; alphaPrevValid: boolean;
-      stations: number[]; tanks: number[]; anchors: { a: number[]; n: number[]; e: number[] }; swivel?: { c: number[]; a: number[] }; turb: number[]; turbVel: number[]; turbPqr: number[]; rng: number;
+      stations: number[]; tanks: number[]; sys?: number[]; anchors: { a: number[]; n: number[]; e: number[] }; swivel?: { c: number[]; a: number[] }; turb: number[]; turbVel: number[]; turbPqr: number[]; rng: number;
       crashed: boolean; crashReason: string; qnhSet: number; utc: number; air?: number[]; elec?: { chargeAh: number; excited: boolean };
     };
     if (s.elec) this.electrical.deserialize(s.elec);
@@ -493,6 +505,8 @@ export class Fdm implements FlightModel {
     [this.egt, this.cht, this.oilT, this.oilP] = s.eng;
     this.hyst = s.hyst; this.alphaDot = s.alphaDot; this.alphaPrev = s.alphaPrev; this.alphaPrevValid = s.alphaPrevValid;
     this.stationKg.set(s.stations); this.tankKg.set(s.tanks);
+    if (s.sys) { this.gearExt = s.sys[0]; this.spoiler = s.sys[1]; this.reverseOn = s.sys[2] === 1; if (this.jet) this.jet.lit = s.sys[3] === 1; }
+    else { this.gearExt = 1; this.spoiler = 0; this.reverseOn = false; }
     this.gear.anchored.set(s.anchors.a); this.gear.anchorN.set(s.anchors.n); this.gear.anchorE.set(s.anchors.e);
     if (s.swivel) { this.gear.castering.set(s.swivel.c); this.gear.casterAngle.set(s.swivel.a); } else this.gear.resetSwivel();
     this.turb.x.set(s.turb);
@@ -630,6 +644,18 @@ export class Fdm implements FlightModel {
 
   private updateActuators(u: ControlInputs, dt: number): void {
     const c = this.config.controls;
+    // retractable gear: down/up in gearTransitS; it stays down while there is weight on the wheels
+    if (this.hasRetractGear) {
+      const want = u.gearDown || this.gearOut.wheelsOnGround > 0 ? 1 : 0;
+      const rate = dt / Math.max(c.gearTransitS ?? 8, 0.5);
+      this.gearExt = want > this.gearExt ? Math.min(1, this.gearExt + rate) : Math.max(0, this.gearExt - rate);
+    }
+    // speedbrake / spoilers (1.5 s full travel); ground spoilers deploy on the ground at idle while rolling
+    const ground = c.groundSpoilers === true && this.gearOut.wheelsOnGround > 0 && u.throttle < 0.05 && this.air.V > 15;
+    const spTarget = ground ? 1 : clamp(u.speedbrake, 0, 1);
+    this.spoiler = lagRate(this.spoiler, spTarget, 0.1, 1 / 1.5, dt);
+    // thrust reversers (turbofans): commanded with the throttle at idle
+    this.reverseOn = !!this.jet && u.reverse === true && u.throttle < 0.05;
     this.trimDe = this.trimDeflection(u.pitchTrim);
     this.de = lagRate(this.de, this.elevatorCommand(u), c.elevator.tauS, c.elevator.rateDegPerS * DEG, dt);
     this.aileronCommand(this.rollCommand(u));
@@ -762,12 +788,15 @@ export class Fdm implements FlightModel {
     ai.de = this.de; ai.da = (this.daL - this.daR) / 2; ai.dr = this.dr; ai.flapDeg = this.flapDeg;
     ai.hOverB = hArp > 0 ? hArp / cfg.geometry.b : 0;
     ai.hyst = this.hyst;
+    ai.gearDrag = this.hasRetractGear ? this.gearExt : 0;
+    ai.spoiler = this.spoiler;
+    ai.mach = V / this.atm.speedOfSound;
     const ao = this.aero.compute(ai, this.aeroOut);
 
     // ground
     this.vb3[0] = s[3]; this.vb3[1] = s[4]; this.vb3[2] = s[5];
     this.w3[0] = p; this.w3[1] = qq; this.w3[2] = r;
-    this.gearCtl.brakeLeft = this.brakeL; this.gearCtl.brakeRight = this.brakeR; this.gearCtl.steerRad = this.steer;
+    this.gearCtl.brakeLeft = this.brakeL; this.gearCtl.brakeRight = this.brakeR; this.gearCtl.steerRad = this.steer; this.gearCtl.extension = this.gearExt;
     const go = this.gear.evaluate(s, q, this.vb3, this.w3, cg, mp.mass, this.env, this.gearCtl, this.dt, this.gearOut);
 
     // totals (body)
@@ -973,7 +1002,7 @@ export class Fdm implements FlightModel {
     // surfaces
     const sf = st.surfaces;
     sf.elevatorRad = this.de; sf.aileronLeftRad = this.daL; sf.aileronRightRad = this.daR; sf.rudderRad = this.dr;
-    sf.flapDeg = this.flapDeg; sf.trimRad = this.trimDe; sf.speedbrake = 0;
+    sf.flapDeg = this.flapDeg; sf.trimRad = this.trimDe; sf.speedbrake = this.spoiler;
 
     // gear (wheels only)
     const go = this.gearOut, wi = this.gear.wheelIndices;
@@ -985,6 +1014,7 @@ export class Fdm implements FlightModel {
       gs.wheelSpeedMs = go.rollSpeed[i];
       // actual wheel heading (+ = turned right): a tail wheel turns opposite to the pedal, a castering one trails its motion
       gs.steerRad = go.wheelAngle[i];
+      gs.extension = this.config.gear[i].retractable ? this.gearExt : 1;
     }
     for (let i = 0; i < this.tankKg.length; i++) st.fuelKg[i] = this.tankKg[i];
     st.totalMassKg = this.mp.mass;

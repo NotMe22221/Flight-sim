@@ -18,10 +18,10 @@ import type { PropulsionAir, PropulsionControls, PropulsionOutput } from './prop
 /** N1 at which a starting engine lights off. */
 const LIGHT_OFF_N1 = 0.18;
 
-/** Thrust fraction of the maximum at an N1 fraction: ≈ 3 % at ground idle (≈ 20 %), 100 % at 100 %. */
+/** Thrust fraction of the maximum at an N1 fraction: ≈ 1.2 % at ground idle (≈ 20 %), 100 % at 100 %. */
 export function thrustFractionAtN1(n1: number): number {
   const x = clamp((n1 - 0.1) / 0.9, 0, 1.08);
-  return Math.pow(x, 1.6);
+  return x * x;
 }
 
 export class TurbofanPropulsion {
@@ -78,7 +78,8 @@ export class TurbofanPropulsion {
     }
     const n = this.engineCount;
     out.thrustN = T * n;
-    out.fuelFlowKgS = this.lit ? this.spec.tsfc * Math.max(Math.abs(perEngine), 0.03 * this.spec.ratedThrustN) * n : 0;
+    // TSFC rises with flight Mach (≈ 0.36 lb/lbf/h static → ≈ 0.6 at M0.78)
+    out.fuelFlowKgS = this.lit ? this.spec.tsfc * (1 + 0.9 * mach) * Math.max(Math.abs(perEngine), 0.03 * this.spec.ratedThrustN) * n : 0;
     out.combusting = this.lit;
     out.brakePowerW = 0; out.propTorqueNm = 0; out.indicatedTorqueNm = 0; out.frictionTorqueNm = 0; out.pumpingTorqueNm = 0; out.starterTorqueNm = 0;
     out.fuelAir = 0; out.angularMomentum = 0; out.vi = 0; out.qbarInduced = 0;

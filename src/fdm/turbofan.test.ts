@@ -25,7 +25,7 @@ function spool(e: TurbofanPropulsion, throttle: number, seconds: number, n1 = 0.
 describe('turbofan', () => {
   const twin = () => { const e = new TurbofanPropulsion(SPEC, [[1, -5.7, 1.2], [1, 5.7, 1.2]]); e.lit = true; return e; };
 
-  it('static take-off thrust ≈ 2 × 120 kN at full N1; ≈ 3 % at idle', () => {
+  it('static take-off thrust ≈ 2 × 120 kN at full N1; 1–5 % at idle', () => {
     const out = newPropulsionOutput();
     twin().evaluate(1.0, 900, air, ctl(1), [0, 0, 0], 0, 0, false, out);
     expect(out.thrustN).toBeCloseTo(240_000, -3);
@@ -33,7 +33,7 @@ describe('turbofan', () => {
     // symmetric engines: no yawing moment; thrust line below the CG pitches the nose up (z down: r_z > 0)
     expect(Math.abs(out.M[2])).toBeLessThan(1e-6);
     expect(out.M[1]).toBeGreaterThan(0);
-    expect(thrustFractionAtN1(0.2)).toBeGreaterThan(0.015);
+    expect(thrustFractionAtN1(0.2)).toBeGreaterThan(0.01);
     expect(thrustFractionAtN1(0.2)).toBeLessThan(0.05);
   });
 
